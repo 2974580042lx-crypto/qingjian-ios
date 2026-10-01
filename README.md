@@ -1,6 +1,6 @@
 # 青笺 1.2.2 · 个人聊天客户端
 
-版本 1.2.2，build 9。最低 iOS 26；Bundle ID 保持 com.xiaolong.qingjian。
+版本 1.2.2，build 10。最低 iOS 26；Bundle ID 保持 com.xiaolong.qingjian。
 
 - 聊天列表延伸到屏幕底部，输入框与底栏采用悬浮覆盖；通过内容边距保留最后一行的阅读空间。
 - 聊天内容区从任意横向位置右滑可展开侧栏，左滑收起，滑动过程跟手；区分横向拖动与纵向滚动，输入控件区保留自身手势。
@@ -31,3 +31,7 @@
 - Apple Liquid Glass：https://developer.apple.com/documentation/swiftui/applying-liquid-glass-to-custom-views
 
 界面回归验证：UITests/NavigationUITests.swift 使用真实模拟器触摸事件检查右半屏起滑、全高纵向滚动、最后一行可读性及键盘布局。截图脚本同时导出测试附件与 xcresult 摘要。
+
+交互回归还验证了发送新消息后的自动滚动位置。侧栏显示状态以实际可操作性判定，隐藏但留在可访问性树中的按钮不算可见侧栏。
+
+长对话自动跟随使用系统 ScrollPosition 的底部定位，避免按末尾虚拟占位元素定位时跳入懒加载估算的空白区域。
