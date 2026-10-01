@@ -25,6 +25,8 @@ jobs:
       - name: Extract complete source project
         run: unzip -q QingJian-iOS-source.zip
       - name: Build, test and package unsigned IPA
+        env:
+          QINGJIAN_CAPTURE_PREVIEWS: '1'
         run: |
           set -o pipefail
           bash QingJian/scripts/build-ipa.sh 2>&1 | tee qingjian-build.log
@@ -41,5 +43,13 @@ jobs:
         with:
           name: QingJian-build-log
           path: qingjian-build.log
+          if-no-files-found: ignore
+          retention-days: 7
+      - name: UI previews
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: QingJian-ui-previews
+          path: QingJian/build/previews
           if-no-files-found: ignore
           retention-days: 7
