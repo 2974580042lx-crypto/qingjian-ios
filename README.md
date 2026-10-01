@@ -1,7 +1,11 @@
-# 青笺 1.2.1 · 个人聊天客户端
+# 青笺 1.2.2 · 个人聊天客户端
 
-版本 1.2.1，build 8。最低 iOS 26；Bundle ID 保持 com.xiaolong.qingjian。
+版本 1.2.2，build 9。最低 iOS 26；Bundle ID 保持 com.xiaolong.qingjian。
 
+- 聊天列表延伸到屏幕底部，输入框与底栏采用悬浮覆盖；通过内容边距保留最后一行的阅读空间。
+- 聊天内容区从任意横向位置右滑可展开侧栏，左滑收起，滑动过程跟手；区分横向拖动与纵向滚动，输入控件区保留自身手势。
+- 展开和收起侧栏触发轻微触感反馈，可在设置中关闭；模拟器不能验证实际马达手感。
+- 相册图片上传尚未接入聊天，加号仍为文字相关操作。
 - 空白首页只保留居中英文时间问候：05:00–11:59 Good morning，12:00–17:59 Good afternoon，其余时间 Good evening。按手机本地时间每分钟刷新；无引导文案、图标或推荐问题按钮。
 - 输入框提示改为“输入消息…”，侧栏与空对话不再使用抒情文案。
 - 底部仅聊天和设置，两处浮动控件共用原生 clear Liquid Glass 材质。
@@ -25,3 +29,5 @@
 - DeepSeek 思考参数：https://api-docs.deepseek.com/zh-cn/guides/thinking_mode/
 - DeepSeek 上下文能力：https://api-docs.deepseek.com/zh-cn/quick_start/pricing/
 - Apple Liquid Glass：https://developer.apple.com/documentation/swiftui/applying-liquid-glass-to-custom-views
+
+界面回归验证：UITests/NavigationUITests.swift 使用真实模拟器触摸事件检查右半屏起滑、全高纵向滚动、最后一行可读性及键盘布局。截图脚本同时导出测试附件与 xcresult 摘要。
