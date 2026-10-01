@@ -1,6 +1,6 @@
 # 青笺 1.2.0 · 个人聊天客户端
 
-版本 1.2.0，build 6。最低 iOS 26；Bundle ID 保持 com.xiaolong.qingjian。
+版本 1.2.0，build 7。最低 iOS 26；Bundle ID 保持 com.xiaolong.qingjian。
 
 - 底部仅聊天和设置，两处浮动控件共用原生 clear Liquid Glass 材质。
 - 聊天顶部显示 DeepSeek；侧栏新建对话使用简洁文字按钮。
