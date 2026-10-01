@@ -1,7 +1,9 @@
-# 青笺 1.2.0 · 个人聊天客户端
+# 青笺 1.2.1 · 个人聊天客户端
 
-版本 1.2.0，build 7。最低 iOS 26；Bundle ID 保持 com.xiaolong.qingjian。
+版本 1.2.1，build 8。最低 iOS 26；Bundle ID 保持 com.xiaolong.qingjian。
 
+- 空白首页只保留居中英文时间问候：05:00–11:59 Good morning，12:00–17:59 Good afternoon，其余时间 Good evening。按手机本地时间每分钟刷新；无引导文案、图标或推荐问题按钮。
+- 输入框提示改为“输入消息…”，侧栏与空对话不再使用抒情文案。
 - 底部仅聊天和设置，两处浮动控件共用原生 clear Liquid Glass 材质。
 - 聊天顶部显示 DeepSeek；侧栏新建对话使用简洁文字按钮。
 - 设置顶部显示自己的头像、名字和 ID，支持系统照片选择器；资料只存本机。
