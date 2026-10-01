@@ -1,6 +1,6 @@
-# 青笺 1.2.3 · 个人聊天客户端
+# 青笺 1.3.0 · 个人聊天客户端
 
-版本 1.2.3，build 13。最低 iOS 26；Bundle ID 保持 com.xiaolong.qingjian。
+版本 1.3.0，build 14。最低 iOS 26；Bundle ID 保持 com.xiaolong.qingjian。
 
 - 侧栏与聊天页采用两层整页连续圆角，边界涵盖安全区，随拖动渐变；侧栏为图标列表，按置顶和最近分组，并提供个人资料与设置入口。
 - 玻璃控件直接使用系统 Liquid Glass，移除人工叠加的黑色衬底；输入框和底栏继续悬浮在整屏内容之上。
@@ -10,7 +10,7 @@
 - 相册图片上传尚未接入聊天，加号仍为文字相关操作。
 - 空白首页只保留居中英文时间问候：05:00–11:59 Good morning，12:00–17:59 Good afternoon，其余时间 Good evening。按手机本地时间每分钟刷新；无引导文案、图标或推荐问题按钮。
 - 输入框提示改为“输入消息…”，侧栏与空对话不再使用抒情文案。
-- 底部仅聊天和设置，两处浮动控件共用原生 clear Liquid Glass 材质。
+- 底部仅聊天和设置，底栏恢复系统原生 TabView，保留系统按住拖动选择行为；输入框使用原生 regular Liquid Glass 材质。
 - 聊天顶部显示 DeepSeek；侧栏新建对话使用简洁文字按钮。
 - 设置顶部显示自己的头像、名字和 ID，支持系统照片选择器；资料只存本机。
 - 输入框思考菜单可开关思考，并直接选择轻量、标准、深入。
@@ -39,3 +39,23 @@
 长对话自动跟随使用系统 ScrollPosition 的底部定位，避免按末尾虚拟占位元素定位时跳入懒加载估算的空白区域。
 
 聊天列表按实际高度布局，默认显示最近 100 条，顶部可继续查看更早消息；此显示分页不影响记录保存和 API 上下文数量。侧栏使用系统水平拖动识别器，在开始识别前排除纵向手势，避免移动页面时取消正在进行的侧栏拖动。
+
+
+本轮连接与交互修复：
+- 恢复真正的系统 TabView，移除替代它的自绘底部按钮；侧栏手势不截获 UITabBar 的触摸。
+- 聊天区区分正在连接、等待模型、正在思考、正在回答，并显示耗时和实际收到的思考字数。
+- 请求和会话均显式设置 600 秒无数据超时、1800 秒总时限；支持 DeepSeek 等待期间的 SSE keep-alive。不自动重试或降低用户的思考档位。
+- 设置页增加实际对话测试：当前 Key、Flash、关闭思考、独立小请求，不发送历史聊天，会产生少量 API 用量。
+- 可复制不含 Key 和正文的连接诊断，包含模型、请求参数、阶段、字节数和错误码。余额查询成功不等于实际对话已经验证。
+- 从设置返回聊天不再每次强制跳到最后，保留当前阅读位置。
+- 网络回归使用 URLSession + URLProtocol 固定数据验证等待、思考、输出、取消、鉴权与中断；不使用真实 Key。
+- UI 回归新增实际按住并拖动原生 TabBar 在聊天和设置之间切换。
+
+Telegram iOS 交互参考（独立实现，没有复制其框架代码）：
+- 输入框、键盘与内容区域统一计算：https://github.com/TelegramMessenger/Telegram-iOS/blob/6ad963e5b62d354da79040f388ae2b9132fb17b8/submodules/TelegramUI/Sources/ChatControllerNode.swift#L2287-L2308
+- 阅读位置与返回底部控件：https://github.com/TelegramMessenger/Telegram-iOS/blob/6ad963e5b62d354da79040f388ae2b9132fb17b8/submodules/TelegramUI/Sources/ChatControllerNode.swift#L2654-L2674
+- 编辑状态包括光标选择范围：https://github.com/TelegramMessenger/Telegram-iOS/blob/6ad963e5b62d354da79040f388ae2b9132fb17b8/submodules/AccountContext/Sources/ChatController.swift#L425-L465
+后续适合补齐草稿光标位置、加载更早记录时的阅读锚点；不引入 Telegram 的社交功能或大型自绘 UI 框架。
+
+等待期间 keep-alive 依据：https://api-docs.deepseek.com/zh-cn/quick_start/rate_limit/
+本版不能仅凭模拟测试断言手机与服务商之间的真实对话已恢复；安装后使用实际对话测试确认。
