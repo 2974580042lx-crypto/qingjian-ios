@@ -1,0 +1,45 @@
+name: Build iPhone IPA
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - 'QingJian-iOS-source.zip'
+      - '.github/workflows/build-ios.yml'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: qingjian-build-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build:
+    runs-on: macos-15
+    timeout-minutes: 20
+    steps:
+      - name: Checkout project
+        uses: actions/checkout@v6
+      - name: Extract complete source project
+        run: unzip -q QingJian-iOS-source.zip
+      - name: Build, test and package unsigned IPA
+        run: |
+          set -o pipefail
+          bash QingJian/scripts/build-ipa.sh 2>&1 | tee qingjian-build.log
+      - name: Downloadable IPA
+        uses: actions/upload-artifact@v4
+        with:
+          name: QingJian-unsigned-IPA
+          path: QingJian/build/QingJian-unsigned.ipa
+          if-no-files-found: error
+          retention-days: 7
+      - name: Build log
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: QingJian-build-log
+          path: qingjian-build.log
+          if-no-files-found: ignore
+          retention-days: 7
