@@ -1,6 +1,6 @@
 # 青笺 1.2.3 · 个人聊天客户端
 
-版本 1.2.3，build 12。最低 iOS 26；Bundle ID 保持 com.xiaolong.qingjian。
+版本 1.2.3，build 13。最低 iOS 26；Bundle ID 保持 com.xiaolong.qingjian。
 
 - 侧栏与聊天页采用两层整页连续圆角，边界涵盖安全区，随拖动渐变；侧栏为图标列表，按置顶和最近分组，并提供个人资料与设置入口。
 - 玻璃控件直接使用系统 Liquid Glass，移除人工叠加的黑色衬底；输入框和底栏继续悬浮在整屏内容之上。
