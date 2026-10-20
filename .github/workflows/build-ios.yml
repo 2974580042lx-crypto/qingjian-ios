@@ -1,11 +1,15 @@
-name: Build iPhone IPA
+name: Build Sermo 1.7.0 IPA
 
 on:
   workflow_dispatch:
   push:
-    branches: [main]
+    branches: ['build/sermo-1.7.0-20261020']
     paths:
       - 'QingJian-iOS-source.zip'
+      - 'source-overlay.zip'
+      - 'source-manifest.json'
+      - 'source-deletions.json'
+      - 'apply-source-overlay.py'
       - '.github/workflows/build-ios.yml'
 
 permissions:
@@ -22,8 +26,8 @@ jobs:
     steps:
       - name: Checkout project
         uses: actions/checkout@v6
-      - name: Extract complete source project
-        run: unzip -q QingJian-iOS-source.zip
+      - name: Reconstruct and verify exact supplied source
+        run: python3 apply-source-overlay.py
       - name: Build, test and package unsigned IPA
         env:
           QINGJIAN_CAPTURE_PREVIEWS: '1'
@@ -33,7 +37,7 @@ jobs:
       - name: Downloadable IPA
         uses: actions/upload-artifact@v4
         with:
-          name: QingJian-unsigned-IPA
+          name: Sermo-1.7.0-build31-unsigned-IPA
           path: QingJian/build/QingJian-unsigned.ipa
           if-no-files-found: error
           retention-days: 7
@@ -41,7 +45,7 @@ jobs:
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: QingJian-build-log
+          name: Sermo-1.7.0-build31-build-log
           path: qingjian-build.log
           if-no-files-found: ignore
           retention-days: 7
@@ -49,7 +53,7 @@ jobs:
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: QingJian-ui-previews
+          name: Sermo-1.7.0-build31-ui-previews
           path: QingJian/build/previews
           if-no-files-found: ignore
           retention-days: 7
