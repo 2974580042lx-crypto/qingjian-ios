@@ -1,20 +1,17 @@
-name: Build Sermo 1.7.0 IPA
+name: Build Sermo 1.8.0 IPA - compile only
 
 on:
   workflow_dispatch:
   push:
-    branches: ['build/sermo-1.7.0-20261021']
+    branches: ['build/sermo-1.8.0-20261021-1234']
     paths:
       - 'QingJian-iOS-source.zip'
-      - 'source-overlay.zip'
       - 'source-manifest.json'
-      - 'source-deletions.json'
       - 'apply-source-overlay.py'
       - '.github/workflows/build-ios.yml'
 
 permissions:
   contents: read
-
 concurrency:
   group: qingjian-build-${{ github.ref }}
   cancel-in-progress: true
@@ -22,38 +19,46 @@ concurrency:
 jobs:
   build:
     runs-on: macos-15
-    timeout-minutes: 45
+    timeout-minutes: 30
     steps:
-      - name: Checkout project
+      - name: Checkout supplied source
         uses: actions/checkout@v6
-      - name: Reconstruct and verify exact supplied source
+      - name: Verify archive and reconstruct exact source
         run: python3 apply-source-overlay.py
-      - name: Build, test and package unsigned IPA
-        env:
-          QINGJIAN_CAPTURE_PREVIEWS: '1'
+      - name: Compile Release and package unsigned IPA (no tests or previews)
+        shell: bash
         run: |
-          set -o pipefail
-          bash QingJian/scripts/build-ipa.sh 2>&1 | tee qingjian-build.log
+          set -euo pipefail
+          exec > >(tee qingjian-build.log) 2>&1
+          for candidate in /Applications/Xcode_26.3.app /Applications/Xcode_26.2.app /Applications/Xcode_26.1.1.app /Applications/Xcode_26.0.1.app; do
+            if [[ -d "$candidate/Contents/Developer" ]]; then
+              export DEVELOPER_DIR="$candidate/Contents/Developer"
+              break
+            fi
+          done
+          xcodebuild -version
+          cd QingJian
+          mkdir -p build
+          xcodebuild -project QingJian.xcodeproj -scheme QingJian -configuration Release -sdk iphoneos -destination 'generic/platform=iOS' -derivedDataPath "$PWD/build/DerivedData" CODE_SIGNING_ALLOWED=NO CODE_SIGNING_REQUIRED=NO CODE_SIGN_IDENTITY='' ARCHS=arm64 ONLY_ACTIVE_ARCH=NO build
+          APP_PATH="$PWD/build/DerivedData/Build/Products/Release-iphoneos/DeepSeekPocket.app"
+          test -d "$APP_PATH"
+          mkdir -p build/Payload
+          ditto "$APP_PATH" build/Payload/DeepSeekPocket.app
+          ditto -c -k --keepParent build/Payload build/Sermo-1.8.0-build32-20261021-1234-unsigned.ipa
+          shasum -a 256 build/Sermo-1.8.0-build32-20261021-1234-unsigned.ipa
+          echo "Compilation completed. Functional checks, unit tests, UI tests, and screenshots were not run, as requested."
       - name: Downloadable IPA
         uses: actions/upload-artifact@v4
         with:
-          name: Sermo-1.7.0-build31-20261021-unsigned-IPA
-          path: QingJian/build/QingJian-unsigned.ipa
+          name: Sermo-1.8.0-build32-20261021-1234-unsigned-IPA
+          path: QingJian/build/Sermo-1.8.0-build32-20261021-1234-unsigned.ipa
           if-no-files-found: error
           retention-days: 7
       - name: Build log
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: Sermo-1.7.0-build31-20261021-build-log
+          name: Sermo-1.8.0-build32-20261021-1234-build-log
           path: qingjian-build.log
-          if-no-files-found: ignore
-          retention-days: 7
-      - name: UI previews
-        if: always()
-        uses: actions/upload-artifact@v4
-        with:
-          name: Sermo-1.7.0-build31-20261021-ui-previews
-          path: QingJian/build/previews
           if-no-files-found: ignore
           retention-days: 7
