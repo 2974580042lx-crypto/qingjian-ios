@@ -5,7 +5,7 @@ from pathlib import Path, PurePosixPath
 import zipfile
 
 ROOT = Path.cwd()
-EXPECTED_BASELINE = '17922a8a8cade01587f9b1906ec6b51dc5ff0c253b2966595d4be682320be71e'
+EXPECTED_BASELINE = '5b95bc81bb70534b1a67c7ad5779d4ab3c39bdff3b78963fc8ec4a92c016d104'
 
 def safe_path(name):
     path = PurePosixPath(name)
@@ -39,4 +39,4 @@ expected = json.loads((ROOT / 'source-manifest.json').read_text())
 actual = {p.relative_to(ROOT).as_posix(): hashlib.sha256(p.read_bytes()).hexdigest()
           for p in (ROOT / 'QingJian').rglob('*') if p.is_file()}
 assert actual == expected, f'Source manifest mismatch: missing={expected.keys()-actual.keys()}, extra={actual.keys()-expected.keys()}, changed={[k for k in expected.keys() & actual.keys() if expected[k] != actual[k]]}'
-print(f'Verified exact supplied source contents: {len(actual)} files, Sermo 1.8.0 build 32.')
+print(f'Verified exact supplied source contents: {len(actual)} files, Sermo 1.9.0 build 33.')
