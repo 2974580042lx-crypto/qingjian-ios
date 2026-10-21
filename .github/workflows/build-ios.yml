@@ -1,9 +1,9 @@
-name: Build Sermo 1.10.0 IPA - compile only
+name: Build Sermo 1.11.0 IPA - compile only
 
 on:
   workflow_dispatch:
   push:
-    branches: ['main']
+    branches: ['build/sermo-1.11.0-20261021-1922']
     paths:
       - 'QingJian-iOS-source.zip'
       - 'source-manifest.json'
@@ -43,21 +43,21 @@ jobs:
           test -d "$APP_PATH"
           mkdir -p build/Payload
           ditto "$APP_PATH" build/Payload/DeepSeekPocket.app
-          ditto -c -k --keepParent build/Payload build/Sermo-1.10.0-build34-20261021-1426-unsigned.ipa
-          shasum -a 256 build/Sermo-1.10.0-build34-20261021-1426-unsigned.ipa
+          ditto -c -k --keepParent build/Payload build/Sermo-1.11.0-build35-20261021-1922-unsigned.ipa
+          shasum -a 256 build/Sermo-1.11.0-build35-20261021-1922-unsigned.ipa
           echo "Compilation completed. Functional checks, unit tests, UI tests, and screenshots were not run, as requested."
       - name: Downloadable IPA
         uses: actions/upload-artifact@v4
         with:
-          name: Sermo-1.10.0-build34-20261021-1426-unsigned-IPA
-          path: QingJian/build/Sermo-1.10.0-build34-20261021-1426-unsigned.ipa
+          name: Sermo-1.11.0-build35-20261021-1922-unsigned-IPA
+          path: QingJian/build/Sermo-1.11.0-build35-20261021-1922-unsigned.ipa
           if-no-files-found: error
           retention-days: 7
       - name: Build log
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: Sermo-1.10.0-build34-20261021-1426-build-log
+          name: Sermo-1.11.0-build35-20261021-1922-build-log
           path: qingjian-build.log
           if-no-files-found: ignore
           retention-days: 7
