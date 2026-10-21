@@ -1,8 +1,8 @@
 {
-  "drive_file_id": "1pGbevoqM_ZQJGHgNmHL3ucwiHgzfqqGh",
-  "uploaded_at": "2026-10-21T14:26:51.426Z",
-  "sha256": "8a9843c06c9d02c44bc1d1792204d46477bb6557a353be55430e0420c4a75bab",
-  "version": "1.10.0",
-  "build": "34",
+  "drive_file_id": "1qvI2v9t9kp6qjtWuzL3g02cFax0XlTJs",
+  "uploaded_at": "2026-10-21T19:22:55.234Z",
+  "sha256": "647d4f9df6c947306838b0b9842d84e876341bf077d26ccfa7d655dea6426c3a",
+  "version": "1.11.0",
+  "build": "35",
   "tests_run": false
 }
