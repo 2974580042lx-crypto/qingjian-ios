@@ -1,8 +1,16 @@
 {
-  "drive_file_id": "123Uhwb-ZBuWi1NUR-usQyINPMwr4_oxs",
-  "uploaded_at": "2026-10-21T20:09:40.711Z",
-  "sha256": "1cc3a6c22d2a2898a50dbf43c5121436113e82f063cd07bca99db020bbfbe25c",
-  "version": "1.12.0",
-  "build": "36",
-  "tests_run": false
+  "base": {
+    "drive_file_id": "123Uhwb-ZBuWi1NUR-usQyINPMwr4_oxs",
+    "uploaded_at": "2026-10-21T20:09:40.711Z",
+    "sha256": "1cc3a6c22d2a2898a50dbf43c5121436113e82f063cd07bca99db020bbfbe25c",
+    "version": "1.12.0",
+    "build": "36",
+    "tests_run": false
+  },
+  "version": "1.13.0",
+  "build": "37",
+  "base_commit": "2445367e03739be659f5229bdad068b4ccf50d29",
+  "overlay_sha256": "55e75a83d299b5e189e359b710c97fdc7e7a807a58c738efd26a035c8796f2bf",
+  "tests_run": false,
+  "validation": "Release compilation only, as requested"
 }
