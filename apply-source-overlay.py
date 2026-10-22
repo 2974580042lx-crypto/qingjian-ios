@@ -5,7 +5,7 @@ from pathlib import Path, PurePosixPath
 import zipfile
 
 ROOT = Path.cwd()
-EXPECTED_BASELINE = 'd2ae8dfadca1226523145218406b35e647cf2bb3d62216a2945205cc727a8ba5'
+EXPECTED_BASELINE = 'f5364d7ac42f1a852f8784dd433a335bfc06bdf478a6a1fc5aac12df48a616c9'
 
 def safe_path(name):
     path = PurePosixPath(name)
