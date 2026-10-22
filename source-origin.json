@@ -7,12 +7,12 @@
     "build": "36",
     "tests_run": false
   },
-  "version": "1.13.0",
-  "build": "37",
-  "base_commit": "2445367e03739be659f5229bdad068b4ccf50d29",
+  "version": "1.14.0",
+  "build": "38",
+  "base_commit": "1fa0e2b2d687c8eaa2c1c0df5e3496898734d048",
   "overlay_sha256": "8739c76e681f900923b900c9df0ef75cf421d39cabb54650c4b9ad19b6a76d85",
   "tests_run": false,
   "validation": "Release compilation only, as requested",
-  "sha256": "dc5d242bdf153809cda10c09b7d1fe0f60010031a8d56bbb86f73222b14f871f",
+  "sha256": "d2ae8dfadca1226523145218406b35e647cf2bb3d62216a2945205cc727a8ba5",
   "source_layout": "complete archive; empty overlay"
 }
