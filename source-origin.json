@@ -10,7 +10,9 @@
   "version": "1.13.0",
   "build": "37",
   "base_commit": "2445367e03739be659f5229bdad068b4ccf50d29",
-  "overlay_sha256": "55e75a83d299b5e189e359b710c97fdc7e7a807a58c738efd26a035c8796f2bf",
+  "overlay_sha256": "8739c76e681f900923b900c9df0ef75cf421d39cabb54650c4b9ad19b6a76d85",
   "tests_run": false,
-  "validation": "Release compilation only, as requested"
+  "validation": "Release compilation only, as requested",
+  "sha256": "dc5d242bdf153809cda10c09b7d1fe0f60010031a8d56bbb86f73222b14f871f",
+  "source_layout": "complete archive; empty overlay"
 }
