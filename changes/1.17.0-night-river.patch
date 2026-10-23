@@ -1,0 +1,743 @@
+diff -ruN --strip-trailing-cr pristine/QingJian/DeepSeekPocket/Core/AppManual.swift work/QingJian/DeepSeekPocket/Core/AppManual.swift
+--- pristine/QingJian/DeepSeekPocket/Core/AppManual.swift	2026-10-24 04:52:15.936929519 +0800
++++ work/QingJian/DeepSeekPocket/Core/AppManual.swift	2026-10-24 04:55:19.420693732 +0800
+@@ -55,7 +55,7 @@
+             Item(name: "思考过程", how: "回答上方的思考行，点开看完整时间线，可切换原文、中文、双语。"),
+             Item(name: "猜你回复", how: "回答完后给出 1～3 条回复草稿，点一下填进输入框，改完再自己发。在设置「回复建议」里开关。"),
+             Item(name: "排版", how: "回答里的列表、标题、引用、分隔线和表格会自动排好；表格太宽时可以左右滑动。"),
+-            Item(name: "高光", how: "回答里的粗体画成半高荧光笔，每条回答最多两处，其余保持粗体。颜色在设置「文字高光」里改。瑞士风格不画高光，粗体改为蓝色。"),
++            Item(name: "高光", how: "回答里的粗体画成半高荧光笔，每条回答最多两处，其余保持粗体。颜色在设置「文字高光」里改。瑞士风格不画高光，粗体改为蓝色；夜江的高光固定为月光色。"),
+             Item(name: "对话管理", how: "标题旁的「⋯」：重命名、置顶、移到项目、导出为 Markdown。"),
+         ]),
+         Section(title: "侧栏", items: [
+@@ -107,7 +107,7 @@
+             Item(name: "ChatGPT 订阅", how: "用 ChatGPT 账号登录，用套餐额度回答，不按次扣钱；在项目的「服务」里选它。"),
+             Item(name: "回答方式", how: "默认模型、深度思考、思考程度、每次输出上限、携带的历史消息条数。"),
+             Item(name: "系统提示词", how: "不在项目里的对话使用它；有「自然聊天」「学习讲解」两个模板，也可以写提示词变量。"),
+-            Item(name: "界面风格", how: "「阅读与外观 → 界面风格」在纸笺和瑞士之间切换，立刻生效。纸笺是暖纸色、宋体、荧光高光；瑞士是灰白底、黑体、蓝色粗体、网格线和方角，问答前标 Q.01 / A.01，对话开头有大标题。对话和设置都不受影响。"),
++            Item(name: "界面风格", how: "「阅读与外观 → 界面风格」在纸笺、瑞士和夜江之间切换，立刻生效。纸笺是暖纸色、宋体、荧光高光；瑞士是灰白底、黑体、蓝色粗体、网格线和方角，问答前标 Q.01 / A.01，对话开头有大标题；夜江取「千江有水千江月」，夜色江水底、宋体，月亮是唯一的亮色，始终是深色：顶栏一轮月在回答生成时变亮，发送键也是月，侧栏每个对话前是月相（聊得越久越圆），猜你回复是玻璃胶囊，书架是一排立在水线上的书脊、水里有倒影。对话和设置都不受影响。"),
+             Item(name: "阅读与外观", how: "界面风格、侧栏触感、字体（内置宋体、系统字体、导入自己的字体；瑞士风格固定用黑体）、AI 回答气泡、正文字号。"),
+             Item(name: "导入字体", how: "「阅读与外观 → 字体」选「自定义字体」，从文件里导入 .ttf 或 .otf，可分别导入常规和粗体。全局生效，可随时恢复默认。字体不进备份。"),
+             Item(name: "备份", how: "「记录与备份」可手动导出、导入；「自动备份」选一个文件夹（iCloud 云盘、谷歌云盘等）后，每天第一次打开时自动备份，保留最近 7 份。备份不含 API Key、登录凭证和字体。"),
+diff -ruN --strip-trailing-cr pristine/QingJian/DeepSeekPocket/Views/AppTheme.swift work/QingJian/DeepSeekPocket/Views/AppTheme.swift
+--- pristine/QingJian/DeepSeekPocket/Views/AppTheme.swift	2026-10-24 04:52:16.218135905 +0800
++++ work/QingJian/DeepSeekPocket/Views/AppTheme.swift	2026-10-24 04:53:28.055668558 +0800
+@@ -21,24 +21,55 @@
+ // and the gamboge highlighter kept from the earlier design.
+ // 瑞士: cool grey-white, true black ink, one ultramarine accent, a black send button.
+ // Every value is read through `InterfaceStyle`, so switching the look redraws in place.
++// 夜江: night-river blue-black, moon-white text and one pale gold moon. The same in
++// light and dark mode (the app is held in dark mode while it is chosen). Colours were
++// set in oklch: ground L .17 C .02 H 232, moon L .88 C .075 H 88.
+ enum Ink {
+     private static var swiss: Bool { InterfaceStyle.isSwiss }
+-    static var paper: Color { swiss ? Color.adaptive(light: 0xF2F2EF, dark: 0x111214) : Color.adaptive(light: 0xFAF9F5, dark: 0x171716) }
+-    static var sheet: Color { swiss ? Color.adaptive(light: 0xE7E7E3, dark: 0x0A0A0B) : Color.adaptive(light: 0xF2F0E9, dark: 0x121211) }
+-    static var raised: Color { swiss ? Color.adaptive(light: 0xFFFFFF, dark: 0x1D1E21) : Color.adaptive(light: 0xEFEDE5, dark: 0x292927) }
+-    static var ink: Color { swiss ? Color.adaptive(light: 0x111111, dark: 0xEDEDE9) : Color.adaptive(light: 0x1F1E1D, dark: 0xECEAE3) }
+-    static var ink2: Color { swiss ? Color.adaptive(light: 0x3B3B3B, dark: 0xC6C6C1) : Color.adaptive(light: 0x4F4D48, dark: 0xC2BFB6) }
+-    static var ink3: Color { swiss ? Color.adaptive(light: 0x5E5E5E, dark: 0x9B9B96) : Color.adaptive(light: 0x7A7872, dark: 0x9A978F) }
++    private static var night: Bool { InterfaceStyle.isNight }
++    private static func fixed(_ hex: UInt32, alpha: CGFloat = 1) -> Color {
++        Color.adaptive(light: hex, dark: hex, lightAlpha: alpha, darkAlpha: alpha)
++    }
++    static var paper: Color {
++        if night { return fixed(0x051117) }
++        return swiss ? Color.adaptive(light: 0xF2F2EF, dark: 0x111214) : Color.adaptive(light: 0xFAF9F5, dark: 0x171716)
++    }
++    static var sheet: Color {
++        if night { return fixed(0x071419) }
++        return swiss ? Color.adaptive(light: 0xE7E7E3, dark: 0x0A0A0B) : Color.adaptive(light: 0xF2F0E9, dark: 0x121211)
++    }
++    static var raised: Color {
++        if night { return fixed(0x0F1D24) }
++        return swiss ? Color.adaptive(light: 0xFFFFFF, dark: 0x1D1E21) : Color.adaptive(light: 0xEFEDE5, dark: 0x292927)
++    }
++    static var ink: Color {
++        if night { return fixed(0xDBEBEF) }
++        return swiss ? Color.adaptive(light: 0x111111, dark: 0xEDEDE9) : Color.adaptive(light: 0x1F1E1D, dark: 0xECEAE3)
++    }
++    static var ink2: Color {
++        if night { return fixed(0xB4C3C9) }
++        return swiss ? Color.adaptive(light: 0x3B3B3B, dark: 0xC6C6C1) : Color.adaptive(light: 0x4F4D48, dark: 0xC2BFB6)
++    }
++    static var ink3: Color {
++        if night { return fixed(0x92A1A8) }
++        return swiss ? Color.adaptive(light: 0x5E5E5E, dark: 0x9B9B96) : Color.adaptive(light: 0x7A7872, dark: 0x9A978F)
++    }
+     static var line: Color {
+-        swiss ? Color.adaptive(light: 0x111111, dark: 0xEDEDE9, lightAlpha: 0.16, darkAlpha: 0.18)
++        if night { return fixed(0xDBEBEF, alpha: 0.13) }
++        return swiss ? Color.adaptive(light: 0x111111, dark: 0xEDEDE9, lightAlpha: 0.16, darkAlpha: 0.18)
+             : Color.adaptive(light: 0x1F1E1D, dark: 0xECEAE3, lightAlpha: 0.10, darkAlpha: 0.12)
+     }
+-    static var seal: Color { swiss ? Color.adaptive(light: 0x2B3DE0, dark: 0x6B79FF) : Color.adaptive(light: 0xC96442, dark: 0xD97757) }
+-    static var onSeal: Color { Color.adaptive(light: 0xFFFFFF, dark: 0xFFFFFF) }
++    static var seal: Color {
++        if night { return fixed(0xECD59F) }
++        return swiss ? Color.adaptive(light: 0x2B3DE0, dark: 0x6B79FF) : Color.adaptive(light: 0xC96442, dark: 0xD97757)
++    }
++    static var onSeal: Color { night ? fixed(0x051117) : Color.adaptive(light: 0xFFFFFF, dark: 0xFFFFFF) }
+     // Highlighter stroke behind emphasised words (纸笺); a pale blue wash for the
+-    // sidebar's selected row in the Swiss look, which has no highlighter in answers.
++    // sidebar's selected row in the Swiss look, which has no highlighter in answers;
++    // moonlight on the water in 夜江.
+     static var mark: Color {
+-        swiss ? Color.adaptive(light: 0x2B3DE0, dark: 0x6B79FF, lightAlpha: 0.14, darkAlpha: 0.28)
++        if night { return fixed(0xECD59F, alpha: 0.26) }
++        return swiss ? Color.adaptive(light: 0x2B3DE0, dark: 0x6B79FF, lightAlpha: 0.14, darkAlpha: 0.28)
+             : Color.adaptive(light: 0xFFE169, dark: 0xF7C81E, darkAlpha: 0.36)
+     }
+     static var solid: Color { ink }
+@@ -193,9 +224,15 @@
+     @Environment(\.accessibilityReduceMotion) private var reduceMotion
+     @State private var dim = false
+     var body: some View {
+-        // A disc on paper, a small square in the Swiss look.
+-        RoundedRectangle(cornerRadius: InterfaceStyle.isSwiss ? 0 : size / 2, style: .continuous)
+-            .fill(Ink.seal).frame(width: size, height: size)
++        // A disc on paper, a small square in the Swiss look, the moon in 夜江.
++        Group {
++            if InterfaceStyle.isNight {
++                MoonDisc(size: size, glow: pulsing && !dim)
++            } else {
++                RoundedRectangle(cornerRadius: InterfaceStyle.isSwiss ? 0 : size / 2, style: .continuous)
++                    .fill(Ink.seal).frame(width: size, height: size)
++            }
++        }
+             .opacity(dim ? 0.35 : 1).scaleEffect(dim ? 0.72 : 1)
+             .onAppear {
+                 guard pulsing && !reduceMotion else { return }
+diff -ruN --strip-trailing-cr pristine/QingJian/DeepSeekPocket/Views/BookshelfView.swift work/QingJian/DeepSeekPocket/Views/BookshelfView.swift
+--- pristine/QingJian/DeepSeekPocket/Views/BookshelfView.swift	2026-10-24 04:52:16.218168215 +0800
++++ work/QingJian/DeepSeekPocket/Views/BookshelfView.swift	2026-10-24 04:54:46.736362283 +0800
+@@ -37,6 +37,13 @@
+                     .padding(.vertical, 8)
+                     .listRowBackground(Color.clear)
+                 }
++                if InterfaceStyle.isNight && !books.books.isEmpty {
++                    // 夜江: the books stand on a water line, their reflections below.
++                    NightShelf(books: books.books, readingID: books.readingBookID) { path.append($0) }
++                        .listRowBackground(Color.clear)
++                        .listRowInsets(EdgeInsets())
++                        .listRowSeparator(.hidden)
++                } else {
+                 if let recent = books.books.filter({ $0.bookmark != nil }).max(by: { ($0.lastReadAt ?? $0.importedAt) < ($1.lastReadAt ?? $1.importedAt) }),
+                    let mark = recent.bookmark {
+                     Section("最近阅读") {
+@@ -70,6 +77,7 @@
+                     .listRowBackground(Color.clear)
+                     .accessibilityIdentifier("book-row")
+                 }
++                }
+             }
+             .listStyle(.plain)
+             .scrollContentBackground(.hidden)
+@@ -1023,3 +1031,147 @@
+         }
+     }
+ }
++
++// MARK: - 夜江 bookshelf
++
++/// Spines standing on a water line, each mirrored faintly in the river below, and
++/// the moon over them. Tap a spine to lift it; the panel underneath shows that book.
++@MainActor
++struct NightShelf: View {
++    let books: [Book]
++    let readingID: UUID?
++    let open: (UUID) -> Void
++    @State private var picked: UUID?
++
++    private var selected: Book? { books.first { $0.id == picked } ?? books.first }
++
++    var body: some View {
++        VStack(alignment: .leading, spacing: 0) {
++            HStack(alignment: .top) {
++                Text("\(books.count) 册 · 点一本书脊").font(TypeScale.serif(13)).foregroundStyle(Ink.ink3)
++                Spacer()
++                MoonDisc(size: 30)
++            }
++            .padding(.horizontal, 24).padding(.top, 8)
++
++            ScrollView(.horizontal, showsIndicators: false) {
++                VStack(alignment: .leading, spacing: 0) {
++                    spineRow(reflection: false).frame(height: 252, alignment: .bottom)
++                    Rectangle().fill(Ink.ink.opacity(0.35)).frame(height: 1)
++                    spineRow(reflection: true)
++                        .scaleEffect(x: 1, y: -1)
++                        .frame(height: 96, alignment: .top)
++                        .clipped()
++                        .opacity(0.3).blur(radius: 1.2)
++                        .mask(LinearGradient(colors: [.black, .clear], startPoint: .top, endPoint: .bottom))
++                        .allowsHitTesting(false)
++                        .accessibilityHidden(true)
++                }
++                .padding(.horizontal, 24)
++                .frame(minWidth: 0)
++            }
++            .overlay(alignment: .bottomTrailing) {
++                // The moon's broken reflection on the water.
++                VStack(spacing: 6) {
++                    Capsule().fill(Ink.seal).frame(width: 30, height: 1.5)
++                    Capsule().fill(Ink.seal).frame(width: 20, height: 1.5)
++                    Capsule().fill(Ink.seal).frame(width: 10, height: 1.5)
++                }
++                .opacity(0.55).padding(.trailing, 30).padding(.bottom, 64)
++                .allowsHitTesting(false).accessibilityHidden(true)
++            }
++
++            if let book = selected { panel(book).padding(.horizontal, 24).padding(.top, 8).padding(.bottom, 24) }
++        }
++        .padding(.vertical, 8)
++    }
++
++    private func spineRow(reflection: Bool) -> some View {
++        HStack(alignment: .bottom, spacing: 10) {
++            ForEach(books) { book in
++                let lifted = !reflection && book.id == selected?.id
++                Button { withAnimation(.snappy(duration: 0.25)) { picked = book.id } } label: {
++                    Spine(book: book)
++                }
++                .buttonStyle(.plain)
++                .offset(y: lifted ? -12 : 0)
++                .disabled(reflection)
++                .accessibilityLabel(book.title)
++                .accessibilityAddTraits(lifted ? .isSelected : [])
++            }
++        }
++    }
++
++    @ViewBuilder private func panel(_ book: Book) -> some View {
++        VStack(alignment: .leading, spacing: 0) {
++            Text(BookStatusText.short(book, reading: readingID == book.id))
++                .font(TypeScale.serif(12)).tracking(1.5).foregroundStyle(Ink.ink3).lineLimit(1)
++            Text(book.title).font(TypeScale.heavy(26, relativeTo: .title)).foregroundStyle(Ink.ink)
++                .lineLimit(2).padding(.top, 4)
++            GeometryReader { proxy in
++                ZStack(alignment: .leading) {
++                    Rectangle().fill(Ink.line)
++                    Rectangle().fill(Ink.seal).frame(width: proxy.size.width * Self.progress(book))
++                }
++            }
++            .frame(height: 2).padding(.top, 14)
++            if let mark = book.bookmark {
++                Text("读到 · " + book.chapterLabel(mark.chapter)).font(TypeScale.serif(12)).foregroundStyle(Ink.ink3)
++                    .lineLimit(1).padding(.top, 6)
++            }
++            Button { open(book.id) } label: {
++                Text("进入书籍").font(TypeScale.serif(16).weight(.semibold)).foregroundStyle(Ink.onSeal)
++                    .frame(maxWidth: .infinity).frame(height: 48)
++                    .background(Ink.seal, in: Capsule())
++                    .contentShape(Capsule())
++            }
++            .buttonStyle(.plain).padding(.top, 20)
++            .accessibilityIdentifier("night-shelf-open")
++        }
++    }
++
++    /// Reading position when there is one, otherwise how much of the book Sermo has read.
++    static func progress(_ book: Book) -> Double {
++        if let mark = book.bookmark, !book.chapterTitles.isEmpty {
++            return min(1, Double(mark.chapter + 1) / Double(book.chapterTitles.count))
++        }
++        guard !book.segments.isEmpty else { return 0 }
++        return min(1, Double(book.readCount) / Double(book.segments.count))
++    }
++}
++
++/// One spine: a dark cloth colour chosen from the title, a pale title slip set vertically.
++private struct Spine: View {
++    let book: Book
++    private static let cloths: [UInt32] = [0x22323C, 0x1C2C2A, 0x252B3A, 0x2E3236, 0x2A2633, 0x1F2E35]
++    private var cloth: Color {
++        let seed = book.title.unicodeScalars.reduce(0) { ($0 &* 31 &+ Int($1.value)) & 0xFFFF }
++        let hex = Self.cloths[seed % Self.cloths.count]
++        return Color(red: Double((hex >> 16) & 255) / 255, green: Double((hex >> 8) & 255) / 255, blue: Double(hex & 255) / 255)
++    }
++    // Longer books stand taller: 180 pt for a novella up to 240 pt for a long novel.
++    private var height: CGFloat {
++        let wan = Double(book.characterCount) / 10000
++        return CGFloat(180 + min(60, max(0, log2(max(1, wan)) * 9)))
++    }
++    private var width: CGFloat { book.characterCount > 400_000 ? 58 : (book.characterCount > 150_000 ? 52 : 46) }
++    private var letters: [String] { Array(book.title.prefix(7)).map(String.init) }
++
++    var body: some View {
++        ZStack(alignment: .top) {
++            UnevenRoundedRectangle(topLeadingRadius: 2, topTrailingRadius: 2, style: .continuous)
++                .fill(cloth)
++                .overlay(alignment: .trailing) { Rectangle().fill(Color.black.opacity(0.18)).frame(width: 3) }
++            VStack(spacing: 2) {
++                ForEach(Array(letters.enumerated()), id: \.offset) { _, letter in
++                    Text(letter).font(TypeScale.serif(15).weight(.semibold))
++                }
++            }
++            .foregroundStyle(Color(red: 0.02, green: 0.07, blue: 0.09))
++            .padding(.vertical, 10).frame(width: 28)
++            .background(Color(red: 0.86, green: 0.92, blue: 0.94))
++            .padding(.top, 16)
++        }
++        .frame(width: width, height: height)
++    }
++}
+diff -ruN --strip-trailing-cr pristine/QingJian/DeepSeekPocket/Views/ContentView.swift work/QingJian/DeepSeekPocket/Views/ContentView.swift
+--- pristine/QingJian/DeepSeekPocket/Views/ContentView.swift	2026-10-24 04:52:16.218356530 +0800
++++ work/QingJian/DeepSeekPocket/Views/ContentView.swift	2026-10-24 04:56:11.476395720 +0800
+@@ -93,6 +93,8 @@
+                 }))
+         }
+         .ignoresSafeArea(.keyboard, edges: .bottom)
++        // 夜江 is a night look: the whole window, sheets included, stays dark.
++        .preferredColorScheme(InterfaceStyle.isNight ? .dark : nil)
+         .onChange(of: showSidebar) { _, open in
+             if hapticsEnabled { UIImpactFeedbackGenerator(style: .soft).impactOccurred(intensity: 0.65) }
+             if open { store.refreshBalance() }
+@@ -193,6 +195,7 @@
+     // Read in body, so switching the look in Settings redraws this page.
+     private var style: InterfaceStyle { InterfaceStyle.current }
+     private var swiss: Bool { style == .swiss }
++    private var night: Bool { style == .night }
+ 
+     private var draft: Binding<String> { Binding(get: { store.activeDraft }, set: { store.setDraft($0) }) }
+     private var errorPresented: Binding<Bool> {
+@@ -305,6 +308,8 @@
+             }
+             ToolbarItem(placement: .principal) {
+                 if let thread = store.activeThread, thread.story != nil { StoryDirectionMenu(threadID: thread.id) }
++                // 夜江: one moon over the page; it brightens while an answer is written.
++                else if night { MoonDisc(size: 22, glow: store.isGenerating).accessibilityLabel("Sermo") }
+             }
+             // Like the Claude app: no title in the bar, only the two glass controls.
+             // In a conversation the right one holds new-page and a "⋯" menu with the title.
+@@ -748,6 +753,7 @@
+                             .font(.system(size: 15, weight: .bold)).foregroundStyle(Ink.sendGlyph)
+                             .frame(width: 38, height: 38)
+                             .background(Ink.sendFill, in: RoundedRectangle(cornerRadius: swiss ? 0 : 19, style: .continuous))
++                            .shadow(color: night ? Ink.seal.opacity(0.35) : .clear, radius: night ? 12 : 0)
+                             .contentShape(Rectangle())
+                     }
+                     .buttonStyle(.plain)
+@@ -849,7 +855,23 @@
+     // 纸笺: one column; your note set off by a thin rule, the answer as plain text.
+     private var paperContent: some View {
+         VStack(alignment: .leading, spacing: 12) {
+-            if message.role == .user {
++            if message.role == .user && style == .night {
++                // 夜江: a water line between exchanges, then your words a step quieter
++                // than the answer, under a small 「你」 in moonlight.
++                if round > 1 { WaveRule().padding(.bottom, 8) }
++                VStack(alignment: .leading, spacing: 6) {
++                    Text("你").font(TypeScale.serif(12)).tracking(2.4).foregroundStyle(Ink.seal)
++                        .accessibilityHidden(true)
++                    discussionVoiceLabel
++                    if let names = message.images, !names.isEmpty { AttachmentRow(names: names) }
++                    Text(message.content).readingStyle(adjustment: -2).lineSpacing(6).textSelection(.enabled)
++                        .foregroundStyle(Ink.ink2)
++                    Text(MessageTime.label(message.createdAt)).font(TypeScale.serif(11)).monospacedDigit().foregroundStyle(Ink.ink3)
++                }
++                .frame(maxWidth: .infinity, alignment: .leading)
++                .padding(.trailing, 28)
++                .accessibilityElement(children: .combine)
++            } else if message.role == .user {
+                 // Your side of the talk reads down the same left edge as the
+                 // answer: a note set off by a thin rounded rule, a step quieter
+                 // than the answer below it, so the page reads as one column.
+@@ -967,7 +989,7 @@
+             ToolActivityList(items: tools, signIn: signInDrive)
+         }
+         if !message.content.isEmpty {
+-            let bubble = aiBubble && style == .paper
++            let bubble = aiBubble && style != .swiss
+             MarkdownAnswer(content: message.content, style: style).equatable()
+                 .padding(bubble ? 16 : 0)
+                 .background(bubble ? Ink.raised : .clear, in: RoundedRectangle(cornerRadius: 20, style: .continuous))
+@@ -1040,6 +1062,52 @@
+     var body: some View {
+         // The Swiss look: a monospaced header, numbers in the accent, ruled top and bottom.
+         let swiss = InterfaceStyle.isSwiss
++        if InterfaceStyle.isNight { nightPanel } else { listPanel(swiss: swiss) }
++    }
++
++    // 夜江: the replies float as glass capsules on the water.
++    private var nightPanel: some View {
++        VStack(alignment: .leading, spacing: 8) {
++            if let batch = message.replySuggestions {
++                FlowRows(spacing: 8) {
++                    ForEach(Array(batch.replies.prefix(3).enumerated()), id: \.offset) { index, reply in
++                        Button { use(reply) } label: {
++                            Text(reply).font(TypeScale.serif(15)).foregroundStyle(Ink.ink)
++                                .multilineTextAlignment(.leading).lineSpacing(3)
++                                .padding(.horizontal, 16).padding(.vertical, 10)
++                                .frame(minHeight: 44)
++                                .clearGlass(radius: 22)
++                                .contentShape(Capsule())
++                        }
++                        .buttonStyle(.plain).disabled(store.isGenerating)
++                        .accessibilityLabel("使用回复建议 \(index + 1)：\(reply)")
++                        .accessibilityIdentifier("reply-suggestion-\(index)")
++                    }
++                }
++                if let usage = batch.usage {
++                    Text("建议 \(usage.totalTokens.formatted()) Tokens · " + suggestionCost(batch, usage))
++                        .font(TypeScale.serif(10)).monospacedDigit().foregroundStyle(Ink.ink3)
++                }
++            } else if store.isSuggesting(threadID: threadID, messageID: message.id) {
++                HStack(spacing: 8) {
++                    PulseDot(size: 7)
++                    Text("正在想几种回复…").font(TypeScale.caption).foregroundStyle(Ink.ink3)
++                }.padding(.vertical, 8).accessibilityIdentifier("reply-suggestions-loading")
++            } else {
++                if let error = store.suggestionError(threadID: threadID, messageID: message.id) {
++                    Text(error).font(TypeScale.tiny).foregroundStyle(Ink.ink3)
++                }
++                Button("生成回复建议") { store.generateReplySuggestions(threadID: threadID, messageID: message.id) }
++                    .font(TypeScale.caption).foregroundStyle(Ink.ink2).buttonStyle(.plain).disabled(store.isGenerating)
++                    .padding(.vertical, 8)
++            }
++        }
++        .padding(.top, 12)
++        .accessibilityElement(children: .contain)
++        .accessibilityIdentifier("reply-suggestions-panel")
++    }
++
++    private func listPanel(swiss: Bool) -> some View {
+         VStack(alignment: .leading, spacing: 0) {
+             if swiss {
+                 MonoLabel(text: "猜你回复 / REPLIES").padding(.bottom, 6)
+diff -ruN --strip-trailing-cr pristine/QingJian/DeepSeekPocket/Views/HighlightColorSettings.swift work/QingJian/DeepSeekPocket/Views/HighlightColorSettings.swift
+--- pristine/QingJian/DeepSeekPocket/Views/HighlightColorSettings.swift	2026-10-24 04:52:16.218684648 +0800
++++ work/QingJian/DeepSeekPocket/Views/HighlightColorSettings.swift	2026-10-24 04:53:35.922181308 +0800
+@@ -6,6 +6,8 @@
+     static func color(_ hex: String, scheme: ColorScheme) -> Color {
+         // The Swiss look has no highlighter; its selection wash is part of the look.
+         if InterfaceStyle.isSwiss { return Ink.mark }
++        // 夜江 draws emphasis as moonlight on the water, whatever colour is picked here.
++        if InterfaceStyle.isNight { return Ink.mark }
+         guard let rgb = HighlightHex.rgb(hex) else { return Ink.mark }
+         return Color(.sRGB, red: Double((rgb >> 16) & 255) / 255,
+                      green: Double((rgb >> 8) & 255) / 255,
+@@ -60,7 +62,7 @@
+                 .padding(.vertical, 8)
+             Button("恢复默认黄色") { storedHex = ""; hexInput = "#FFE169" }
+         } header: { Text("文字高光") } footer: {
+-            Text("即时保存，应用到回答中的粗体重点（每条回答最多两处，其余保持粗体）和侧栏选中标记。深色模式自动降低高光浓度。瑞士风格不画高光，粗体改为蓝色。")
++            Text("即时保存，应用到回答中的粗体重点（每条回答最多两处，其余保持粗体）和侧栏选中标记。深色模式自动降低高光浓度。瑞士风格不画高光，粗体改为蓝色；夜江固定用月光色。")
+         }
+         .onAppear { hexInput = storedHex.isEmpty ? "#FFE169" : storedHex }
+         .onChange(of: storedHex) { _, value in hexInput = value.isEmpty ? "#FFE169" : value }
+diff -ruN --strip-trailing-cr pristine/QingJian/DeepSeekPocket/Views/HistoryView.swift work/QingJian/DeepSeekPocket/Views/HistoryView.swift
+--- pristine/QingJian/DeepSeekPocket/Views/HistoryView.swift	2026-10-24 04:52:16.218703651 +0800
++++ work/QingJian/DeepSeekPocket/Views/HistoryView.swift	2026-10-24 04:56:22.397113740 +0800
+@@ -33,10 +33,16 @@
+     }
+ 
+     var body: some View {
++        let night = InterfaceStyle.isNight
+         VStack(alignment: .leading, spacing: 0) {
+-            HStack {
+-                Text("Sermo").font(TypeScale.heavy(30, relativeTo: .largeTitle)).foregroundStyle(Ink.ink)
+-                    .accessibilityAddTraits(.isHeader).accessibilityIdentifier("history-title")
++            HStack(alignment: night ? .top : .center) {
++                VStack(alignment: .leading, spacing: 6) {
++                    Text("Sermo").font(TypeScale.heavy(30, relativeTo: .largeTitle)).foregroundStyle(Ink.ink)
++                        .accessibilityAddTraits(.isHeader).accessibilityIdentifier("history-title")
++                    if night {
++                        Text("千江有水千江月").font(TypeScale.serif(13)).tracking(3).foregroundStyle(Ink.ink3)
++                    }
++                }
+                 Spacer()
+                 GlassCircle(symbol: searching ? "xmark" : "magnifyingglass", label: searching ? "关闭搜索" : "搜索对话") {
+                     withAnimation(.easeOut(duration: 0.2)) { searching.toggle() }
+@@ -65,6 +71,17 @@
+                             Text("还没有对话").font(TypeScale.serif(14)).foregroundStyle(Ink.ink3).padding(.vertical, 10)
+                         }
+                         ForEach(recent.prefix(Self.recentLimit)) { row($0) }
++                        if night && !recent.isEmpty {
++                            HStack(spacing: 8) {
++                                MoonPhaseIcon(phase: 0.15, size: 13)
++                                MoonPhaseIcon(phase: 0.5, size: 13)
++                                MoonPhaseIcon(phase: 1, size: 13)
++                                Text("月越圆，这局戏聊得越深").font(TypeScale.serif(12)).foregroundStyle(Ink.ink3)
++                            }
++                            .padding(.top, 10)
++                            .accessibilityElement(children: .ignore)
++                            .accessibilityLabel("对话前的月相表示聊了多久")
++                        }
+                         Button { openAllChats() } label: {
+                             HStack(spacing: 6) {
+                                 Text("查看全部")
+@@ -123,9 +140,9 @@
+                     Image(systemName: "plus").font(.system(size: 15, weight: .medium))
+                     Text("新建会话").font(TypeScale.serif(16).weight(.semibold))
+                 }
+-                .foregroundStyle(Ink.onSolid)
++                .foregroundStyle(InterfaceStyle.isNight ? Ink.onSeal : Ink.onSolid)
+                 .padding(.horizontal, 20).frame(height: 48)
+-                .background(Ink.solid, in: InkCapsule())
++                .background(InterfaceStyle.isNight ? Ink.seal : Ink.solid, in: InkCapsule())
+                 .contentShape(Capsule())
+             }
+             .buttonStyle(.plain)
+@@ -193,14 +210,24 @@
+ 
+     private func row(_ thread: ChatThread, showProject: Bool = true) -> some View {
+         let active = thread.id == store.activeThreadID
++        let night = InterfaceStyle.isNight
+         return Button { store.select(thread.id); finish() } label: {
+             HStack(spacing: 14) {
+-                Image(systemName: thread.isPinned == true ? "pin" : "bubble.left")
+-                    .font(.system(size: 16)).foregroundStyle(Ink.ink2).frame(width: 24)
+-                    .accessibilityHidden(true)
++                Group {
++                    // 夜江: each talk is a river with its own moon; the longer the talk, the fuller.
++                    if night && thread.isPinned != true {
++                        MoonPhaseIcon(phase: MoonPhaseIcon.phase(for: thread))
++                    } else {
++                        Image(systemName: thread.isPinned == true ? "pin" : "bubble.left")
++                            .font(.system(size: 16)).foregroundStyle(Ink.ink2)
++                    }
++                }
++                .frame(width: 24)
++                .accessibilityHidden(true)
+                 Text(thread.title).font(TypeScale.serif(17)).lineLimit(1)
++                    .foregroundStyle(night && active ? Ink.seal : Ink.ink)
+                     .background(alignment: .bottom) {
+-                        if active { Rectangle().fill(HighlightStyle.color(highlightHex, scheme: colorScheme)).frame(height: 9).padding(.horizontal, -2) }
++                        if active && !night { Rectangle().fill(HighlightStyle.color(highlightHex, scheme: colorScheme)).frame(height: 9).padding(.horizontal, -2) }
+                     }
+                 Spacer(minLength: 8)
+                 if thread.id == store.generatingThreadID { PulseDot(size: 7) }
+diff -ruN --strip-trailing-cr pristine/QingJian/DeepSeekPocket/Views/InterfaceStyle.swift work/QingJian/DeepSeekPocket/Views/InterfaceStyle.swift
+--- pristine/QingJian/DeepSeekPocket/Views/InterfaceStyle.swift	2026-10-24 04:52:16.218715900 +0800
++++ work/QingJian/DeepSeekPocket/Views/InterfaceStyle.swift	2026-10-24 04:56:11.503413849 +0800
+@@ -4,10 +4,13 @@
+ /// The whole look of the app, chosen in Settings → 阅读与外观 → 界面风格.
+ /// 纸笺: warm paper, Songti, highlighter strokes, liquid glass.
+ /// 瑞士: grey-white sheet, black sans, blue bold emphasis, ruled grid, square edges.
++/// 夜江 (千江有水千江月): night river, moonlight the only colour, Songti, liquid glass.
++///   Always dark. It shares the paper look's layout; only colours, the moon mark,
++///   the sidebar's moon phases, reply capsules and the bookshelf's spines differ.
+ /// Colours and fonts read it through `StyleAppearance`, so a switch redraws the
+ /// app in place, keeping open sheets and unsaved drafts, the way a font change does.
+ enum InterfaceStyle: String, CaseIterable, Identifiable, Sendable {
+-    case paper, swiss
++    case paper, swiss, night
+ 
+     static let key = "sermo.interface.style"
+ 
+@@ -16,18 +19,21 @@
+         switch self {
+         case .paper: return "纸笺"
+         case .swiss: return "瑞士"
++        case .night: return "夜江"
+         }
+     }
+     var detail: String {
+         switch self {
+         case .paper: return "暖纸色、宋体、荧光高光、液态玻璃"
+         case .swiss: return "灰白底、黑体、蓝色粗体、网格线与方角"
++        case .night: return "千江有水千江月：夜色江水、宋体、月光高光，始终是深色"
+         }
+     }
+ 
+     /// The look views draw with. Reading it inside a view's body subscribes that view to changes.
+     static var current: InterfaceStyle { StyleAppearance.shared.style }
+     static var isSwiss: Bool { current == .swiss }
++    static var isNight: Bool { current == .night }
+ 
+     /// What is saved in Settings.
+     static var stored: InterfaceStyle {
+@@ -45,7 +51,8 @@
+         if arguments.contains("--ui-preview") {
+             // Preview runs start from their launch flag, so a value left in the
+             // simulator never changes a screenshot; the picker can still switch.
+-            let flagged: InterfaceStyle = arguments.contains("--preview-swiss") ? .swiss : .paper
++            let flagged: InterfaceStyle = arguments.contains("--preview-swiss") ? .swiss
++                : (arguments.contains("--preview-night") ? .night : .paper)
+             UserDefaults.standard.set(flagged.rawValue, forKey: InterfaceStyle.key)
+         }
+         style = InterfaceStyle.stored
+@@ -70,7 +77,7 @@
+         .accessibilityValue((InterfaceStyle(rawValue: stored) ?? .paper).title)
+         // The app also listens for this key; reloading here as well makes the switch immediate.
+         .onChange(of: stored) { _, _ in StyleAppearance.shared.reload(); InkAppearance.apply() }
+-        Text((InterfaceStyle(rawValue: stored) ?? .paper).detail + "。切换后整个 App 立刻换样式，对话和设置都不受影响。瑞士风格固定使用系统黑体，不显示荧光高光。")
++        Text((InterfaceStyle(rawValue: stored) ?? .paper).detail + "。切换后整个 App 立刻换样式，对话和设置都不受影响。瑞士风格固定使用系统黑体，不显示荧光高光；夜江不跟随系统浅色模式，高光固定为月光色。")
+             .font(TypeScale.serif(12)).foregroundStyle(.secondary)
+     }
+ }
+@@ -146,3 +153,121 @@
+         RoundedRectangle(cornerRadius: swiss ? 0 : radius, style: .continuous).path(in: rect)
+     }
+ }
++
++// MARK: - 夜江 pieces shared by several screens
++
++/// Sermo's mark in the 夜江 look: a pale gold moon with a soft halo.
++/// `glow` brightens it while an answer is on its way ("月出").
++struct MoonDisc: View {
++    var size: CGFloat = 20
++    var glow = false
++    var body: some View {
++        Circle()
++            .fill(RadialGradient(colors: [Color(red: 1, green: 0.965, blue: 0.867), Ink.seal,
++                                          Color(red: 0.80, green: 0.68, blue: 0.45)],
++                                 center: UnitPoint(x: 0.38, y: 0.36), startRadius: 0, endRadius: size * 0.62))
++            .frame(width: size, height: size)
++            .shadow(color: Ink.seal.opacity(glow ? 0.75 : 0.35), radius: glow ? size * 0.9 : size * 0.55)
++            .shadow(color: Ink.seal.opacity(glow ? 0.35 : 0.16), radius: glow ? size * 2.6 : size * 1.6)
++            .accessibilityHidden(true)
++    }
++}
++
++/// The lit part of a waxing moon: 0 is a new moon, 1 a full moon, lit on the right.
++struct MoonLitShape: Shape {
++    var phase: Double
++    func path(in rect: CGRect) -> Path {
++        let r = min(rect.width, rect.height) / 2
++        let c = CGPoint(x: rect.midX, y: rect.midY)
++        let p = min(1, max(0, phase))
++        var path = Path()
++        guard p > 0.02 else { return path }
++        // Right half of the disc, top to bottom.
++        path.move(to: CGPoint(x: c.x, y: c.y - r))
++        path.addArc(center: c, radius: r, startAngle: .degrees(-90), endAngle: .degrees(90), clockwise: false)
++        // Back up along the terminator: an ellipse whose width shrinks to zero at half moon.
++        let rx = abs(1 - 2 * p) * r
++        let steps = 24
++        for step in 1...steps {
++            let t = Double(step) / Double(steps)
++            let angle = Double.pi / 2 - t * Double.pi          // 90° → -90°, bottom to top
++            let x = p < 0.5 ? c.x + rx * cos(angle) : c.x - rx * cos(angle)
++            path.addLine(to: CGPoint(x: x, y: c.y + r * sin(angle)))
++        }
++        path.closeSubpath()
++        return path
++    }
++}
++
++/// A conversation's moon phase in the 夜江 sidebar: the longer the talk, the fuller the moon.
++struct MoonPhaseIcon: View {
++    var phase: Double
++    var size: CGFloat = 18
++    var body: some View {
++        ZStack {
++            Circle().stroke(Ink.line, lineWidth: 1)
++            MoonLitShape(phase: phase).fill(Ink.seal)
++        }
++        .frame(width: size, height: size)
++        .accessibilityHidden(true)
++    }
++
++    /// One full moon at about thirty of your messages; a sliver as soon as a talk starts.
++    static func phase(for thread: ChatThread) -> Double {
++        let turns = thread.messages.reduce(0) { $0 + ($1.role == .user ? 1 : 0) }
++        guard turns > 0 else { return 0.06 }
++        return min(1, 0.1 + Double(turns) / 30)
++    }
++}
++
++/// A faint water line between exchanges in the 夜江 look.
++struct WaveRule: View {
++    var body: some View {
++        WaveShape().stroke(Ink.line, lineWidth: 1).frame(height: 8).accessibilityHidden(true)
++    }
++}
++
++struct WaveShape: Shape {
++    func path(in rect: CGRect) -> Path {
++        var path = Path()
++        let mid = rect.midY, w = rect.width
++        path.move(to: CGPoint(x: rect.minX, y: mid))
++        let segments = 4
++        for index in 0..<segments {
++            let x0 = rect.minX + w * Double(index) / Double(segments)
++            let x1 = rect.minX + w * Double(index + 1) / Double(segments)
++            let lift: Double = index % 2 == 0 ? -3 : 3
++            path.addCurve(to: CGPoint(x: x1, y: mid),
++                          control1: CGPoint(x: x0 + (x1 - x0) / 3, y: mid + lift),
++                          control2: CGPoint(x: x0 + (x1 - x0) * 2 / 3, y: mid - lift))
++        }
++        return path
++    }
++}
++
++/// Lays children out in rows, wrapping to the next row when one is full (reply capsules).
++struct FlowRows: Layout {
++    var spacing: CGFloat = 8
++    func sizeThatFits(proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) -> CGSize {
++        let width = proposal.width ?? .infinity
++        var x: CGFloat = 0, y: CGFloat = 0, rowHeight: CGFloat = 0, widest: CGFloat = 0
++        for subview in subviews {
++            let size = subview.sizeThatFits(ProposedViewSize(width: width, height: nil))
++            if x > 0 && x + size.width > width { y += rowHeight + spacing; x = 0; rowHeight = 0 }
++            x += size.width + spacing
++            rowHeight = max(rowHeight, size.height)
++            widest = max(widest, x - spacing)
++        }
++        return CGSize(width: width.isFinite ? width : widest, height: y + rowHeight)
++    }
++    func placeSubviews(in bounds: CGRect, proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) {
++        var x = bounds.minX, y = bounds.minY, rowHeight: CGFloat = 0
++        for subview in subviews {
++            let size = subview.sizeThatFits(ProposedViewSize(width: bounds.width, height: nil))
++            if x > bounds.minX && x + size.width > bounds.maxX { y += rowHeight + spacing; x = bounds.minX; rowHeight = 0 }
++            subview.place(at: CGPoint(x: x, y: y), proposal: ProposedViewSize(width: min(size.width, bounds.width), height: size.height))
++            x += size.width + spacing
++            rowHeight = max(rowHeight, size.height)
++        }
++    }
++}
+diff -ruN --strip-trailing-cr pristine/QingJian/DeepSeekPocket/Views/LocalNovelReader.swift work/QingJian/DeepSeekPocket/Views/LocalNovelReader.swift
+--- pristine/QingJian/DeepSeekPocket/Views/LocalNovelReader.swift	2026-10-24 04:52:16.218756905 +0800
++++ work/QingJian/DeepSeekPocket/Views/LocalNovelReader.swift	2026-10-24 04:53:35.922645822 +0800
+@@ -58,6 +58,7 @@
+         case "green": return (0xDDE8D8, 0x263A2A)
+         case "night": return (0x161719, 0xBFC0BB)
+         default:
++            if InterfaceStyle.isNight { return (0x051117, 0xDBEBEF) }
+             if colorScheme == .dark { return InterfaceStyle.isSwiss ? (0x111214, 0xEDEDE9) : (0x171716, 0xECEAE3) }
+             return InterfaceStyle.isSwiss ? (0xF2F2EF, 0x111111) : (0xFAF9F5, 0x1F1E1D)
+         }
+diff -ruN --strip-trailing-cr pristine/QingJian/QingJian.xcodeproj/project.pbxproj work/QingJian/QingJian.xcodeproj/project.pbxproj
+--- pristine/QingJian/QingJian.xcodeproj/project.pbxproj	2026-10-24 04:52:16.219436292 +0800
++++ work/QingJian/QingJian.xcodeproj/project.pbxproj	2026-10-24 04:55:06.153437373 +0800
+@@ -107,7 +107,7 @@
+ 		82FA67131BBD396F86E2116A = { isa = "PBXBuildFile"; fileRef = "FD74A26728B90EEDF0289739"; };
+ 		83A2F5A6AC45B5491E1C720F = { isa = "PBXBuildFile"; fileRef = "7904190125DA8DD29BF99CDB"; };
+ 		845ECD744C27640FC0E6C3BE = { isa = "PBXFileReference"; lastKnownFileType = "sourcecode.swift"; path = "DeepSeekPocket/Core/GitHubTools.swift"; sourceTree = "SOURCE_ROOT"; };
+-		86A46D98C12482E1EF3DC46C = { isa = "XCBuildConfiguration"; buildSettings = { PRODUCT_BUNDLE_IDENTIFIER = "com.xiaolong.qingjian"; PRODUCT_NAME = "DeepSeekPocket"; INFOPLIST_FILE = "DeepSeekPocket/Info.plist"; GENERATE_INFOPLIST_FILE = "NO"; MARKETING_VERSION = "1.16.0"; CURRENT_PROJECT_VERSION = "40"; ASSETCATALOG_COMPILER_APPICON_NAME = "AppIcon"; ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = "AccentColor"; TARGETED_DEVICE_FAMILY = "1,2"; CODE_SIGN_STYLE = "Automatic"; LD_RUNPATH_SEARCH_PATHS = ( "$(inherited)", "@executable_path/Frameworks", ); SUPPORTED_PLATFORMS = "iphoneos iphonesimulator"; SUPPORTS_MACCATALYST = "NO"; SWIFT_EMIT_LOC_STRINGS = "YES"; }; name = "Release"; };
++		86A46D98C12482E1EF3DC46C = { isa = "XCBuildConfiguration"; buildSettings = { PRODUCT_BUNDLE_IDENTIFIER = "com.xiaolong.qingjian"; PRODUCT_NAME = "DeepSeekPocket"; INFOPLIST_FILE = "DeepSeekPocket/Info.plist"; GENERATE_INFOPLIST_FILE = "NO"; MARKETING_VERSION = "1.17.0"; CURRENT_PROJECT_VERSION = "41"; ASSETCATALOG_COMPILER_APPICON_NAME = "AppIcon"; ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = "AccentColor"; TARGETED_DEVICE_FAMILY = "1,2"; CODE_SIGN_STYLE = "Automatic"; LD_RUNPATH_SEARCH_PATHS = ( "$(inherited)", "@executable_path/Frameworks", ); SUPPORTED_PLATFORMS = "iphoneos iphonesimulator"; SUPPORTS_MACCATALYST = "NO"; SWIFT_EMIT_LOC_STRINGS = "YES"; }; name = "Release"; };
+ 		8B37FFF4CB7BE1135BD14ACD = { isa = "PBXFileReference"; lastKnownFileType = "sourcecode.swift"; path = "DeepSeekPocket/Core/WebSearch.swift"; sourceTree = "SOURCE_ROOT"; };
+ 		8BDCEEA2EB43FC91018F696F = { isa = "PBXBuildFile"; fileRef = "FF1F92A5772CD6C2220F3CD7"; };
+ 		8C6280633D259F66427E2288 = { isa = "PBXFileReference"; lastKnownFileType = "sourcecode.swift"; path = "DeepSeekPocket/Views/ReasoningView.swift"; sourceTree = "SOURCE_ROOT"; };
+@@ -156,7 +156,7 @@
+ 		BD12731D7BC9B843D8523E65 = { isa = "PBXFileReference"; lastKnownFileType = "folder.assetcatalog"; path = "DeepSeekPocket/Assets.xcassets"; sourceTree = "SOURCE_ROOT"; };
+ 		BF41F4472847DA8EE81FF145 = { isa = "PBXBuildFile"; fileRef = "42CC3A23349A29CD3B9B13B7"; };
+ 		C0C355164654B03A78373B5A = { isa = "PBXBuildFile"; fileRef = "39F9C2B4BC13DE9D1B7A0828"; };
+-		C131AA990408F5A8B287713E = { isa = "XCBuildConfiguration"; buildSettings = { PRODUCT_BUNDLE_IDENTIFIER = "com.xiaolong.qingjian"; PRODUCT_NAME = "DeepSeekPocket"; INFOPLIST_FILE = "DeepSeekPocket/Info.plist"; GENERATE_INFOPLIST_FILE = "NO"; MARKETING_VERSION = "1.16.0"; CURRENT_PROJECT_VERSION = "40"; ASSETCATALOG_COMPILER_APPICON_NAME = "AppIcon"; ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = "AccentColor"; TARGETED_DEVICE_FAMILY = "1,2"; CODE_SIGN_STYLE = "Automatic"; LD_RUNPATH_SEARCH_PATHS = ( "$(inherited)", "@executable_path/Frameworks", ); SUPPORTED_PLATFORMS = "iphoneos iphonesimulator"; SUPPORTS_MACCATALYST = "NO"; SWIFT_EMIT_LOC_STRINGS = "YES"; }; name = "Debug"; };
++		C131AA990408F5A8B287713E = { isa = "XCBuildConfiguration"; buildSettings = { PRODUCT_BUNDLE_IDENTIFIER = "com.xiaolong.qingjian"; PRODUCT_NAME = "DeepSeekPocket"; INFOPLIST_FILE = "DeepSeekPocket/Info.plist"; GENERATE_INFOPLIST_FILE = "NO"; MARKETING_VERSION = "1.17.0"; CURRENT_PROJECT_VERSION = "41"; ASSETCATALOG_COMPILER_APPICON_NAME = "AppIcon"; ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = "AccentColor"; TARGETED_DEVICE_FAMILY = "1,2"; CODE_SIGN_STYLE = "Automatic"; LD_RUNPATH_SEARCH_PATHS = ( "$(inherited)", "@executable_path/Frameworks", ); SUPPORTED_PLATFORMS = "iphoneos iphonesimulator"; SUPPORTS_MACCATALYST = "NO"; SWIFT_EMIT_LOC_STRINGS = "YES"; }; name = "Debug"; };
+ 		C4BF254EBAFEB4755D037451 = { isa = "PBXFileReference"; lastKnownFileType = "sourcecode.swift"; path = "DeepSeekPocket/Views/StreamActivityView.swift"; sourceTree = "SOURCE_ROOT"; };
+ 		C7B5A2A8067AD2778E7DFC27 = { isa = "PBXFileReference"; lastKnownFileType = "sourcecode.swift"; path = "DeepSeekPocket/Views/HighlightColorSettings.swift"; sourceTree = "SOURCE_ROOT"; };
+ 		C7D59EFCCEB862427B91F038 = { isa = "PBXBuildFile"; fileRef = "5A6EB7F92D195E7AEE28EEB7"; };
+diff -ruN --strip-trailing-cr pristine/QingJian/README.md work/QingJian/README.md
+--- pristine/QingJian/README.md	2026-10-24 04:52:16.219788380 +0800
++++ work/QingJian/README.md	2026-10-24 04:55:19.421211060 +0800
+@@ -1,3 +1,16 @@
++Sermo 1.17.0 / build 41：夜江主题（千江有水千江月）
++
++- 「阅读与外观 → 界面风格」新增第三种风格「夜江」，和纸笺、瑞士并列，切换立刻生效。
++- 色板：夜色江水底、月白文字、淡金色的月是唯一的亮色；选中后 App 始终保持深色，不跟随系统浅色模式。
++- Sermo 的小圆点换成一轮月：新对话页和顶栏中央各有一轮，回答生成时月会变亮；发送键也是月。
++- 聊天：你的话上方标一个月光色的「你」，比回答小一号；每轮之间一道很淡的水纹线；回答里的粗体是月光色的半高高光，自定义高光颜色在夜江里不生效。
++- 猜你回复改为玻璃胶囊，自动换行排列。
++- 侧栏：标题下写「千江有水千江月」；每个对话前是月相，按你发过的消息数从新月到满月（约 30 条为满月），置顶对话仍显示图钉；选中的对话标题为月光色；底部「新建会话」为月色按钮。
++- 书架：一排立在水线上的书脊，按书的长短定高矮，颜色按书名生成，水里有倒影；点书脊抬起选中，下面显示状态、进度和「进入书籍」。纸笺和瑞士的书架不变。
++- 小说阅读器的默认纸色在夜江下改为夜江底色。
++- 应用内说明同步更新。
++- 本版在无 Mac 环境中修改，未经本地编译；请以 GitHub Actions 的编译结果为准。
++
+ Sermo 1.16.0 / build 40：讨论里问角色
+ 
+ - 「讨论这本书」的输入框新增「问角色」。选择书中人物，也能直接输入未列出的角色名。

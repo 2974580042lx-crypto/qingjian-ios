@@ -7,12 +7,12 @@
     "build": "36",
     "tests_run": false
   },
-  "version": "1.16.0",
-  "build": "40",
+  "version": "1.17.0",
+  "build": "41",
   "base_commit": "f7973bef433c2e1b10667ebcfac603e7f202adc6",
   "overlay_sha256": "8739c76e681f900923b900c9df0ef75cf421d39cabb54650c4b9ad19b6a76d85",
   "tests_run": false,
-  "validation": "Release compilation only, as requested",
-  "sha256": "cb5332b71990c74ff38670cbb7d6213d55b49ecafa6255cd75869f573b2ff460",
+  "validation": "Edited without a Mac; not compiled locally. Build with GitHub Actions.",
+  "sha256": "7f880fef3bf46623cb1d1cbcb36d5b8023958ed25bf5176c895f24cabc7a1da8",
   "source_layout": "complete archive; empty overlay"
 }
