@@ -10,7 +10,7 @@
   "version": "1.19.0",
   "build": "43",
   "base_commit": "e0be8a6c5cf9dbde40451513fc6ea75d3240b676",
-  "overlay_sha256": "47d4a96da5146b8bc3634498574a329adfdc5ccb3de9cdc353c2ebe3af21ed01",
+  "overlay_sha256": "eb40a20fdf7f2d1693304a3d6083a37e6ea17ba1c622a0adfa9a92bbaf5afd26",
   "tests_run": false,
   "validation": "Release compilation pending; no unit or UI tests requested",
   "sha256": "cb5332b71990c74ff38670cbb7d6213d55b49ecafa6255cd75869f573b2ff460",

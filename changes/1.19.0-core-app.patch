@@ -166,12 +166,34 @@
 +                if shouldFollowOutput { scrollPosition.scrollTo(edge: .bottom) }
 @@ -281,0 +283 @@
 +                        clearMessageNavigation()
-@@ -293,0 +296,4 @@
+@@ -291 +293,5 @@
+-    var body: some View {
++    var body: some View { chatWithAlerts }
++
++    // Separate opaque view expressions keep type checking bounded. State remains
++    // on ChatScreen, and the transcript preference stays inside its hosting tree.
++    private var chatLayout: some View {
+@@ -293,0 +300,4 @@
 +                .onPreferenceChange(ChatMessageJumpLayoutKey.self) { requestID in
 +                    laidOutMessageJumpID = requestID
 +                    finishMessageJump()
 +                }
-@@ -329 +335,10 @@
+@@ -297,0 +308,4 @@
++    }
++
++    private var chatWithNavigation: some View {
++        chatLayout
+@@ -318,0 +333,4 @@
++    }
++
++    private var chatWithConversationActions: some View {
++        chatWithNavigation
+@@ -326,0 +345,4 @@
++    }
++
++    private var chatWithMessageSheets: some View {
++        chatWithConversationActions
+@@ -329 +351,10 @@
 -            if focused && followsOutput { scrollPosition.scrollTo(edge: .bottom) }
 +            if focused && shouldFollowOutput { scrollPosition.scrollTo(edge: .bottom) }
 +        }
@@ -183,7 +205,7 @@
 +            DispatchQueue.main.async {
 +                if store.activeThreadID == newID && shouldFollowOutput { scrollPosition.scrollTo(edge: .bottom) }
 +            }
-@@ -331,0 +347,8 @@
+@@ -331,0 +363,8 @@
 +        .sheet(item: $messageBrowser, onDismiss: {
 +            messageBrowserVisible = false
 +            finishMessageJump()
@@ -192,7 +214,27 @@
 +                prepareMessageJump(messageID, in: request.threadID)
 +            }.environmentObject(store)
 +        }
-@@ -431 +454,48 @@
+@@ -332,0 +372,4 @@
++    }
++
++    private var chatWithStorySheets: some View {
++        chatWithMessageSheets
+@@ -355,0 +399,4 @@
++    }
++
++    private var chatWithToolSheets: some View {
++        chatWithStorySheets
+@@ -369,0 +417,4 @@
++    }
++
++    private var chatWithInput: some View {
++        chatWithToolSheets
+@@ -400,0 +452,4 @@
++    }
++
++    private var chatWithAlerts: some View {
++        chatWithInput
+@@ -431 +486,48 @@
 -        }
 +                .background {
 +                    if pendingMessageJump?.messageID == message.id, let requestID = pendingMessageJump?.id {
@@ -242,24 +284,24 @@
 +    }
 +    private func clearMessageNavigation() {
 +        pendingMessageJump = nil; laidOutMessageJumpID = nil; focusedMessageID = nil
-@@ -475 +545,5 @@
+@@ -475 +577,5 @@
 -                    markOffCharacter: markOff, showThoughts: thoughts, saveCheckpoint: checkpoint, showBookReferences: { bookEvidence = message })
 +                    markOffCharacter: markOff, showThoughts: thoughts, saveCheckpoint: checkpoint, showBookReferences: { bookEvidence = message },
 +                    toggleBookmark: {
 +                        guard let thread = store.activeThread, thread.id == threadID, !store.isHidden(thread) else { return }
 +                        store.toggleBookmark(threadID: thread.id, messageID: message.id)
 +                    })
-@@ -480 +554 @@
+@@ -480 +586 @@
 -        if followsOutput && store.generatingThreadID == store.activeThreadID {
 +        if shouldFollowOutput && store.generatingThreadID == store.activeThreadID {
-@@ -494,0 +569 @@
+@@ -494,0 +601 @@
 +            clearMessageNavigation()
-@@ -553,0 +629,2 @@
+@@ -553,0 +661,2 @@
 +                Button("搜索本对话", systemImage: "magnifyingglass") { openMessageBrowser(.search) }
 +                Button("本对话收藏", systemImage: "bookmark") { openMessageBrowser(.bookmarks) }
-@@ -739,0 +817 @@
+@@ -739,0 +849 @@
 +                            clearMessageNavigation()
-@@ -768,0 +847,158 @@
+@@ -768,0 +879,162 @@
 +    }
 +}
 +
@@ -317,7 +359,11 @@
 +                .toolbar { ToolbarItem(placement: .topBarTrailing) { Button("完成") { dismiss() } } }
 +        }
 +        .tint(Ink.ink).presentationDragIndicator(.visible)
-+        .errorAlert(store)
++        .alert("暂时没有完成", isPresented: Binding(
++            get: { store.errorMessage != nil },
++            set: { if !$0 { store.errorMessage = nil } })) {
++                Button("知道了") { store.errorMessage = nil }
++            } message: { Text(store.errorMessage ?? "") }
 +    }
 +    @ViewBuilder private var browserContents: some View {
 +        if thread == nil {
@@ -418,9 +464,9 @@
 +            cursor = NSMaxRange(match)
 +        }
 +        return text
-@@ -797,0 +1034 @@
+@@ -797,0 +1070 @@
 +    var toggleBookmark: (() -> Void)? = nil
-@@ -830,0 +1068,5 @@
+@@ -830,0 +1104,5 @@
 +            if let toggleBookmark {
 +                Button(message.isBookmarked == true ? "取消收藏" : "收藏消息", systemImage: message.isBookmarked == true ? "bookmark.slash" : "bookmark") {
 +                    toggleBookmark()
