@@ -12,8 +12,10 @@
   "base_commit": "f7973bef433c2e1b10667ebcfac603e7f202adc6",
   "overlay_sha256": "30da7e2dba1242a2947ea59e2a2be03d924b0e48733b9d119a4883f8a8397e14",
   "tests_run": false,
-  "validation": "Release rebuild pending",
+  "validation": "GitHub Actions Release compilation succeeded; no unit/UI/device tests",
   "sha256": "7f880fef3bf46623cb1d1cbcb36d5b8023958ed25bf5176c895f24cabc7a1da8",
   "source_layout": "user complete archive plus CGFloat-only moon drawing compile fix",
-  "source_drive_id": "1B7KmqadnW-eE77k-tapyRASmAxWe-eKi"
+  "source_drive_id": "1B7KmqadnW-eE77k-tapyRASmAxWe-eKi",
+  "compiled_commit": "afe4f45af604277bd1370a8cc5a75bd2524a1543",
+  "build_run_url": "https://github.com/2974580042lx-crypto/qingjian-ios/actions/runs/40025251762"
 }
