@@ -1,0 +1,948 @@
+--- a/QingJian/DeepSeekPocket/Core/AppManual.swift
++++ b/QingJian/DeepSeekPocket/Core/AppManual.swift
+@@ -7 +7 @@
+-    static let revision = 6
++    static let revision = 7
+@@ -16,30 +15,0 @@
+-        Section(title: "讨论里问角色 · 1.16", items: [
+-            Item(name: "问角色", how: "进入「讨论这本书」，点输入框上方的「问角色」，选择人物后输入你的问题。名单包含已整理的人物，也能搜索或直接输入书中其他角色的名字。"),
+-            Item(name: "只回答这一问", how: "人物会用第一人称说自己的想法，参考原文及已有性格、说话方式和人物校正。发送后自动恢复普通讨论；想继续问同一人物，再点「问角色」选择他。发送前可点叉取消。"),
+-            Item(name: "原著与演绎", how: "角色回答会单独标明人物名字，保留本次书内依据。没有明确写出的心理属于演绎，不当成原著台词或事实；讨论仍可涉及全书，不推进角色扮演剧情。"),
+-            Item(name: "保存与重试", how: "每轮问的是谁随讨论记录保存，重试仍由原来选的人物回答。完整书架备份会保留角色标记，Markdown导出也会注明角色身份。纸笺和瑞士两套主题共用此入口。"),
+-        ]),
+-        Section(title: "讨论这本书 · 1.15", items: [
+-            Item(name: "讨论入口", how: "书架点书先进入书籍详情。点「讨论这本书」进入普通聊天界面，可讨论人物、情节、伏笔、主题与原句；「讨论记录」可新建话题或继续历史讨论。"),
+-            Item(name: "本书检索", how: "每次回答复用现有读书笔记，检索本地完整原文，必要时补查相关章节。支持现有DeepSeek或ChatGPT订阅；检索规划和回答的用量计入日历。未完成AI精读的书也能先按原文讨论。"),
+-            Item(name: "原文依据", how: "回答下方点「本次书内依据」，可查看实际提供给模型的原文节选，并打开对应章节核对。原文可随时检索，但不能保证每次回答都没有遗漏；没有找到的内容应明确说明，不编造。"),
+-            Item(name: "与角色扮演分开", how: "讨论范围默认为整本书，可能涉及结局，不改变任何角色扮演的时间点、记忆或分线。讨论记录和原文依据随完整书架备份一起保存。"),
+-            Item(name: "音量键兼容翻页", how: "阅读原文 → 排版 → 音量键，默认关闭。音量＋上一页、音量－下一页，可反转；滚动模式翻动一屏。只在正文内生效，系统音量仍会变化，达到最大或最小时继续按同一键可能无法翻页。"),
+-        ]),
+-        Section(title: "本地小说阅读器 · 1.14", items: [
+-            Item(name: "全屏阅读", how: "书架点书先进入详情，点阅读原文才进入全屏小说阅读器。轻点中间呼出菜单，阅读和全文搜索完全在本地完成。"),
+-            Item(name: "主题与排版", how: "菜单 → 排版：正文默认跟随纸笺／瑞士主题，也可单独选宋体、黑体或已导入字体，调整字号、行距、段间距、首行缩进和留白；设置时正文实时变化。"),
+-            Item(name: "纸色与亮度", how: "正文可选跟随主题、纯白、米黄、浅绿或夜间。阅读亮度退出时恢复，菜单仍沿用界面主题。"),
+-            Item(name: "横竖屏和翻页", how: "阅读设置选择跟随设备、锁定竖屏或锁定横屏；退出阅读恢复原有方向。支持滚动或左右翻页，iPad宽屏横向分页可双页显示。分页点击左右侧翻页，中间呼出菜单；滚动到底继续上拉可换章。"),
+-            Item(name: "目录、进度、书签与搜索", how: "底部菜单可拖动全书进度、跳章节、查看多个书签或全文搜索。长按原文添加书签，退出自动记住当前位置，切换排版也保留位置。"),
+-            Item(name: "从原文进入故事", how: "已完成AI阅读的书，长按原文 → 从这一段之前开始演，保留此前的角色扮演功能。"),
+-        ]),
+-        Section(title: "书架剧情 · 1.13", items: [
+-            Item(name: "随时切换剧情走向", how: "角色扮演聊天页顶部的剧情按钮：遵从原著、依托原著改写、自由发挥。下一次回复起生效，已发生的剧情保留。"),
+-            Item(name: "本局记忆", how: "聊天「⋯ → 剧情控制、记忆与存档」。每约6轮用Flash整理新经历，也可手动整理、编辑、锁定；长按条目查看来源。各条故事线独立。"),
+-            Item(name: "存档与分线", how: "长按消息可命名存档；剧情控制页可从当前进度或存档开新分线。恢复进度、人物设定、场景和记忆，当前故事保留。角色扮演重新生成也保留原线。"),
+-            Item(name: "群像与导演动作", how: "剧情控制页勾选在场人物，指定下一次由谁回应或只写旁白；快捷动作先填入输入框，由你发送。"),
+-            Item(name: "故事档案与分线对比", how: "打开一本书 → 故事档案，继续正在演的故事、标记完结、搜索并比较分线的不同经历。"),
+-            Item(name: "名场面更细", how: "打开一本书 → 名场面 → 补全与细化名场面。Flash按原文逐段提取，可暂停续做，保留人物精读。名场面开局先定位触发前的原文，前情和检索仅取此前内容。"),
+-            Item(name: "完整书架备份", how: "书架右上角硬盘图标导出或恢复JSON备份，包含正文、读书笔记、人物卡、故事线、存档及图片；恢复时保留现有内容，冲突作为独立副本。"),
+-        ]),
+@@ -58,0 +29,2 @@
++            Item(name: "搜索本对话", how: "对话标题旁的菜单 → 搜索本对话，按关键词查找当前对话里的消息。结果显示说话人、时间和摘要，点一下回到对应消息，较早的消息也可定位。"),
++            Item(name: "消息收藏", how: "长按消息 → 收藏或取消收藏；对话标题菜单 → 本对话收藏，可查看和定位保存的重要消息。收藏沿用现有聊天记录保存，随聊天备份一起保留，不会额外发送给模型。"),
+@@ -69,0 +42 @@
++            Item(name: "查看和修改资料", how: "打开项目资料页，可以按名称或正文搜索，打开一份资料查看、复制、分享，或修改名称与正文后保存。资料开关仍决定是否随提问发送；每份最多10万字，启用的资料合计也不能超过10万字。"),
+@@ -71 +44 @@
+-            Item(name: "项目记忆", how: "ChatGPT 订阅的项目可开「自动整理记忆」，离开对话后把要点记下来；项目页里可查看、修改、清空。"),
++            Item(name: "项目记忆", how: "所有项目都可打开「项目记忆」手动填写、修改或清空长期要求和已确认结论，最多4000字。ChatGPT订阅项目还可开自动整理，离开对话后整理要点；DeepSeek项目手动维护，不额外发起整理请求。"),
+@@ -72,0 +46,50 @@
++        ]),
++        Section(title: "工具", items: [
++            Item(name: "工具是什么", how: "让模型自己决定去查云盘或代码仓库。只在项目「⋯」里打开了对应开关的 DeepSeek 项目里生效，其他对话（包括角色扮演）请求里不带任何工具。"),
++            Item(name: "联网工具", how: "在项目里打开「联网工具」后，模型自己判断要不要搜索、搜什么，可以连续搜几次，也能直接读取你发的链接。搜到的来源显示在回答下方。适合论文、查资料类项目；角色扮演项目不要打开。"),
++            Item(name: "谷歌云盘", how: "先在设置「谷歌云盘」里用 Google 登录，再在项目里打开「谷歌云盘工具」。可以搜索、列出、读取谷歌文档、表格、幻灯片和文本文件，也能新建、改写文本文件、建文件夹、改名移动、移到回收站。PDF 和图片暂不能读。测试状态的登录约 7 天要重新登录一次。"),
++            Item(name: "GitHub", how: "在设置「GitHub」里粘贴细粒度令牌（Contents、Pull requests 读写，Actions 只读），再在项目里打开「GitHub 工具」。可以看代码、搜索、在 sermo/ 开头的分支上提交、开 PR、看 GitHub Actions 的编译结果和报错；不会碰默认分支，合并由你在 GitHub 上决定。"),
++            Item(name: "写入前确认", how: "任何新建、修改、移动、移到回收站、提交、开 PR 都会先弹出确认页，写清要做什么；点「允许」才执行，关掉就算拒绝。没有永久删除。"),
++            Item(name: "工具记录", how: "每次调用工具，回答上方会留一行记录：做了什么、成功或失败、是否被你拒绝。登录过期时这里会出现登录按钮。"),
++        ]),
++        Section(title: "提示词变量与时间", items: [
++            Item(name: "变量", how: "在系统提示词或项目指令里写 {{时间}}、{{日期}}、{{星期}}、{{名字}}、{{模型}}（也可写 {{time}}、{{date}}、{{weekday}}、{{user}}、{{model}}），发送时自动换成当前的值。想让角色只在需要时提起时间，可以写「当前时间：{{时间}}，仅作背景，不要主动提起」。"),
++            Item(name: "告诉角色时间流逝", how: "项目「⋯」里打开。对话的第一条消息、或隔了两小时以上再发消息时，悄悄告诉模型现在几点、过去了多久；连续聊天时什么都不加。"),
++        ]),
++        Section(title: "设置", items: [
++            Item(name: "高峰时段", how: "DeepSeek 北京时间工作日 9–12 点、14–18 点是高峰价，其余时间和周末减半。侧栏余额下方、输入框模型菜单顶部和书页里都会写现在是哪个时段、到几点结束。"),
++            Item(name: "用量日历", how: "设置最上方按天显示token和估算花费；打开明细可选本月、近30天或全部，查看逐日token、请求次数和估算费用，并导出CSV。未归类token可能包含搜索、旧记录或订阅请求，不能直接当成某一种服务；估算不代替服务商账单。"),
++            Item(name: "查找功能", how: "设置 → 功能一览，输入功能名、入口或说明中的关键词，本地搜索全部功能；普通聊天、项目、工具和设置排在前面。也可以在侧栏打开「Sermo说明书」项目用聊天提问。"),
++            Item(name: "安装版本", how: "设置底部显示实际安装的版本号和build，可复制版本信息，反馈问题时一起附上。"),
++            Item(name: "DeepSeek Key", how: "「连接 DeepSeek」里粘贴 API Key，可测试连接和查看余额；点右上角保存后才写入钥匙串。"),
++            Item(name: "ChatGPT 订阅", how: "用 ChatGPT 账号登录，用套餐额度回答，不按次扣钱；在项目的「服务」里选它。"),
++            Item(name: "回答方式", how: "默认模型、深度思考、思考程度、每次输出上限、携带的历史消息条数。"),
++            Item(name: "系统提示词", how: "不在项目里的对话使用它；有「自然聊天」「学习讲解」两个模板，也可以写提示词变量。"),
++            Item(name: "界面风格", how: "「阅读与外观 → 界面风格」在纸笺和瑞士之间切换，立刻生效。纸笺是暖纸色、宋体、荧光高光；瑞士是灰白底、黑体、蓝色粗体、网格线和方角，问答前标 Q.01 / A.01，对话开头有大标题。对话和设置都不受影响。"),
++            Item(name: "阅读与外观", how: "界面风格、侧栏触感、字体（内置宋体、系统字体、导入自己的字体；瑞士风格固定用黑体）、AI 回答气泡、正文字号。"),
++            Item(name: "导入字体", how: "「阅读与外观 → 字体」选「自定义字体」，从文件里导入 .ttf 或 .otf，可分别导入常规和粗体。全局生效，可随时恢复默认。字体不进备份。"),
++            Item(name: "备份", how: "「记录与备份」可手动导出、导入；「自动备份」选一个文件夹（iCloud 云盘、谷歌云盘等）后，每天第一次打开时自动备份，保留最近 7 份。备份不含 API Key、登录凭证和字体。"),
++        ]),
++        Section(title: "本地小说阅读器 · 1.14", items: [
++            Item(name: "全屏阅读", how: "书架点书先进入详情，点阅读原文才进入全屏小说阅读器。轻点中间呼出菜单，阅读和全文搜索完全在本地完成。"),
++            Item(name: "主题与排版", how: "菜单 → 排版：正文默认跟随纸笺／瑞士主题，也可单独选宋体、黑体或已导入字体，调整字号、行距、段间距、首行缩进和留白；设置时正文实时变化。"),
++            Item(name: "纸色与亮度", how: "正文可选跟随主题、纯白、米黄、浅绿或夜间，正文、工具栏和面板使用同一阅读配色；排版里可预览纸色。阅读亮度退出时恢复。"),
++            Item(name: "横竖屏和翻页", how: "阅读设置选择跟随设备、锁定竖屏或锁定横屏；退出阅读恢复原有方向。支持滚动或左右翻页，iPad宽屏横向分页可双页显示。分页点击左右侧翻页，中间呼出菜单；滚动到底继续上拉可换章。"),
++            Item(name: "目录、进度、书签与搜索", how: "底部菜单可拖动全书进度、跳章节、查看多个书签或全文搜索。长按原文添加书签，退出自动记住当前位置，切换排版也保留位置。"),
++            Item(name: "回到跳转前", how: "通过目录、书签、全文搜索或进度条跳转后，点「回到刚才」返回最初阅读位置。连续探索保留最初位置，关闭按钮可放弃返回点；仅在本次打开的阅读器中保留。"),
++            Item(name: "书签笔记与导出", how: "书签页可写备注，按章节、摘录和备注搜索；导出全部会按阅读位置生成Markdown，包含保存的短摘录、备注和时间。筛选时仍导出本书全部书签，短摘录不等于完整原文段落。"),
++            Item(name: "选段讨论", how: "长按原文段落可以复制、加书签，或「问问这一段」：开启本书讨论并填写最多前1500字的原文草稿，改好后由你发送。搜索页保留本次关键词并高亮命中文字。"),
++            Item(name: "从原文进入故事", how: "已完成AI阅读的书，长按原文 → 从这一段之前开始演，保留此前的角色扮演功能。"),
++        ]),
++        Section(title: "讨论这本书 · 1.15", items: [
++            Item(name: "讨论入口", how: "书架点书先进入书籍详情。点「讨论这本书」进入普通聊天界面，可讨论人物、情节、伏笔、主题与原句；「讨论记录」可新建话题或继续历史讨论。"),
++            Item(name: "本书检索", how: "每次回答复用现有读书笔记，检索本地完整原文，必要时补查相关章节。支持现有DeepSeek或ChatGPT订阅；检索规划和回答的用量计入日历。未完成AI精读的书也能先按原文讨论。"),
++            Item(name: "原文依据", how: "回答下方点「本次书内依据」，可查看实际提供给模型的原文节选，并打开对应章节核对。原文可随时检索，但不能保证每次回答都没有遗漏；没有找到的内容应明确说明，不编造。"),
++            Item(name: "与角色扮演分开", how: "讨论范围默认为整本书，可能涉及结局，不改变任何角色扮演的时间点、记忆或分线。讨论记录和原文依据随完整书架备份一起保存。"),
++            Item(name: "音量键兼容翻页", how: "阅读原文 → 排版 → 音量键，默认关闭。音量＋上一页、音量－下一页，可反转；滚动模式翻动一屏。只在正文内生效，系统音量仍会变化，达到最大或最小时继续按同一键可能无法翻页。"),
++        ]),
++        Section(title: "讨论里问角色 · 1.16", items: [
++            Item(name: "问角色", how: "进入「讨论这本书」，点输入框上方的「问角色」，选择人物后输入你的问题。名单包含已整理的人物，也能搜索或直接输入书中其他角色的名字。"),
++            Item(name: "只回答这一问", how: "人物会用第一人称说自己的想法，参考原文及已有性格、说话方式和人物校正。发送后自动恢复普通讨论；想继续问同一人物，再点「问角色」选择他。发送前可点叉取消。"),
++            Item(name: "原著与演绎", how: "角色回答会单独标明人物名字，保留本次书内依据。没有明确写出的心理属于演绎，不当成原著台词或事实；讨论仍可涉及全书，不推进角色扮演剧情。"),
++            Item(name: "保存与重试", how: "每轮问的是谁随讨论记录保存，重试仍由原来选的人物回答。完整书架备份会保留角色标记，Markdown导出也会注明角色身份。纸笺和瑞士两套主题共用此入口。"),
+@@ -91,23 +114,8 @@
+-        Section(title: "提示词变量与时间", items: [
+-            Item(name: "变量", how: "在系统提示词或项目指令里写 {{时间}}、{{日期}}、{{星期}}、{{名字}}、{{模型}}（也可写 {{time}}、{{date}}、{{weekday}}、{{user}}、{{model}}），发送时自动换成当前的值。想让角色只在需要时提起时间，可以写「当前时间：{{时间}}，仅作背景，不要主动提起」。"),
+-            Item(name: "告诉角色时间流逝", how: "项目「⋯」里打开。对话的第一条消息、或隔了两小时以上再发消息时，悄悄告诉模型现在几点、过去了多久；连续聊天时什么都不加。"),
+-        ]),
+-        Section(title: "工具", items: [
+-            Item(name: "工具是什么", how: "让模型自己决定去查云盘或代码仓库。只在项目「⋯」里打开了对应开关的 DeepSeek 项目里生效，其他对话（包括角色扮演）请求里不带任何工具。"),
+-            Item(name: "联网工具", how: "在项目里打开「联网工具」后，模型自己判断要不要搜索、搜什么，可以连续搜几次，也能直接读取你发的链接。搜到的来源显示在回答下方。适合论文、查资料类项目；角色扮演项目不要打开。"),
+-            Item(name: "谷歌云盘", how: "先在设置「谷歌云盘」里用 Google 登录，再在项目里打开「谷歌云盘工具」。可以搜索、列出、读取谷歌文档、表格、幻灯片和文本文件，也能新建、改写文本文件、建文件夹、改名移动、移到回收站。PDF 和图片暂不能读。测试状态的登录约 7 天要重新登录一次。"),
+-            Item(name: "GitHub", how: "在设置「GitHub」里粘贴细粒度令牌（Contents、Pull requests 读写，Actions 只读），再在项目里打开「GitHub 工具」。可以看代码、搜索、在 sermo/ 开头的分支上提交、开 PR、看 GitHub Actions 的编译结果和报错；不会碰默认分支，合并由你在 GitHub 上决定。"),
+-            Item(name: "写入前确认", how: "任何新建、修改、移动、移到回收站、提交、开 PR 都会先弹出确认页，写清要做什么；点「允许」才执行，关掉就算拒绝。没有永久删除。"),
+-            Item(name: "工具记录", how: "每次调用工具，回答上方会留一行记录：做了什么、成功或失败、是否被你拒绝。登录过期时这里会出现登录按钮。"),
+-        ]),
+-        Section(title: "设置", items: [
+-            Item(name: "高峰时段", how: "DeepSeek 北京时间工作日 9–12 点、14–18 点是高峰价，其余时间和周末减半。侧栏余额下方、输入框模型菜单顶部和书页里都会写现在是哪个时段、到几点结束。"),
+-            Item(name: "用量日历", how: "设置最上方，按天显示 token 和估算花费，区分高峰与空闲时段。"),
+-            Item(name: "DeepSeek Key", how: "「连接 DeepSeek」里粘贴 API Key，可测试连接和查看余额；点右上角保存后才写入钥匙串。"),
+-            Item(name: "ChatGPT 订阅", how: "用 ChatGPT 账号登录，用套餐额度回答，不按次扣钱；在项目的「服务」里选它。"),
+-            Item(name: "回答方式", how: "默认模型、深度思考、思考程度、每次输出上限、携带的历史消息条数。"),
+-            Item(name: "系统提示词", how: "不在项目里的对话使用它；有「自然聊天」「学习讲解」两个模板，也可以写提示词变量。"),
+-            Item(name: "界面风格", how: "「阅读与外观 → 界面风格」在纸笺和瑞士之间切换，立刻生效。纸笺是暖纸色、宋体、荧光高光；瑞士是灰白底、黑体、蓝色粗体、网格线和方角，问答前标 Q.01 / A.01，对话开头有大标题。对话和设置都不受影响。"),
+-            Item(name: "阅读与外观", how: "界面风格、侧栏触感、字体（内置宋体、系统字体、导入自己的字体；瑞士风格固定用黑体）、AI 回答气泡、正文字号。"),
+-            Item(name: "导入字体", how: "「阅读与外观 → 字体」选「自定义字体」，从文件里导入 .ttf 或 .otf，可分别导入常规和粗体。全局生效，可随时恢复默认。字体不进备份。"),
+-            Item(name: "备份", how: "「记录与备份」可手动导出、导入；「自动备份」选一个文件夹（iCloud 云盘、谷歌云盘等）后，每天第一次打开时自动备份，保留最近 7 份。备份不含 API Key、登录凭证和字体。"),
++        Section(title: "书架剧情 · 1.13", items: [
++            Item(name: "随时切换剧情走向", how: "角色扮演聊天页顶部的剧情按钮：遵从原著、依托原著改写、自由发挥。下一次回复起生效，已发生的剧情保留。"),
++            Item(name: "本局记忆", how: "聊天「⋯ → 剧情控制、记忆与存档」。每约6轮用Flash整理新经历，也可手动整理、编辑、锁定；长按条目查看来源。各条故事线独立。"),
++            Item(name: "存档与分线", how: "长按消息可命名存档；剧情控制页可从当前进度或存档开新分线。恢复进度、人物设定、场景和记忆，当前故事保留。角色扮演重新生成也保留原线。"),
++            Item(name: "群像与导演动作", how: "剧情控制页勾选在场人物，指定下一次由谁回应或只写旁白；快捷动作先填入输入框，由你发送。"),
++            Item(name: "故事档案与分线对比", how: "打开一本书 → 故事档案，继续正在演的故事、标记完结、搜索并比较分线的不同经历。"),
++            Item(name: "名场面更细", how: "打开一本书 → 名场面 → 补全与细化名场面。Flash按原文逐段提取，可暂停续做，保留人物精读。名场面开局先定位触发前的原文，前情和检索仅取此前内容。"),
++            Item(name: "完整书架备份", how: "书架右上角硬盘图标导出或恢复JSON备份，包含正文、读书笔记、人物卡、故事线、存档及图片；恢复时保留现有内容，冲突作为独立副本。"),
+--- a/QingJian/DeepSeekPocket/Views/ContentView.swift
++++ b/QingJian/DeepSeekPocket/Views/ContentView.swift
+@@ -175,0 +176,5 @@
++    @State private var messageBrowser: ChatMessageBrowserRequest?
++    @State private var messageBrowserVisible = false
++    @State private var pendingMessageJump: ChatMessageJump?
++    @State private var laidOutMessageJumpID: UUID?
++    @State private var focusedMessageID: UUID?
+@@ -195,0 +201 @@
++    private var shouldFollowOutput: Bool { followsOutput && pendingMessageJump == nil && focusedMessageID == nil }
+@@ -248 +254,4 @@
+-                    DispatchQueue.main.async { scrollPosition.scrollTo(edge: .bottom) }
++                    let threadID = store.activeThreadID
++                    DispatchQueue.main.async {
++                        if store.activeThreadID == threadID && shouldFollowOutput { scrollPosition.scrollTo(edge: .bottom) }
++                    }
+@@ -256,2 +265,2 @@
+-                if phase == .interacting { followsOutput = false }
+-                if phase == .idle && nearBottom { followsOutput = true }
++                if phase == .interacting { followsOutput = false; clearMessageNavigation() }
++                if phase == .idle && nearBottom && pendingMessageJump == nil && focusedMessageID == nil { followsOutput = true }
+@@ -260 +269 @@
+-                if followsOutput { scrollPosition.scrollTo(edge: .bottom) }
++                if shouldFollowOutput { scrollPosition.scrollTo(edge: .bottom) }
+@@ -263 +272 @@
+-                if followsOutput && store.generatingThreadID == store.activeThreadID {
++                if shouldFollowOutput && store.generatingThreadID == store.activeThreadID {
+@@ -267,8 +275,0 @@
+-            .onChange(of: store.activeThreadID) { _, _ in
+-                store.webSearchEnabled = false
+-                storyPlayFor = nil
+-                pendingSuggestedReply = nil
+-                visibleMessageCount = 100
+-                followsOutput = true
+-                DispatchQueue.main.async { scrollPosition.scrollTo(edge: .bottom) }
+-            }
+@@ -276 +277 @@
+-                if followsOutput { scrollPosition.scrollTo(edge: .bottom) }
++                if shouldFollowOutput { scrollPosition.scrollTo(edge: .bottom) }
+@@ -281,0 +283 @@
++                        clearMessageNavigation()
+@@ -293,0 +296,4 @@
++                .onPreferenceChange(ChatMessageJumpLayoutKey.self) { requestID in
++                    laidOutMessageJumpID = requestID
++                    finishMessageJump()
++                }
+@@ -329 +335,10 @@
+-            if focused && followsOutput { scrollPosition.scrollTo(edge: .bottom) }
++            if focused && shouldFollowOutput { scrollPosition.scrollTo(edge: .bottom) }
++        }
++        .onChange(of: store.activeThreadID) { _, newID in
++            messageBrowser = nil; clearMessageNavigation()
++            store.webSearchEnabled = false
++            storyPlayFor = nil; pendingSuggestedReply = nil
++            visibleMessageCount = 100; followsOutput = true
++            DispatchQueue.main.async {
++                if store.activeThreadID == newID && shouldFollowOutput { scrollPosition.scrollTo(edge: .bottom) }
++            }
+@@ -331,0 +347,8 @@
++        .sheet(item: $messageBrowser, onDismiss: {
++            messageBrowserVisible = false
++            finishMessageJump()
++        }) { request in
++            ChatMessageBrowser(request: request) { messageID in
++                prepareMessageJump(messageID, in: request.threadID)
++            }.environmentObject(store)
++        }
+@@ -431 +454,48 @@
+-        }
++                .background {
++                    if pendingMessageJump?.messageID == message.id, let requestID = pendingMessageJump?.id {
++                        GeometryReader { geometry in
++                            Color.clear.preference(key: ChatMessageJumpLayoutKey.self,
++                                                   value: geometry.size.height > 0 ? requestID : nil)
++                        }
++                    }
++                }
++                .overlay(alignment: .leading) {
++                    if focusedMessageID == message.id {
++                        RoundedRectangle(cornerRadius: 2).fill(Ink.seal.opacity(0.7)).frame(width: 3).padding(.leading, -10)
++                            .allowsHitTesting(false).accessibilityHidden(true)
++                    }
++                }
++        }
++    }
++
++    private func openMessageBrowser(_ mode: ChatMessageBrowserMode) {
++        guard let thread = store.activeThread, !store.isHidden(thread) else { return }
++        focusComposer(false)
++        messageBrowserVisible = true
++        messageBrowser = ChatMessageBrowserRequest(threadID: thread.id, mode: mode)
++    }
++    private func prepareMessageJump(_ messageID: UUID, in threadID: UUID) {
++        guard let thread = store.activeThread, thread.id == threadID, !store.isHidden(thread),
++              let index = thread.messages.firstIndex(where: { $0.id == messageID }) else { return }
++        focusComposer(false); followsOutput = false
++        focusedMessageID = nil; laidOutMessageJumpID = nil
++        pendingMessageJump = ChatMessageJump(threadID: threadID, messageID: messageID)
++        // Render the target even when it is older than the default last 100 messages.
++        visibleMessageCount = max(visibleMessageCount, thread.messages.count - index)
++        messageBrowser = nil
++    }
++    private func finishMessageJump() {
++        guard !messageBrowserVisible, messageBrowser == nil, let request = pendingMessageJump, laidOutMessageJumpID == request.id else { return }
++        // The target has reported a nonzero layout; issue the scroll on the next UI turn.
++        DispatchQueue.main.async {
++            guard pendingMessageJump?.id == request.id, let thread = store.activeThread,
++                  thread.id == request.threadID, !store.isHidden(thread),
++                  thread.messages.contains(where: { $0.id == request.messageID }) else { return }
++            followsOutput = false
++            focusedMessageID = request.messageID
++            scrollPosition.scrollTo(id: request.messageID, anchor: .top)
++            pendingMessageJump = nil; laidOutMessageJumpID = nil
++        }
++    }
++    private func clearMessageNavigation() {
++        pendingMessageJump = nil; laidOutMessageJumpID = nil; focusedMessageID = nil
+@@ -475 +545,5 @@
+-                    markOffCharacter: markOff, showThoughts: thoughts, saveCheckpoint: checkpoint, showBookReferences: { bookEvidence = message })
++                    markOffCharacter: markOff, showThoughts: thoughts, saveCheckpoint: checkpoint, showBookReferences: { bookEvidence = message },
++                    toggleBookmark: {
++                        guard let thread = store.activeThread, thread.id == threadID, !store.isHidden(thread) else { return }
++                        store.toggleBookmark(threadID: thread.id, messageID: message.id)
++                    })
+@@ -480 +554 @@
+-        if followsOutput && store.generatingThreadID == store.activeThreadID {
++        if shouldFollowOutput && store.generatingThreadID == store.activeThreadID {
+@@ -494,0 +569 @@
++            clearMessageNavigation()
+@@ -553,0 +629,2 @@
++                Button("搜索本对话", systemImage: "magnifyingglass") { openMessageBrowser(.search) }
++                Button("本对话收藏", systemImage: "bookmark") { openMessageBrowser(.bookmarks) }
+@@ -739,0 +817 @@
++                            clearMessageNavigation()
+@@ -768,0 +847,158 @@
++    }
++}
++
++private enum ChatMessageBrowserMode: Equatable {
++    case search, bookmarks
++    var title: String { self == .search ? "搜索本对话" : "本对话收藏" }
++}
++
++private struct ChatMessageBrowserRequest: Identifiable {
++    let id = UUID()
++    let threadID: UUID
++    let mode: ChatMessageBrowserMode
++}
++
++private struct ChatMessageJump {
++    let id = UUID()
++    let threadID: UUID
++    let messageID: UUID
++}
++
++private struct ChatMessageJumpLayoutKey: PreferenceKey {
++    static var defaultValue: UUID? { nil }
++    static func reduce(value: inout UUID?, nextValue: () -> UUID?) {
++        if let next = nextValue() { value = next }
++    }
++}
++
++@MainActor
++private struct ChatMessageBrowser: View {
++    @EnvironmentObject private var store: AppStore
++    @Environment(\.dismiss) private var dismiss
++    let request: ChatMessageBrowserRequest
++    let open: (UUID) -> Void
++    @State private var query = ""
++    private var term: String { query.trimmingCharacters(in: .whitespacesAndNewlines) }
++    private var thread: ChatThread? {
++        guard let current = store.activeThread, current.id == request.threadID, !store.isHidden(current) else { return nil }
++        return current
++    }
++    private var matches: [ChatMessage] {
++        guard let thread else { return [] }
++        if request.mode == .search && term.isEmpty { return [] }
++        return thread.messages.filter { message in
++            (request.mode != .bookmarks || message.isBookmarked == true)
++                && (term.isEmpty || message.content.localizedCaseInsensitiveContains(term))
++        }
++    }
++    var body: some View {
++        NavigationStack {
++            browserContents
++                .background(AppBackground())
++                .navigationTitle(request.mode.title)
++                .navigationBarTitleDisplayMode(.inline)
++                .searchable(text: $query, prompt: request.mode == .search ? "搜索消息正文" : "搜索收藏内容")
++                .toolbar { ToolbarItem(placement: .topBarTrailing) { Button("完成") { dismiss() } } }
++        }
++        .tint(Ink.ink).presentationDragIndicator(.visible)
++        .errorAlert(store)
++    }
++    @ViewBuilder private var browserContents: some View {
++        if thread == nil {
++            ContentUnavailableView("此对话暂不可查看", systemImage: "lock", description: Text("请回到对话后再打开。"))
++        } else if request.mode == .search && term.isEmpty {
++            ContentUnavailableView("查找这段对话", systemImage: "text.magnifyingglass", description: Text("输入关键词，点选结果可回到那条消息。"))
++        } else {
++            resultsList
++        }
++    }
++    private var resultsList: some View {
++        let found = matches
++        return List {
++            if found.isEmpty {
++                emptyResults
++            } else {
++                Section {
++                    ForEach(found) { message in resultRow(message) }
++                } header: {
++                    Text(request.mode == .bookmarks && term.isEmpty ? "已收藏 \(found.count) 条消息" : "找到 \(found.count) 条消息")
++                } footer: {
++                    Text("点选一条消息，回到它在对话中的位置。")
++                }
++            }
++        }
++        .listStyle(.insetGrouped).scrollContentBackground(.hidden)
++    }
++    private var emptyResults: some View {
++        VStack(alignment: .leading, spacing: 8) {
++            Text(request.mode == .bookmarks && term.isEmpty ? "还没有收藏消息" : "没有找到匹配的消息")
++                .font(TypeScale.body).foregroundStyle(Ink.ink)
++            Text(request.mode == .bookmarks && term.isEmpty ? "长按对话中的消息，选择「收藏消息」。" : "试试更短的关键词。")
++                .font(TypeScale.label).foregroundStyle(Ink.ink3)
++        }.padding(.vertical, 10).listRowBackground(Ink.raised)
++    }
++    private func resultRow(_ message: ChatMessage) -> some View {
++        ChatMessageMatchRow(message: message, query: term) { open(message.id) }
++            .listRowBackground(Ink.raised)
++            .contextMenu {
++                Button(message.isBookmarked == true ? "取消收藏" : "收藏消息", systemImage: message.isBookmarked == true ? "bookmark.slash" : "bookmark") {
++                    guard let thread, thread.messages.contains(where: { $0.id == message.id }) else { return }
++                    store.toggleBookmark(threadID: thread.id, messageID: message.id)
++                }.disabled(message.state == .streaming || !store.canPersist)
++            }
++    }
++}
++
++@MainActor
++private struct ChatMessageMatchRow: View {
++    let message: ChatMessage
++    let query: String
++    let open: () -> Void
++    var body: some View {
++        Button(action: open) {
++            VStack(alignment: .leading, spacing: 9) {
++                HStack(spacing: 8) {
++                    Text(message.role == .user ? "你" : "Sermo").font(TypeScale.label).foregroundStyle(Ink.seal)
++                    Text(MessageTime.label(message.createdAt)).font(TypeScale.tiny).foregroundStyle(Ink.ink3)
++                    Spacer(minLength: 4)
++                    if message.isBookmarked == true {
++                        Image(systemName: "bookmark.fill").font(.system(size: 11)).foregroundStyle(Ink.seal).accessibilityLabel("已收藏")
++                    }
++                    Image(systemName: "arrow.up.right").font(.system(size: 10)).foregroundStyle(Ink.ink3).accessibilityHidden(true)
++                }
++                Text(highlightedExcerpt).font(TypeScale.body).foregroundStyle(Ink.ink).lineLimit(4)
++                    .frame(maxWidth: .infinity, alignment: .leading).multilineTextAlignment(.leading)
++            }.padding(.vertical, 7).contentShape(Rectangle())
++        }.buttonStyle(.plain)
++    }
++    private var excerpt: String {
++        guard !message.content.isEmpty else {
++            if let images = message.images, !images.isEmpty { return "图片消息（\(images.count) 张）" }
++            return "这条消息没有文字内容。"
++        }
++        let source = message.content as NSString
++        let match = query.isEmpty ? NSRange(location: NSNotFound, length: 0) : source.range(of: query, options: [.caseInsensitive, .diacriticInsensitive])
++        let start = match.location == NSNotFound ? 0 : max(0, match.location - 40)
++        let proposed = NSRange(location: start, length: min(200, source.length - start))
++        let range = source.rangeOfComposedCharacterSequences(for: proposed)
++        return (range.location > 0 ? "…" : "") + source.substring(with: range) + (NSMaxRange(range) < source.length ? "…" : "")
++    }
++    private var highlightedExcerpt: AttributedString {
++        let excerpt = self.excerpt
++        var text = AttributedString(excerpt)
++        guard !query.isEmpty else { return text }
++        let source = excerpt as NSString
++        var cursor = 0
++        while cursor < source.length {
++            let match = source.range(of: query, options: [.caseInsensitive, .diacriticInsensitive],
++                                     range: NSRange(location: cursor, length: source.length - cursor))
++            guard match.location != NSNotFound, match.length > 0 else { break }
++            if let range = Range(match, in: excerpt),
++               let lower = AttributedString.Index(range.lowerBound, within: text),
++               let upper = AttributedString.Index(range.upperBound, within: text) {
++                text[lower..<upper].foregroundColor = Ink.seal
++                text[lower..<upper].inlinePresentationIntent = .stronglyEmphasized
++            }
++            cursor = NSMaxRange(match)
++        }
++        return text
+@@ -797,0 +1034 @@
++    var toggleBookmark: (() -> Void)? = nil
+@@ -830,0 +1068,5 @@
++            if let toggleBookmark {
++                Button(message.isBookmarked == true ? "取消收藏" : "收藏消息", systemImage: message.isBookmarked == true ? "bookmark.slash" : "bookmark") {
++                    toggleBookmark()
++                }.disabled(message.state == .streaming)
++            }
+--- a/QingJian/DeepSeekPocket/Views/FeatureOverviewView.swift
++++ b/QingJian/DeepSeekPocket/Views/FeatureOverviewView.swift
+@@ -7,0 +8,14 @@
++    @State private var search = ""
++
++    private var query: String { search.trimmingCharacters(in: .whitespacesAndNewlines) }
++    private var matchingSections: [AppManual.Section] {
++        guard !query.isEmpty else { return AppManual.sections }
++        return AppManual.sections.compactMap { section in
++            if section.title.localizedStandardContains(query) { return section }
++            let items = section.items.filter {
++                $0.name.localizedStandardContains(query) || $0.how.localizedStandardContains(query)
++            }
++            return items.isEmpty ? nil : AppManual.Section(title: section.title, items: items)
++        }
++    }
++
+@@ -18 +32,20 @@
+-            ForEach(AppManual.sections, id: \.title) { section in
++            if !query.isEmpty {
++                Section {
++                    HStack {
++                        Text("找到 \(matchingSections.reduce(0) { $0 + $1.items.count }) 项功能")
++                            .font(TypeScale.caption).foregroundStyle(Ink.ink3)
++                        Spacer()
++                        Button("清空") { search = "" }.font(TypeScale.caption)
++                    }
++                }
++            }
++            if matchingSections.isEmpty {
++                Section {
++                    ContentUnavailableView {
++                        Label("没有找到相关功能", systemImage: "magnifyingglass")
++                    } description: {
++                        Text("试试「备份」「图片」「项目」等关键词。")
++                    }
++                }
++            }
++            ForEach(matchingSections, id: \.title) { section in
+@@ -35,0 +69 @@
++        .searchable(text: $search, placement: .navigationBarDrawer(displayMode: .always), prompt: "搜索功能、入口或用法")
+--- a/QingJian/DeepSeekPocket/Views/ProjectsView.swift
++++ b/QingJian/DeepSeekPocket/Views/ProjectsView.swift
+@@ -133,2 +133,2 @@
+-            // Memory shows once the project can write it, or already has some.
+-            if project?.remembers == true || !(project?.memory ?? "").isEmpty {
++            // Every service can use manually written project memory.
++            if project != nil {
+@@ -312 +312 @@
+-        if count == 0 { return project?.remembers == true ? "离开对话后自动整理" : "空" }
++        if count == 0 { return project?.remembers == true ? "离开对话后自动整理" : "手动填写" }
+@@ -332 +332 @@
+-    private var project: ChatProject? { store.project(projectID) }
++    private var project: ChatProject? { store.isLocked(projectID) ? nil : store.project(projectID) }
+@@ -333,0 +334 @@
++    private var overLimit: Bool { draft.count > ChatProject.memoryCharacterLimit }
+@@ -336,0 +338,3 @@
++            if project == nil {
++                Text("项目已上锁或不存在，请返回后重新打开。").foregroundStyle(Ink.ink3)
++            } else {
+@@ -339,0 +344,6 @@
++                Text("\(draft.count.formatted()) / \(ChatProject.memoryCharacterLimit.formatted()) 字")
++                    .font(TypeScale.tiny).foregroundStyle(overLimit ? Color.red : Ink.ink3)
++                if overLimit {
++                    Text("请删减到 4,000 字以内再保存，超出的内容不会被自动截断。")
++                        .font(TypeScale.label).foregroundStyle(.red)
++                }
+@@ -344 +354,3 @@
+-                Button("清空记忆", role: .destructive) { confirmClear = true }.disabled((project?.memory ?? "").isEmpty)
++                Button("清空记忆", role: .destructive) { confirmClear = true }
++                    .disabled((project?.memory ?? "").isEmpty || !store.canPersist)
++            }
+@@ -352,0 +365 @@
++            ToolbarItem(placement: .cancellationAction) { Button("取消") { dismiss() } }
+@@ -354 +367,4 @@
+-                Button("保存") { if store.setMemory(draft, for: projectID) { dismiss() } }.disabled(!changed)
++                Button("保存") {
++                    guard project != nil, store.canPersist, !overLimit else { return }
++                    if store.setMemory(draft, for: projectID) { dismiss() }
++                }.disabled(!changed || overLimit || project == nil || !store.canPersist)
+@@ -358 +374,4 @@
+-            Button("清空", role: .destructive) { if store.setMemory(nil, for: projectID) { draft = "" } }
++            Button("清空", role: .destructive) {
++                guard project != nil, store.canPersist else { return }
++                if store.setMemory(nil, for: projectID) { draft = "" }
++            }
+@@ -364,0 +384,2 @@
++        .interactiveDismissDisabled(changed)
++        .errorAlert(store)
+@@ -373 +394 @@
+-            "这个项目没有开自动整理。记忆仍会随每次提问发给模型。")
++            "可以手动写下长期要求和已确认的结论。这里不自动整理，记忆会随本项目的每次提问发给模型。")
+@@ -385 +406,13 @@
+-    private var project: ChatProject? { store.project(projectID) }
++    @State private var search = ""
++    @State private var editingDocument: ProjectDocument?
++    private var project: ChatProject? { store.isLocked(projectID) ? nil : store.project(projectID) }
++    private var query: String { search.trimmingCharacters(in: .whitespacesAndNewlines) }
++    private var visibleDocuments: [ProjectDocument] {
++        (project?.documents ?? []).filter {
++            query.isEmpty || $0.name.localizedCaseInsensitiveContains(query) || $0.text.localizedCaseInsensitiveContains(query)
++        }
++    }
++    private var cannotAdd: Bool {
++        project == nil || !store.canPersist || (project?.documents.count ?? 0) >= 50
++            || (project?.includedCharacters ?? 0) >= ChatProject.documentCharacterLimit
++    }
+@@ -388,0 +422,3 @@
++            if project == nil {
++                Text("项目已上锁或不存在，请返回后重新打开。").foregroundStyle(Ink.ink3)
++            } else {
+@@ -390,13 +426,34 @@
+-                ForEach(project?.documents ?? []) { document in
+-                    Toggle(isOn: Binding(get: { document.isIncluded }, set: { value in
+-                        editProject(store, projectID) { project in
+-                            if let i = project.documents.firstIndex(where: { $0.id == document.id }) { project.documents[i].isIncluded = value }
+-                        }
+-                    })) {
+-                        VStack(alignment: .leading, spacing: 2) {
+-                            Text(document.name).lineLimit(1)
+-                            Text("\(document.text.count.formatted()) 字").font(TypeScale.tiny).foregroundStyle(Ink.ink3)
+-                        }
+-                    }
+-                }
+-                .onDelete { offsets in editProject(store, projectID) { $0.documents.remove(atOffsets: offsets) } }
++                if visibleDocuments.isEmpty {
++                    Text(query.isEmpty ? "还没有资料，可以导入文件或粘贴文字。" : "没有匹配的资料，试试名称或正文中的其他关键词。")
++                        .foregroundStyle(Ink.ink3)
++                }
++                ForEach(visibleDocuments) { document in
++                    HStack(spacing: 14) {
++                        Button { editingDocument = document } label: {
++                            HStack(spacing: 8) {
++                                VStack(alignment: .leading, spacing: 4) {
++                                    Text(document.name).foregroundStyle(Ink.ink).lineLimit(1)
++                                    Text("\(document.text.count.formatted()) 字 · 点开查看与编辑")
++                                        .font(TypeScale.tiny).foregroundStyle(Ink.ink3)
++                                }
++                                Spacer(minLength: 0)
++                                Image(systemName: "chevron.right").font(TypeScale.tiny).foregroundStyle(Ink.ink3)
++                            }.frame(maxWidth: .infinity, alignment: .leading).contentShape(Rectangle())
++                        }.buttonStyle(.plain)
++                        Toggle("提问时引用", isOn: Binding(get: { document.isIncluded }, set: { value in
++                            updateDocuments { documents in
++                                if let i = documents.firstIndex(where: { $0.id == document.id }) { documents[i].isIncluded = value }
++                            }
++                        }))
++                        .labelsHidden().fixedSize()
++                        .accessibilityLabel("提问时引用《\(document.name)》")
++                        .disabled(!store.canPersist)
++                    }
++                }
++                .onDelete(perform: removeDocuments)
++            } header: {
++                Text(query.isEmpty ? "资料 · \(project?.documents.count ?? 0) / 50" : "搜索结果 · \(visibleDocuments.count)")
++            } footer: {
++                Text("启用的资料每次提问都会发给模型，会增加 token 用量。已启用 \((project?.includedCharacters ?? 0).formatted()) / \(ChatProject.documentCharacterLimit.formatted()) 字。左滑可删除。")
++            }
++            Section {
+@@ -404,7 +461,3 @@
+-                Button {
+-                    guard let text = UIPasteboard.general.string, !text.isEmpty else { return }
+-                    editProject(store, projectID) { project in
+-                        project.documents.append(ProjectDocument(name: "粘贴的资料 \(project.documents.count + 1)",
+-                                                                 text: String(text.prefix(ChatProject.documentCharacterLimit))))
+-                    }
+-                } label: { Label("粘贴文字作为资料", systemImage: "doc.on.clipboard") }
++                    .disabled(cannotAdd)
++                Button { pasteDocument() } label: { Label("粘贴文字作为资料", systemImage: "doc.on.clipboard") }
++                    .disabled(cannotAdd)
+@@ -412 +465,8 @@
+-                Text("打开的资料每次提问都会一起发给模型，会多花一些 token；关掉就不带。已打开 \((project?.includedCharacters ?? 0).formatted()) / \(ChatProject.documentCharacterLimit.formatted()) 字。左滑可删除。")
++                if (project?.documents.count ?? 0) >= 50 {
++                    Text("已达到 50 份资料上限，可以编辑已有资料或删除不再需要的资料。")
++                } else if (project?.includedCharacters ?? 0) >= ChatProject.documentCharacterLimit {
++                    Text("启用资料已达到 10 万字上限。导入新资料前，请先关闭部分资料的引用开关。")
++                } else {
++                    Text("支持 UTF-8 文字和 Markdown，每份最多 10 万字；导入文件需小于 1 MB。")
++                }
++            }
+@@ -416,0 +477 @@
++        .searchable(text: $search, prompt: "搜索资料名称或正文")
+@@ -419 +480 @@
+-        .navigationTitle("文件")
++        .navigationTitle("项目资料")
+@@ -420,0 +482,3 @@
++        .sheet(item: $editingDocument) { document in
++            ProjectDocumentEditor(projectID: projectID, document: document).environmentObject(store)
++        }
+@@ -434 +498 @@
+-                editProject(store, projectID) { $0.documents.append(contentsOf: added) }
++                updateDocuments { $0.append(contentsOf: added) }
+@@ -437,0 +502,147 @@
++    }
++
++    private func updateDocuments(_ change: (inout [ProjectDocument]) -> Void) {
++        guard !store.isLocked(projectID), store.canPersist, var latest = store.project(projectID) else {
++            store.errorMessage = "项目暂时无法修改，请返回后重新打开。"
++            return
++        }
++        change(&latest.documents)
++        guard latest.documents.count <= 50 else {
++            store.errorMessage = "每个项目最多保存 50 份资料，请减少本次导入数量或先删除部分资料。"
++            return
++        }
++        _ = store.updateProject(latest)
++    }
++
++    private func removeDocuments(_ offsets: IndexSet) {
++        let shown = visibleDocuments
++        let ids = Set(offsets.compactMap { shown.indices.contains($0) ? shown[$0].id : nil })
++        updateDocuments { $0.removeAll { ids.contains($0.id) } }
++    }
++
++    private func pasteDocument() {
++        guard let text = UIPasteboard.general.string, !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
++            store.errorMessage = "剪贴板里没有可导入的文字。"
++            return
++        }
++        guard text.count <= ChatProject.documentCharacterLimit else {
++            store.errorMessage = "这份资料超过 10 万字，请拆开再粘贴；内容没有被截断。"
++            return
++        }
++        updateDocuments { documents in
++            documents.append(ProjectDocument(name: "粘贴的资料 \(documents.count + 1)", text: text))
++        }
++    }
++}
++
++@MainActor
++private struct ProjectDocumentEditor: View {
++    @EnvironmentObject private var store: AppStore
++    @Environment(\.dismiss) private var dismiss
++    let projectID: UUID
++    let document: ProjectDocument
++    @State private var name: String
++    @State private var text: String
++    @State private var isIncluded: Bool
++    @State private var saveError: String?
++    @State private var shareURL: URL?
++
++    init(projectID: UUID, document: ProjectDocument) {
++        self.projectID = projectID; self.document = document
++        _name = State(initialValue: document.name)
++        _text = State(initialValue: document.text)
++        _isIncluded = State(initialValue: document.isIncluded)
++    }
++
++    private var project: ChatProject? { store.isLocked(projectID) ? nil : store.project(projectID) }
++    private var changed: Bool { name != document.name || text != document.text || isIncluded != document.isIncluded }
++    private var cleanName: String { name.trimmingCharacters(in: .whitespacesAndNewlines) }
++    private var includedCharacters: Int {
++        let other = (project?.documents ?? []).filter { $0.id != document.id && $0.isIncluded }.reduce(0) { $0 + $1.text.count }
++        return other + (isIncluded ? text.count : 0)
++    }
++    private var validationMessage: String? {
++        guard let project, project.documents.contains(where: { $0.id == document.id }) else { return "资料已不存在或项目已上锁，请返回后重新打开。" }
++        guard store.canPersist else { return "当前暂时不能保存，请稍后重试。" }
++        guard !cleanName.isEmpty else { return "请填写资料名称。" }
++        guard cleanName.count <= 200 else { return "资料名称最多 200 字。" }
++        guard text.count <= ChatProject.documentCharacterLimit else { return "正文最多 10 万字，请删减或拆成多份资料；保存不会截断内容。" }
++        guard includedCharacters <= ChatProject.documentCharacterLimit else { return "启用的资料合计超过 10 万字，请关闭这份资料的引用开关或缩短正文后保存。" }
++        return nil
++    }
++
++    var body: some View {
++        NavigationStack {
++            Form {
++                if project == nil {
++                    Text("项目已上锁或不存在，请返回后重新打开。").foregroundStyle(Ink.ink3)
++                } else {
++                    Section("资料名称") {
++                        TextField("名称", text: $name).accessibilityIdentifier("project-document-name")
++                    }
++                    Section {
++                        TextEditor(text: $text).frame(minHeight: 300).font(TypeScale.serif(15)).scrollContentBackground(.hidden)
++                            .accessibilityIdentifier("project-document-text")
++                    } header: { Text("正文 · \(text.count.formatted()) / \(ChatProject.documentCharacterLimit.formatted()) 字") }
++                    Section {
++                        Toggle("提问时引用这份资料", isOn: $isIncluded)
++                    } footer: {
++                        Text("保存后启用资料合计：\(includedCharacters.formatted()) / \(ChatProject.documentCharacterLimit.formatted()) 字。关闭引用仍会保留资料。")
++                    }
++                    if let validationMessage {
++                        Text(validationMessage).font(TypeScale.label).foregroundStyle(.red)
++                    }
++                    if let saveError {
++                        Text(saveError).font(TypeScale.label).foregroundStyle(.red)
++                    }
++                }
++            }
++            .font(TypeScale.body).scrollContentBackground(.hidden).background(AppBackground())
++            .navigationTitle("查看与编辑资料").navigationBarTitleDisplayMode(.inline)
++            .toolbar {
++                ToolbarItem(placement: .cancellationAction) { Button("取消") { dismiss() } }
++                ToolbarItemGroup(placement: .topBarTrailing) {
++                    Menu {
++                        Button("复制正文", systemImage: "doc.on.doc") { UIPasteboard.general.string = text }
++                        Button("分享文字文件", systemImage: "square.and.arrow.up") { shareDocument() }
++                    } label: { Image(systemName: "ellipsis") }
++                        .accessibilityLabel("资料操作").disabled(project == nil)
++                    Button("保存") { save() }.disabled(!changed || validationMessage != nil)
++                }
++            }
++        }
++        .tint(Ink.seal)
++        .interactiveDismissDisabled(changed)
++        .sheet(isPresented: Binding(get: { shareURL != nil }, set: { if !$0 { shareURL = nil } })) {
++            if let url = shareURL { ShareSheet(items: [url]) }
++        }
++    }
++
++    private func save() {
++        guard validationMessage == nil, !store.isLocked(projectID), var latest = store.project(projectID),
++              let index = latest.documents.firstIndex(where: { $0.id == document.id }) else {
++            saveError = validationMessage ?? "资料暂时无法保存，请重新打开后再试。"
++            return
++        }
++        // Merge only this document into the latest project, preserving newer memory and other files.
++        latest.documents[index].name = cleanName
++        latest.documents[index].text = text
++        latest.documents[index].isIncluded = isIncluded
++        if store.updateProject(latest) { dismiss() }
++        else { saveError = store.errorMessage ?? "资料未能保存，请稍后再试。" }
++    }
++
++    private func shareDocument() {
++        guard project != nil else { return }
++        do {
++            let directory = FileManager.default.temporaryDirectory.appendingPathComponent("Sermo-Document-\(UUID().uuidString)", isDirectory: true)
++            try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
++            let banned = CharacterSet(charactersIn: "/\\:*?\"<>|\n\r")
++            let base = cleanName.components(separatedBy: banned).joined()
++            let fileName = String((base.isEmpty ? "项目资料" : base).prefix(80)) + ".md"
++            let url = directory.appendingPathComponent(fileName)
++            try Data(text.utf8).write(to: url, options: [.atomic, .completeFileProtection])
++            shareURL = url
++        } catch {
++            saveError = "文字文件没能导出：\(error.localizedDescription)"
++        }
+--- a/QingJian/DeepSeekPocket/Views/SettingsView.swift
++++ b/QingJian/DeepSeekPocket/Views/SettingsView.swift
+@@ -176 +176,4 @@
+-                    Text("Sermo · 1.6.0")
++                    LabeledContent("Sermo", value: installedVersion)
++                    Button {
++                        UIPasteboard.general.string = "Sermo · \(installedVersion)"
++                    } label: { Label("复制版本信息", systemImage: "doc.on.doc") }
+@@ -223,0 +227,6 @@
++    }
++
++    private var installedVersion: String {
++        let version = Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "未知版本"
++        let build = Bundle.main.object(forInfoDictionaryKey: "CFBundleVersion") as? String ?? "未知"
++        return "\(version)（build \(build)）"
+--- a/QingJian/DeepSeekPocket/Views/UsageView.swift
++++ b/QingJian/DeepSeekPocket/Views/UsageView.swift
+@@ -46,0 +47,7 @@
++            NavigationLink {
++                UsageDetailsView(ledger: ledger)
++            } label: {
++                Label("查看明细与导出", systemImage: "list.bullet.rectangle")
++                    .font(TypeScale.serif(14).weight(.semibold))
++            }
++            .padding(.top, 4)
+@@ -139,0 +147,146 @@
++
++// A local view of the existing daily ledger; exporting never sends a request.
++@MainActor
++private struct UsageDetailsView: View {
++    let ledger: UsageLedger
++    @State private var period = UsagePeriod.month
++    @State private var now = Date()
++    @State private var exportURL: URL?
++    @State private var showingExport = false
++    @State private var exportError: String?
++
++    private enum UsagePeriod: String, CaseIterable, Identifiable {
++        case month = "本月", recent = "近30天", all = "全部"
++        var id: String { rawValue }
++    }
++
++    private struct Record: Identifiable {
++        let key: String
++        let usage: DayUsage
++        var id: String { key }
++    }
++
++    private var calendar: Calendar {
++        var value = Calendar(identifier: .gregorian)
++        value.timeZone = .autoupdatingCurrent
++        return value
++    }
++
++    private var records: [Record] {
++        let today = calendar.startOfDay(for: now)
++        let start: Date?
++        switch period {
++        case .month: start = calendar.dateInterval(of: .month, for: today)?.start
++        case .recent: start = calendar.date(byAdding: .day, value: -29, to: today)
++        case .all: start = nil
++        }
++        return ledger.days.compactMap { key, usage -> Record? in
++            let parts = key.split(separator: "-")
++            guard parts.count == 3, let year = Int(parts[0]), let month = Int(parts[1]), let day = Int(parts[2]),
++                  let date = calendar.date(from: DateComponents(year: year, month: month, day: day)),
++                  UsageLedger.key(for: date, calendar: calendar) == key,
++                  date <= today, start.map({ date >= $0 }) ?? true else { return nil }
++            return Record(key: key, usage: usage)
++        }.sorted { $0.key > $1.key }
++    }
++
++    private var total: DayUsage { records.map(\.usage).reduce(DayUsage(), +) }
++
++    var body: some View {
++        List {
++            Section {
++                Picker("日期范围", selection: $period) {
++                    ForEach(UsagePeriod.allCases) { Text($0.rawValue).tag($0) }
++                }
++                .pickerStyle(.segmented)
++                .accessibilityIdentifier("usage-period")
++            }
++            Section("\(period.rawValue)合计") {
++                LabeledContent("总用量", value: "\(total.tokens.formatted()) tokens")
++                LabeledContent("请求数", value: "\(total.requests.formatted()) 次")
++                LabeledContent("估算花费", value: Pricing.label(total.cost))
++                LabeledContent("有记录的日期", value: "\(records.count) 天")
++            }
++            .monospacedDigit()
++            Section {
++                LabeledContent("Flash", value: "\(total.flashTokens.formatted()) tokens")
++                LabeledContent("Pro", value: "\(total.proTokens.formatted()) tokens")
++                LabeledContent("未归类", value: "\(unclassified(total).formatted()) tokens")
++            } header: { Text("模型用量") } footer: {
++                Text("未归类包含 ChatGPT 订阅、独立搜索和未记录模型的旧用量，无法据此分别计费。花费只汇总已有的人民币估算，实际扣费以服务平台为准。")
++            }
++            .monospacedDigit()
++            Section {
++                if records.isEmpty {
++                    ContentUnavailableView("这段时间还没有记录", systemImage: "calendar", description: Text("可以切换到「全部」查看更早的用量。"))
++                } else {
++                    ForEach(records) { record in
++                        VStack(alignment: .leading, spacing: 6) {
++                            HStack {
++                                Text(record.key).fontWeight(.semibold)
++                                Spacer()
++                                Text(Pricing.label(record.usage.cost)).foregroundStyle(Ink.ink2)
++                            }
++                            Text("\(record.usage.tokens.formatted()) tokens · \(record.usage.requests.formatted()) 次请求")
++                                .font(TypeScale.caption).foregroundStyle(Ink.ink3)
++                        }
++                        .monospacedDigit()
++                        .padding(.vertical, 3)
++                    }
++                }
++            } header: { Text("逐日明细") } footer: {
++                Text("按记录时的本地日期统计，仅显示已有记录。导出当前范围的逐日汇总，不含聊天正文、API Key 或登录信息。")
++            }
++            Section {
++                Button(action: exportCSV) { Label("导出当前范围 CSV", systemImage: "square.and.arrow.up") }
++                    .disabled(records.isEmpty)
++                    .accessibilityIdentifier("usage-export-csv")
++            }
++        }
++        .font(TypeScale.body)
++        .scrollContentBackground(.hidden)
++        .background(AppBackground())
++        .listRowBackground(Color.clear)
++        .foregroundStyle(Ink.ink)
++        .tint(Ink.ink)
++        .navigationTitle("用量明细")
++        .navigationBarTitleDisplayMode(.inline)
++        .onAppear { now = Date() }
++        .sheet(isPresented: $showingExport) {
++            if let url = exportURL { ShareSheet(items: [url]) }
++        }
++        .alert("暂时无法导出", isPresented: Binding(get: { exportError != nil }, set: { if !$0 { exportError = nil } })) {
++            Button("知道了") { exportError = nil }
++        } message: { Text(exportError ?? "") }
++    }
++
++    private func unclassified(_ usage: DayUsage) -> Int {
++        max(0, usage.tokens - usage.flashTokens - usage.proTokens)
++    }
++
++    private func exportCSV() {
++        let rows = records
++        guard !rows.isEmpty else { return }
++        let aggregate = rows.map(\.usage).reduce(DayUsage(), +)
++        var lines = ["日期,总 tokens,请求数,估算花费（CNY）,Flash tokens,Pro tokens,未归类 tokens"]
++        lines += rows.reversed().map { csvLine($0.key, usage: $0.usage) }
++        lines.append(csvLine("合计", usage: aggregate))
++        do {
++            let folder = FileManager.default.temporaryDirectory.appendingPathComponent("Sermo-usage-\(UUID().uuidString)", isDirectory: true)
++            try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
++            let day = UsageLedger.key(for: now, calendar: calendar)
++            let url = folder.appendingPathComponent("Sermo-用量-\(period.rawValue)-\(day).csv")
++            // BOM lets Excel recognize Chinese headers; CRLF keeps each day on one row.
++            try ("\u{FEFF}" + lines.joined(separator: "\r\n") + "\r\n").write(to: url, atomically: true, encoding: .utf8)
++            exportURL = url
++            showingExport = true
++        } catch {
++            exportError = "未能生成用量文件：\(error.localizedDescription)"
++        }
++    }
++
++    private func csvLine(_ label: String, usage: DayUsage) -> String {
++        let cost = String(format: "%.6f", locale: Locale(identifier: "en_US_POSIX"), usage.cost)
++        return "\(label),\(usage.tokens),\(usage.requests),\(cost),\(usage.flashTokens),\(usage.proTokens),\(unclassified(usage))"
++    }
++}
+--- a/QingJian/QingJian.xcodeproj/project.pbxproj
++++ b/QingJian/QingJian.xcodeproj/project.pbxproj
+@@ -110 +110 @@
+-		86A46D98C12482E1EF3DC46C = { isa = "XCBuildConfiguration"; buildSettings = { PRODUCT_BUNDLE_IDENTIFIER = "com.xiaolong.qingjian"; PRODUCT_NAME = "DeepSeekPocket"; INFOPLIST_FILE = "DeepSeekPocket/Info.plist"; GENERATE_INFOPLIST_FILE = "NO"; MARKETING_VERSION = "1.18.0"; CURRENT_PROJECT_VERSION = "42"; ASSETCATALOG_COMPILER_APPICON_NAME = "AppIcon"; ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = "AccentColor"; TARGETED_DEVICE_FAMILY = "1,2"; CODE_SIGN_STYLE = "Automatic"; LD_RUNPATH_SEARCH_PATHS = ( "$(inherited)", "@executable_path/Frameworks", ); SUPPORTED_PLATFORMS = "iphoneos iphonesimulator"; SUPPORTS_MACCATALYST = "NO"; SWIFT_EMIT_LOC_STRINGS = "YES"; }; name = "Release"; };
++		86A46D98C12482E1EF3DC46C = { isa = "XCBuildConfiguration"; buildSettings = { PRODUCT_BUNDLE_IDENTIFIER = "com.xiaolong.qingjian"; PRODUCT_NAME = "DeepSeekPocket"; INFOPLIST_FILE = "DeepSeekPocket/Info.plist"; GENERATE_INFOPLIST_FILE = "NO"; MARKETING_VERSION = "1.19.0"; CURRENT_PROJECT_VERSION = "43"; ASSETCATALOG_COMPILER_APPICON_NAME = "AppIcon"; ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = "AccentColor"; TARGETED_DEVICE_FAMILY = "1,2"; CODE_SIGN_STYLE = "Automatic"; LD_RUNPATH_SEARCH_PATHS = ( "$(inherited)", "@executable_path/Frameworks", ); SUPPORTED_PLATFORMS = "iphoneos iphonesimulator"; SUPPORTS_MACCATALYST = "NO"; SWIFT_EMIT_LOC_STRINGS = "YES"; }; name = "Release"; };
+@@ -159 +159 @@
+-		C131AA990408F5A8B287713E = { isa = "XCBuildConfiguration"; buildSettings = { PRODUCT_BUNDLE_IDENTIFIER = "com.xiaolong.qingjian"; PRODUCT_NAME = "DeepSeekPocket"; INFOPLIST_FILE = "DeepSeekPocket/Info.plist"; GENERATE_INFOPLIST_FILE = "NO"; MARKETING_VERSION = "1.18.0"; CURRENT_PROJECT_VERSION = "42"; ASSETCATALOG_COMPILER_APPICON_NAME = "AppIcon"; ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = "AccentColor"; TARGETED_DEVICE_FAMILY = "1,2"; CODE_SIGN_STYLE = "Automatic"; LD_RUNPATH_SEARCH_PATHS = ( "$(inherited)", "@executable_path/Frameworks", ); SUPPORTED_PLATFORMS = "iphoneos iphonesimulator"; SUPPORTS_MACCATALYST = "NO"; SWIFT_EMIT_LOC_STRINGS = "YES"; }; name = "Debug"; };
++		C131AA990408F5A8B287713E = { isa = "XCBuildConfiguration"; buildSettings = { PRODUCT_BUNDLE_IDENTIFIER = "com.xiaolong.qingjian"; PRODUCT_NAME = "DeepSeekPocket"; INFOPLIST_FILE = "DeepSeekPocket/Info.plist"; GENERATE_INFOPLIST_FILE = "NO"; MARKETING_VERSION = "1.19.0"; CURRENT_PROJECT_VERSION = "43"; ASSETCATALOG_COMPILER_APPICON_NAME = "AppIcon"; ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = "AccentColor"; TARGETED_DEVICE_FAMILY = "1,2"; CODE_SIGN_STYLE = "Automatic"; LD_RUNPATH_SEARCH_PATHS = ( "$(inherited)", "@executable_path/Frameworks", ); SUPPORTED_PLATFORMS = "iphoneos iphonesimulator"; SUPPORTS_MACCATALYST = "NO"; SWIFT_EMIT_LOC_STRINGS = "YES"; }; name = "Debug"; };
