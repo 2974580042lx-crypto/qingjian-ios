@@ -132,7 +132,7 @@
          .onAppear {
              guard !prepared else { return }
              prepared = true; originalBrightness = UIScreen.main.brightness
-@@ -140,8 +155,9 @@
+@@ -140,15 +155,18 @@
          }
          .onChange(of: volumeEnabled) { _, value in volumeKeys.configure(enabled: value, reverse: volumeReverse) }
          .onChange(of: volumeReverse) { _, value in volumeKeys.configure(enabled: volumeEnabled, reverse: value) }
@@ -142,9 +142,24 @@
 +        .onChange(of: playScene?.id) { _, _ in volumeKeys.suspended = sheet != nil || playScene != nil || passage != nil }
 +        .onChange(of: passage?.id) { _, _ in volumeKeys.suspended = sheet != nil || playScene != nil || passage != nil }
          .sheet(item: $sheet) { panel in
-             switch panel {
-             case .settings: ReaderSettingsView().environmentObject(volumeKeys)
-@@ -160,45 +176,76 @@
+-            switch panel {
+-            case .settings: ReaderSettingsView().environmentObject(volumeKeys)
+-            case .contents: ReaderContentsView(bookID: bookID, selected: chapter) { c, p in navigate(c, paragraph: p); sheet = nil }
+-            case .bookmarks: ReaderBookmarksView(bookID: bookID) { c, p in navigate(c, paragraph: p); sheet = nil }
+-            case .search: ReaderSearchView(bookID: bookID) { c, p in navigate(c, paragraph: p); sheet = nil }
+-            }
++            Group {
++                switch panel {
++                case .settings: ReaderSettingsView().environmentObject(volumeKeys)
++                case .contents: ReaderContentsView(bookID: bookID, selected: chapter) { c, p in navigate(c, paragraph: p); sheet = nil }
++                case .bookmarks: ReaderBookmarksView(bookID: bookID) { c, p in navigate(c, paragraph: p); sheet = nil }
++                case .search: ReaderSearchView(bookID: bookID) { c, p in navigate(c, paragraph: p); sheet = nil }
++                }
++            }.environment(\.readerAppearance, appearance)
+         }
+         .sheet(item: $playScene) { scene in
+             if let book, let profile = book.profile {
+@@ -160,45 +178,76 @@
      }
      private var controls: some View {
          VStack(spacing: 0) {
@@ -248,7 +263,7 @@
      }
      private func scheduleSave() {
          saveTask?.cancel()
-@@ -253,6 +300,7 @@
+@@ -253,6 +302,7 @@
  
  @MainActor
  struct ReaderSettingsView: View {
@@ -256,7 +271,7 @@
      @EnvironmentObject private var volumeKeys: ReaderVolumeKeys
      @AppStorage("sermo.reader.volumeKeys") private var volumeEnabled = false
      @AppStorage("sermo.reader.volumeReverse") private var volumeReverse = false
-@@ -260,8 +308,8 @@
+@@ -260,8 +310,8 @@
      @AppStorage("sermo.reader.font") private var font = "follow"
      @AppStorage("sermo.reader.size") private var size = 21.0
      @AppStorage("sermo.reader.line") private var line = 8.0
@@ -267,7 +282,7 @@
      @AppStorage("sermo.reader.palette") private var palette = "follow"
      @AppStorage("sermo.reader.mode") private var mode = "scroll"
      @AppStorage("sermo.reader.spread") private var spread = true
-@@ -283,7 +331,7 @@
+@@ -283,7 +333,7 @@
                  Section {
                      Toggle("音量键翻页（兼容模式）", isOn: $volumeEnabled)
                      if volumeEnabled { Toggle("反转上下键", isOn: $volumeReverse) }
@@ -276,7 +291,7 @@
                  } header: { Text("音量键") } footer: {
                      Text("默认音量＋上一页、音量－下一页；滚动模式翻动一屏。只在阅读正文时生效。系统音量也会随按键变化，到最大或最小时继续按同一键可能无法翻页。")
                  }
-@@ -299,24 +347,44 @@
+@@ -299,24 +349,44 @@
                      Toggle("首行缩进两字", isOn: $indent)
                  }
                  Section("阅读纸色") {
@@ -329,7 +344,7 @@
              Slider(value: value, in: range, step: 1).accessibilityLabel(label)
          }
      }
-@@ -324,6 +392,7 @@
+@@ -324,6 +394,7 @@
  
  @MainActor
  struct ReaderContentsView: View {
@@ -337,7 +352,7 @@
      @EnvironmentObject private var books: BookStore
      @Environment(\.dismiss) private var dismiss
      let bookID: UUID
-@@ -338,10 +407,10 @@
+@@ -338,10 +409,10 @@
                          if search.isEmpty || title.localizedCaseInsensitiveContains(search) {
                              Button { jump(index, 0) } label: {
                                  HStack(alignment: .firstTextBaseline, spacing: 12) {
@@ -351,7 +366,7 @@
                                  }
                              }.id(index)
                          }
-@@ -349,14 +418,16 @@
+@@ -349,14 +420,16 @@
                  }.onAppear { proxy.scrollTo(selected, anchor: .center) }
              }
              .searchable(text: $search, prompt: "搜索章节")
@@ -370,7 +385,7 @@
      @EnvironmentObject private var books: BookStore
      @Environment(\.dismiss) private var dismiss
      let bookID: UUID
-@@ -365,20 +436,21 @@
+@@ -365,20 +438,21 @@
          NavigationStack {
              List {
                  let marks = books.book(bookID)?.readerMarks ?? []
@@ -398,7 +413,7 @@
      }
  }
  
-@@ -391,6 +463,7 @@
+@@ -391,6 +465,7 @@
  
  @MainActor
  struct ReaderSearchView: View {
@@ -406,7 +421,7 @@
      @EnvironmentObject private var books: BookStore
      @Environment(\.dismiss) private var dismiss
      let bookID: UUID
-@@ -402,20 +475,20 @@
+@@ -402,20 +477,20 @@
          NavigationStack {
              List {
                  if searching { ProgressView("正在本地查找…") }
@@ -433,7 +448,7 @@
              .toolbar { Button("完成") { dismiss() } }
              .task(id: query) {
                  let term = query.trimmingCharacters(in: .whitespacesAndNewlines)
-@@ -443,7 +516,8 @@
+@@ -443,7 +518,8 @@
                  guard !Task.isCancelled else { return }
                  results = found; searching = false
              }
@@ -443,7 +458,7 @@
      }
  }
  
-@@ -463,3 +537,102 @@
+@@ -463,3 +539,102 @@
      }
  }
  
@@ -691,7 +706,13 @@
          }
          changingLayout = false
      }
-@@ -312,15 +348,9 @@
+@@ -307,20 +343,15 @@
+         guard gesture.state == .began, let text = gesture.view as? UITextView, document.length > 0 else { return }
+         let point = gesture.location(in: text)
+         let local = CGPoint(x: point.x - text.textContainerInset.left, y: point.y - text.textContainerInset.top)
++        guard local.y >= 0, text.layoutManager.numberOfGlyphs > 0 else { return }
+         let glyph = text.layoutManager.glyphIndex(for: local, in: text.textContainer)
+         let char = text.layoutManager.characterIndexForGlyph(at: min(glyph, max(0, text.layoutManager.numberOfGlyphs - 1)))
          let absolute = min(document.length - 1, char + (pageStarts[ObjectIdentifier(text)] ?? 0))
          let paragraph = document.paragraph(at: absolute)
          guard document.paragraphs.indices.contains(paragraph) else { return }
@@ -710,7 +731,7 @@
      func scrollViewDidScroll(_ scrollView: UIScrollView) {
          if scrollView === horizontal { showNearby() }
          reportPosition(force: false)
-@@ -346,7 +376,7 @@
+@@ -346,7 +377,7 @@
              moved?(anchor, spread + 1, max(1, (pages.count + columns - 1) / columns))
          } else {
              guard vertical.layoutManager.numberOfGlyphs > 0 else { moved?(0, 1, 1); return }
@@ -721,432 +742,21 @@
              moved?(anchor, 0, 0)
 --- a/QingJian/QingJian.xcodeproj/project.pbxproj
 +++ b/QingJian/QingJian.xcodeproj/project.pbxproj
-@@ -1,214 +1,214 @@
--// !$*UTF8*$!
--{
--	archiveVersion = 1;
--	classes = {};
--	objectVersion = 56;
--	objects = {
--		00D8CF4642795E39ACCADFD1 = { isa = "PBXFileReference"; lastKnownFileType = "sourcecode.swift"; path = "DeepSeekPocket/Core/HighlightHex.swift"; sourceTree = "SOURCE_ROOT"; };
--		013A200081DDFA129E024241 = { isa = "PBXBuildFile"; fileRef = "C7B5A2A8067AD2778E7DFC27"; };
--		014292AAA8BB8AB00EA13508 = { isa = "PBXBuildFile"; fileRef = "66C6786FD14B357C617200EA"; };
--		063FEBB10611D214D2399967 = { isa = "PBXFileReference"; lastKnownFileType = "sourcecode.swift"; path = "DeepSeekPocket/Services/KeychainStore.swift"; sourceTree = "SOURCE_ROOT"; };
--		086CDA6F68B1B5AD31D43829 = { isa = "PBXFileReference"; lastKnownFileType = "sourcecode.swift"; path = "DeepSeekPocket/Core/ChatProtocol.swift"; sourceTree = "SOURCE_ROOT"; };
--		094C3E3EB09428AAEE56F120 = { isa = "PBXFileReference"; lastKnownFileType = "sourcecode.swift"; path = "DeepSeekPocket/QingJianApp.swift"; sourceTree = "SOURCE_ROOT"; };
--		0BA7C9F5FA8508621EACC596 = { isa = "PBXBuildFile"; fileRef = "845ECD744C27640FC0E6C3BE"; };
--		0CBEED5B5A349A63CE11CFA6 = { isa = "PBXBuildFile"; fileRef = "A0C36F214349A4024DA16F0B"; };
--		0CC0A6383A15174D7C9F9702 = { isa = "PBXFileReference"; lastKnownFileType = "sourcecode.swift"; path = "DeepSeekPocket/Views/ChatConnectionTestView.swift"; sourceTree = "SOURCE_ROOT"; };
--		0D25A9A11793BE91427A3D7D = { isa = "PBXGroup"; children = ( "BA82B5D5902FD5D83C01B5D9", "A1BAEE5F47ADE2787F688212", "23C8840CB93C92C84773A259", "FD74A26728B90EEDF0289739", "5F2BA8CB38D38142769293B0", "B6AE52DDC1C5CBA92CD28A43", "7BEFAE98F099D42E86AFCE2F", "92D5DE561F6D6344F4F1E849", "086CDA6F68B1B5AD31D43829", "345D74DD50A3314087A530B8", "548103644044DDF7B2911E26", "DDB66D1025589264C189D898", "54FF733A5B7ACBFD6776F557", "50118F9B93B4FBE19611394C", "1D1F67BC893A430FB3847CD2", "845ECD744C27640FC0E6C3BE", "D9AAFC2AA60035AE48399289", "66C64B061717612F0CE8B1A8", "00D8CF4642795E39ACCADFD1", "72FA68DF57F2D70F1E5A0638", "FC6B172857114F4E30B4F727", "FC192FF984009EFE924DF27C", "44FD3E8A4D7D0C5796409F45", "93BD463C99712EC6B71C9B25", "B7FACC675FCEA1EA7607D847", "FB6ADA06E8FE26751C48D7EC", "5F9FB4D1A16CECC89A97F23F", "531D661A4BF1AB0F96CD354D", "B52B5536BEEA5535FC6C5CC5", "D3E3BBB1101A11CA28FB4C79", "9F24E094D2EAF557E9505734", "7129BCFD12E8630ED14571FE", "2A5703C0962491E211B88DF0", "16855DA320ABA3F12B25F4F6", "973EB79B3C8EAC5EF2205A8C", "49F32A6687CDAA14DCF065B0", "8B37FFF4CB7BE1135BD14ACD", "094C3E3EB09428AAEE56F120", "AD92BA6DC4001011664987DD", "66C6786FD14B357C617200EA", "98CA89B300D05FAB1C0A165B", "72BB5DB29666265C05EF806D", "5102D1229EDEDE7DD1805ED1", "48B681429152B286258D24C5", "E8ECF3B1EE37473287E90555", "9B51D9445C18E97AAE0517EB", "063FEBB10611D214D2399967", "1C4B28E4FD7873262DF7A812", "7904190125DA8DD29BF99CDB", "39F9C2B4BC13DE9D1B7A0828", "6C4714B23764E9468AB107AA", "FF1F92A5772CD6C2220F3CD7", "F3F3A92718A75943C2F8CA78", "0CC0A6383A15174D7C9F9702", "95BAB71F9CB1DEB93C0F8533", "21A2F8D84CD9124CC9645933", "C93ECEBE886357B59681D1FA", "C7B5A2A8067AD2778E7DFC27", "66D8472F4A968E0F4F2F7218", "41FAC8D62982AC0FBB5502B1", "F90101C27E9790F534D72698", "F44A0164865FBFB081630EA8", "F86D2500D0147860A94850A2", "AAE9D7A34AB701355C8069DD", "926DD3AEA52C59A65D5C926C", "62CCD59D7AA2006A4CBACE95", "D6B647D5B29452553C8EF1BC", "178DF27EB53631744F9BA2BD", "35DBD1C095E4C5EAEFFDF230", "8C6280633D259F66427E2288", "BD0345E57D029730BA2C6C0F", "4651FC8E0770D946922382DD", "EDCA7BAC8FB04D1994C0047E", "C4BF254EBAFEB4755D037451", "145471E1190983B0C2FED779", "42CC3A23349A29CD3B9B13B7", "40D1773EBB20645E76A2BD2C", "666D5A120EA1400EA50FE685", "D6456752316CA8F0F4B9E303", "9AC3B5AD93CBC0305C62F78F", "BD12731D7BC9B843D8523E65", "A7A1263DA7F96EFDF23924DF", "D1AB79AE04F0E5061CAD8E66", "98A9397B71FC018A86B6A9CF", "7B7741279B4DDFE50C3CB56D", "5A6EB7F92D195E7AEE28EEB7", "E1EF6CA3533AB8263E7B820C", "A0C36F214349A4024DA16F0B", "0E8330815093FF36160824F6", ); name = "App"; sourceTree = "<group>"; };
--		0E8330815093FF36160824F6 = { isa = "PBXFileReference"; lastKnownFileType = "sourcecode.swift"; path = "UITests/NavigationUITests.swift"; sourceTree = "SOURCE_ROOT"; };
--		0EC4668D1A56EAD4350FFE9F = { isa = "PBXBuildFile"; fileRef = "5F9FB4D1A16CECC89A97F23F"; };
--		0F1AB7060410FF4D6A6E4245 = { isa = "PBXBuildFile"; fileRef = "C93ECEBE886357B59681D1FA"; };
--		10146A7A8B3BF4AB38D4A8FB = { isa = "XCSwiftPackageProductDependency"; package = "B8078308CC38995CEA1C768A"; productName = "JWTKit"; };
--		14004662B30440DD39B2FD3D = { isa = "PBXBuildFile"; fileRef = "8C6280633D259F66427E2288"; };
--		145471E1190983B0C2FED779 = { isa = "PBXFileReference"; lastKnownFileType = "sourcecode.swift"; path = "DeepSeekPocket/Views/SubscriptionSettingsSection.swift"; sourceTree = "SOURCE_ROOT"; };
--		16855DA320ABA3F12B25F4F6 = { isa = "PBXFileReference"; lastKnownFileType = "sourcecode.swift"; path = "DeepSeekPocket/Core/ToolCalling.swift"; sourceTree = "SOURCE_ROOT"; };
--		178DF27EB53631744F9BA2BD = { isa = "PBXFileReference"; lastKnownFileType = "sourcecode.swift"; path = "DeepSeekPocket/Views/ProjectsView.swift"; sourceTree = "SOURCE_ROOT"; };
--		1845C5AD066558E7144B7A6E = { isa = "PBXBuildFile"; fileRef = "1D1F67BC893A430FB3847CD2"; };
--		18781602F2DAC47C56D28606 = { isa = "PBXBuildFile"; fileRef = "7129BCFD12E8630ED14571FE"; };
--		1C4B28E4FD7873262DF7A812 = { isa = "PBXFileReference"; lastKnownFileType = "sourcecode.swift"; path = "DeepSeekPocket/Services/SubscriptionHTTP.swift"; sourceTree = "SOURCE_ROOT"; };
--		1D1F67BC893A430FB3847CD2 = { isa = "PBXFileReference"; lastKnownFileType = "sourcecode.swift"; path = "DeepSeekPocket/Core/Epub.swift"; sourceTree = "SOURCE_ROOT"; };
--		21A2F8D84CD9124CC9645933 = { isa = "PBXFileReference"; lastKnownFileType = "sourcecode.swift"; path = "DeepSeekPocket/Views/DocumentPicker.swift"; sourceTree = "SOURCE_ROOT"; };
--		23C8840CB93C92C84773A259 = { isa = "PBXFileReference"; lastKnownFileType = "sourcecode.swift"; path = "DeepSeekPocket/Core/AppManual.swift"; sourceTree = "SOURCE_ROOT"; };
--		2641567C8C0322C33318455F = { isa = "PBXBuildFile"; fileRef = "531D661A4BF1AB0F96CD354D"; };
--		268CBE1AF5194DBF401BFB20 = { isa = "XCConfigurationList"; buildConfigurations = ( "C131AA990408F5A8B287713E", "86A46D98C12482E1EF3DC46C", ); defaultConfigurationIsVisible = 0; defaultConfigurationName = "Release"; };
--		28EA6468023058069802F2EB = { isa = "PBXBuildFile"; fileRef = "98A9397B71FC018A86B6A9CF"; };
--		2A5703C0962491E211B88DF0 = { isa = "PBXFileReference"; lastKnownFileType = "sourcecode.swift"; path = "DeepSeekPocket/Core/SubscriptionProtocol.swift"; sourceTree = "SOURCE_ROOT"; };
--		2DBA81CFAB963C38BD67BAAB = { isa = "PBXBuildFile"; fileRef = "F44A0164865FBFB081630EA8"; };
--		3248447040E933CB13B916AD = { isa = "PBXBuildFile"; fileRef = "548103644044DDF7B2911E26"; };
--		345D74DD50A3314087A530B8 = { isa = "PBXFileReference"; lastKnownFileType = "sourcecode.swift"; path = "DeepSeekPocket/Core/ChatStreamProgress.swift"; sourceTree = "SOURCE_ROOT"; };
--		3563E1CA6E8BD48C822B8C2B = { isa = "PBXBuildFile"; fileRef = "6C4714B23764E9468AB107AA"; };
--		35DBD1C095E4C5EAEFFDF230 = { isa = "PBXFileReference"; lastKnownFileType = "sourcecode.swift"; path = "DeepSeekPocket/Views/ReaderVolumeKeys.swift"; sourceTree = "SOURCE_ROOT"; };
--		36AC5AEEFF9F752936F195D9 = { isa = "PBXBuildFile"; fileRef = "D6456752316CA8F0F4B9E303"; };
--		3819C361B7DC7B77A28862B2 = { isa = "PBXBuildFile"; fileRef = "5F2BA8CB38D38142769293B0"; };
--		38CD29483D7413C09C3F9B7F = { isa = "PBXBuildFile"; fileRef = "A7A1263DA7F96EFDF23924DF"; };
--		39F9C2B4BC13DE9D1B7A0828 = { isa = "PBXFileReference"; lastKnownFileType = "sourcecode.swift"; path = "DeepSeekPocket/Services/SubscriptionStore.swift"; sourceTree = "SOURCE_ROOT"; };
--		3AF1148164389B2CC77540CD = { isa = "PBXBuildFile"; fileRef = "F3F3A92718A75943C2F8CA78"; };
--		3C05BEEE7303EE3FA7B250FA = { isa = "XCConfigurationList"; buildConfigurations = ( "5AF4ED5F6E2EA1D4B91E386E", "3D6B24BD8575F8B6B236FC9D", ); defaultConfigurationIsVisible = 0; defaultConfigurationName = "Release"; };
--		3D2F39C11C18228DFD26B4A3 = { isa = "PBXBuildFile"; fileRef = "E8ECF3B1EE37473287E90555"; };
--		3D6B24BD8575F8B6B236FC9D = { isa = "XCBuildConfiguration"; buildSettings = { CLANG_ENABLE_MODULES = "YES"; CLANG_ENABLE_OBJC_ARC = "YES"; IPHONEOS_DEPLOYMENT_TARGET = "26.0"; SDKROOT = "iphoneos"; SWIFT_VERSION = "5.0"; SWIFT_STRICT_CONCURRENCY = "targeted"; ENABLE_USER_SCRIPT_SANDBOXING = "YES"; DEBUG_INFORMATION_FORMAT = "dwarf-with-dsym"; SWIFT_OPTIMIZATION_LEVEL = "-O"; GCC_PREPROCESSOR_DEFINITIONS = ( "$(inherited)", ); }; name = "Release"; };
--		3E0D35CAE80749D7F5FB6D13 = { isa = "PBXBuildFile"; fileRef = "98CA89B300D05FAB1C0A165B"; };
--		3EC0A14FC47CAC7393C3CFC5 = { isa = "PBXBuildFile"; fileRef = "345D74DD50A3314087A530B8"; };
--		3F452BEF31103F0C30FEFFE2 = { isa = "PBXBuildFile"; fileRef = "C4BF254EBAFEB4755D037451"; };
--		40D1773EBB20645E76A2BD2C = { isa = "PBXFileReference"; lastKnownFileType = "sourcecode.swift"; path = "DeepSeekPocket/Views/ToolViews.swift"; sourceTree = "SOURCE_ROOT"; };
--		4186E26C097F90A818146EA1 = { isa = "PBXBuildFile"; fileRef = "1C4B28E4FD7873262DF7A812"; };
--		41FAC8D62982AC0FBB5502B1 = { isa = "PBXFileReference"; lastKnownFileType = "sourcecode.swift"; path = "DeepSeekPocket/Views/HistoryView.swift"; sourceTree = "SOURCE_ROOT"; };
--		42CC3A23349A29CD3B9B13B7 = { isa = "PBXFileReference"; lastKnownFileType = "sourcecode.swift"; path = "DeepSeekPocket/Views/ToolSettingsSections.swift"; sourceTree = "SOURCE_ROOT"; };
--		4337AA19FF78732FCFC05268 = { isa = "XCConfigurationList"; buildConfigurations = ( "7F316CD55831600CFEC8032B", "D61504B3E2AD3EC7347CDBFD", ); defaultConfigurationIsVisible = 0; defaultConfigurationName = "Debug"; };
--		43C7B65820360906F420796E = { isa = "PBXBuildFile"; fileRef = "5102D1229EDEDE7DD1805ED1"; };
--		44B8EB12DD9DE929E91EF2CF = { isa = "PBXBuildFile"; fileRef = "178DF27EB53631744F9BA2BD"; };
--		44FD3E8A4D7D0C5796409F45 = { isa = "PBXFileReference"; lastKnownFileType = "sourcecode.swift"; path = "DeepSeekPocket/Core/Models.swift"; sourceTree = "SOURCE_ROOT"; };
--		4651FC8E0770D946922382DD = { isa = "PBXFileReference"; lastKnownFileType = "sourcecode.swift"; path = "DeepSeekPocket/Views/SidebarPan.swift"; sourceTree = "SOURCE_ROOT"; };
--		48B681429152B286258D24C5 = { isa = "PBXFileReference"; lastKnownFileType = "sourcecode.swift"; path = "DeepSeekPocket/Services/GitHubClient.swift"; sourceTree = "SOURCE_ROOT"; };
--		49F32A6687CDAA14DCF065B0 = { isa = "PBXFileReference"; lastKnownFileType = "sourcecode.swift"; path = "DeepSeekPocket/Core/WebPages.swift"; sourceTree = "SOURCE_ROOT"; };
--		4C67B3A8644B4131323338F4 = { isa = "PBXBuildFile"; fileRef = "FC6B172857114F4E30B4F727"; };
--		4ED35644D2543696A1034554 = { isa = "PBXFileReference"; explicitFileType = "wrapper.cfbundle"; includeInIndex = 0; path = "QingJianUITests.xctest"; sourceTree = "BUILT_PRODUCTS_DIR"; };
--		4EDC8BFAFC6BD936B849F38C = { isa = "PBXGroup"; children = ( "FB9EF894175C327470F768D9", "4ED35644D2543696A1034554", ); name = "Products"; sourceTree = "<group>"; };
--		4FBDFDCFC3CFFD142126E109 = { isa = "PBXBuildFile"; fileRef = "094C3E3EB09428AAEE56F120"; };
--		50118F9B93B4FBE19611394C = { isa = "PBXFileReference"; lastKnownFileType = "sourcecode.swift"; path = "DeepSeekPocket/Core/DriveTools.swift"; sourceTree = "SOURCE_ROOT"; };
--		5102D1229EDEDE7DD1805ED1 = { isa = "PBXFileReference"; lastKnownFileType = "sourcecode.swift"; path = "DeepSeekPocket/Services/FontLibrary.swift"; sourceTree = "SOURCE_ROOT"; };
--		52A966A000CFCE4A907042FB = { isa = "PBXNativeTarget"; buildConfigurationList = "4337AA19FF78732FCFC05268"; buildPhases = ( "ED158573A061B231C0A453CC", "759B9AA7EC9C7FA58FA8BD3B", "E323CC18207F69BBC446367A", ); buildRules = (  ); dependencies = ( "7DF141D821033A3120190D37", ); name = "QingJianUITests"; productName = "QingJianUITests"; productReference = "4ED35644D2543696A1034554"; productType = "com.apple.product-type.bundle.ui-testing"; };
--		531D661A4BF1AB0F96CD354D = { isa = "PBXFileReference"; lastKnownFileType = "sourcecode.swift"; path = "DeepSeekPocket/Core/PublicWebAddress.swift"; sourceTree = "SOURCE_ROOT"; };
--		53C8AF5B49804551DD1C4276 = { isa = "PBXBuildFile"; fileRef = "35DBD1C095E4C5EAEFFDF230"; };
--		548103644044DDF7B2911E26 = { isa = "PBXFileReference"; lastKnownFileType = "sourcecode.swift"; path = "DeepSeekPocket/Core/ConversationEditing.swift"; sourceTree = "SOURCE_ROOT"; };
--		54FF733A5B7ACBFD6776F557 = { isa = "PBXFileReference"; lastKnownFileType = "sourcecode.swift"; path = "DeepSeekPocket/Core/Dialogue.swift"; sourceTree = "SOURCE_ROOT"; };
--		555C32303FEC01FE5E890101 = { isa = "PBXBuildFile"; fileRef = "D9AAFC2AA60035AE48399289"; };
--		56F9015EE386D8F5ED234311 = { isa = "PBXBuildFile"; fileRef = "EDCA7BAC8FB04D1994C0047E"; };
--		599445434071846A03BA3ED1 = { isa = "PBXBuildFile"; fileRef = "66C64B061717612F0CE8B1A8"; };
--		5A6EB7F92D195E7AEE28EEB7 = { isa = "PBXFileReference"; lastKnownFileType = "file"; path = "DeepSeekPocket/Resources/NotoSerifSC-Regular.otf"; sourceTree = "SOURCE_ROOT"; };
--		5AF4ED5F6E2EA1D4B91E386E = { isa = "XCBuildConfiguration"; buildSettings = { CLANG_ENABLE_MODULES = "YES"; CLANG_ENABLE_OBJC_ARC = "YES"; IPHONEOS_DEPLOYMENT_TARGET = "26.0"; SDKROOT = "iphoneos"; SWIFT_VERSION = "5.0"; SWIFT_STRICT_CONCURRENCY = "targeted"; ENABLE_USER_SCRIPT_SANDBOXING = "YES"; DEBUG_INFORMATION_FORMAT = "dwarf"; SWIFT_OPTIMIZATION_LEVEL = "-Onone"; GCC_PREPROCESSOR_DEFINITIONS = ( "$(inherited)", "DEBUG=1", ); ENABLE_TESTABILITY = "YES"; SWIFT_ACTIVE_COMPILATION_CONDITIONS = "DEBUG"; }; name = "Debug"; };
--		5C2F81BA0DCABB1C947E8ADD = { isa = "PBXBuildFile"; fileRef = "086CDA6F68B1B5AD31D43829"; };
--		5F2BA8CB38D38142769293B0 = { isa = "PBXFileReference"; lastKnownFileType = "sourcecode.swift"; path = "DeepSeekPocket/Core/BookReading.swift"; sourceTree = "SOURCE_ROOT"; };
--		5F9FB4D1A16CECC89A97F23F = { isa = "PBXFileReference"; lastKnownFileType = "sourcecode.swift"; path = "DeepSeekPocket/Core/PromptVariables.swift"; sourceTree = "SOURCE_ROOT"; };
--		61DB8ED7A72CB549987256AB = { isa = "PBXBuildFile"; fileRef = "D6B647D5B29452553C8EF1BC"; };
--		62CCD59D7AA2006A4CBACE95 = { isa = "PBXFileReference"; lastKnownFileType = "sourcecode.swift"; path = "DeepSeekPocket/Views/NovelReaderCanvas.swift"; sourceTree = "SOURCE_ROOT"; };
--		6335A3ABBB0B66D5D0420B9E = { isa = "PBXBuildFile"; fileRef = "B7FACC675FCEA1EA7607D847"; };
--		635B5ADE4A5E7F06D6C91A6C = { isa = "PBXBuildFile"; fileRef = "44FD3E8A4D7D0C5796409F45"; };
--		666D5A120EA1400EA50FE685 = { isa = "PBXFileReference"; lastKnownFileType = "sourcecode.swift"; path = "DeepSeekPocket/Views/UsageView.swift"; sourceTree = "SOURCE_ROOT"; };
--		66C64B061717612F0CE8B1A8 = { isa = "PBXFileReference"; lastKnownFileType = "sourcecode.swift"; path = "DeepSeekPocket/Core/GoogleRefreshTask.swift"; sourceTree = "SOURCE_ROOT"; };
--		66C6786FD14B357C617200EA = { isa = "PBXFileReference"; lastKnownFileType = "sourcecode.swift"; path = "DeepSeekPocket/Services/BackupFolder.swift"; sourceTree = "SOURCE_ROOT"; };
--		66D8472F4A968E0F4F2F7218 = { isa = "PBXFileReference"; lastKnownFileType = "sourcecode.swift"; path = "DeepSeekPocket/Views/HighlightMarker.swift"; sourceTree = "SOURCE_ROOT"; };
--		69C3F2F333D2E2B3A3F24FF1 = { isa = "PBXBuildFile"; fileRef = "7B7741279B4DDFE50C3CB56D"; };
--		6AD311ADCA667A1D74A87613 = { isa = "PBXBuildFile"; fileRef = "FB6ADA06E8FE26751C48D7EC"; };
--		6C4714B23764E9468AB107AA = { isa = "PBXFileReference"; lastKnownFileType = "sourcecode.swift"; path = "DeepSeekPocket/Views/AppTheme.swift"; sourceTree = "SOURCE_ROOT"; };
--		7129BCFD12E8630ED14571FE = { isa = "PBXFileReference"; lastKnownFileType = "sourcecode.swift"; path = "DeepSeekPocket/Core/StoryPrompt.swift"; sourceTree = "SOURCE_ROOT"; };
--		720570CFEE65A21BDA860D46 = { isa = "PBXBuildFile"; fileRef = "9B51D9445C18E97AAE0517EB"; };
--		72AFE7DB75131F9CD4DAE2C5 = { isa = "PBXBuildFile"; fileRef = "BD0345E57D029730BA2C6C0F"; };
--		72BB5DB29666265C05EF806D = { isa = "PBXFileReference"; lastKnownFileType = "sourcecode.swift"; path = "DeepSeekPocket/Services/DeepSeekClient.swift"; sourceTree = "SOURCE_ROOT"; };
--		72FA68DF57F2D70F1E5A0638 = { isa = "PBXFileReference"; lastKnownFileType = "sourcecode.swift"; path = "DeepSeekPocket/Core/HighlightMarks.swift"; sourceTree = "SOURCE_ROOT"; };
--		75981805E17934BCC1B71965 = { isa = "PBXBuildFile"; fileRef = "F86D2500D0147860A94850A2"; };
--		759B9AA7EC9C7FA58FA8BD3B = { isa = "PBXFrameworksBuildPhase"; buildActionMask = 2147483647; files = (  ); runOnlyForDeploymentPostprocessing = 0; };
--		77394EDED1F7CF17C1F2512B = { isa = "PBXBuildFile"; fileRef = "21A2F8D84CD9124CC9645933"; };
--		7904190125DA8DD29BF99CDB = { isa = "PBXFileReference"; lastKnownFileType = "sourcecode.swift"; path = "DeepSeekPocket/Services/SubscriptionLoopback.swift"; sourceTree = "SOURCE_ROOT"; };
--		7B5B5297E38CBC81C550A88F = { isa = "PBXBuildFile"; fileRef = "66D8472F4A968E0F4F2F7218"; };
--		7B7741279B4DDFE50C3CB56D = { isa = "PBXFileReference"; lastKnownFileType = "file"; path = "DeepSeekPocket/Resources/NotoSerifSC-Bold.otf"; sourceTree = "SOURCE_ROOT"; };
--		7BEFAE98F099D42E86AFCE2F = { isa = "PBXFileReference"; lastKnownFileType = "sourcecode.swift"; path = "DeepSeekPocket/Core/Books.swift"; sourceTree = "SOURCE_ROOT"; };
--		7DF141D821033A3120190D37 = { isa = "PBXTargetDependency"; target = "978354DB0C00FC78C3A5524F"; targetProxy = "E46E7597BF87BCC4D6F7D139"; };
--		7F316CD55831600CFEC8032B = { isa = "XCBuildConfiguration"; name = "Debug"; buildSettings = { PRODUCT_BUNDLE_IDENTIFIER = "com.xiaolong.qingjian.uitests"; PRODUCT_NAME = "QingJianUITests"; GENERATE_INFOPLIST_FILE = "YES"; TEST_TARGET_NAME = "QingJian"; TARGETED_DEVICE_FAMILY = "1,2"; CODE_SIGNING_ALLOWED = "NO"; LD_RUNPATH_SEARCH_PATHS = ( "$(inherited)", "@executable_path/Frameworks", "@loader_path/Frameworks", ); }; };
--		8216719DC2925895D3795135 = { isa = "PBXBuildFile"; fileRef = "666D5A120EA1400EA50FE685"; };
--		82FA67131BBD396F86E2116A = { isa = "PBXBuildFile"; fileRef = "FD74A26728B90EEDF0289739"; };
--		83A2F5A6AC45B5491E1C720F = { isa = "PBXBuildFile"; fileRef = "7904190125DA8DD29BF99CDB"; };
--		845ECD744C27640FC0E6C3BE = { isa = "PBXFileReference"; lastKnownFileType = "sourcecode.swift"; path = "DeepSeekPocket/Core/GitHubTools.swift"; sourceTree = "SOURCE_ROOT"; };
+@@ -107,7 +107,7 @@
+ 		82FA67131BBD396F86E2116A = { isa = "PBXBuildFile"; fileRef = "FD74A26728B90EEDF0289739"; };
+ 		83A2F5A6AC45B5491E1C720F = { isa = "PBXBuildFile"; fileRef = "7904190125DA8DD29BF99CDB"; };
+ 		845ECD744C27640FC0E6C3BE = { isa = "PBXFileReference"; lastKnownFileType = "sourcecode.swift"; path = "DeepSeekPocket/Core/GitHubTools.swift"; sourceTree = "SOURCE_ROOT"; };
 -		86A46D98C12482E1EF3DC46C = { isa = "XCBuildConfiguration"; buildSettings = { PRODUCT_BUNDLE_IDENTIFIER = "com.xiaolong.qingjian"; PRODUCT_NAME = "DeepSeekPocket"; INFOPLIST_FILE = "DeepSeekPocket/Info.plist"; GENERATE_INFOPLIST_FILE = "NO"; MARKETING_VERSION = "1.16.0"; CURRENT_PROJECT_VERSION = "40"; ASSETCATALOG_COMPILER_APPICON_NAME = "AppIcon"; ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = "AccentColor"; TARGETED_DEVICE_FAMILY = "1,2"; CODE_SIGN_STYLE = "Automatic"; LD_RUNPATH_SEARCH_PATHS = ( "$(inherited)", "@executable_path/Frameworks", ); SUPPORTED_PLATFORMS = "iphoneos iphonesimulator"; SUPPORTS_MACCATALYST = "NO"; SWIFT_EMIT_LOC_STRINGS = "YES"; }; name = "Release"; };
--		8B37FFF4CB7BE1135BD14ACD = { isa = "PBXFileReference"; lastKnownFileType = "sourcecode.swift"; path = "DeepSeekPocket/Core/WebSearch.swift"; sourceTree = "SOURCE_ROOT"; };
--		8BDCEEA2EB43FC91018F696F = { isa = "PBXBuildFile"; fileRef = "FF1F92A5772CD6C2220F3CD7"; };
--		8C6280633D259F66427E2288 = { isa = "PBXFileReference"; lastKnownFileType = "sourcecode.swift"; path = "DeepSeekPocket/Views/ReasoningView.swift"; sourceTree = "SOURCE_ROOT"; };
--		8DC8B347FABBF6896F349134 = { isa = "PBXBuildFile"; fileRef = "145471E1190983B0C2FED779"; };
--		8EBF55DF7A23747C523905AF = { isa = "PBXBuildFile"; fileRef = "B6AE52DDC1C5CBA92CD28A43"; };
--		8FA7AFBAD5313C05CC0951BD = { isa = "PBXBuildFile"; fileRef = "BD12731D7BC9B843D8523E65"; };
--		8FA7E3DF6C6F91D1C46B5352 = { isa = "PBXBuildFile"; fileRef = "AAE9D7A34AB701355C8069DD"; };
--		91CA4F5122CF851CBABC1631 = { isa = "PBXBuildFile"; fileRef = "063FEBB10611D214D2399967"; };
--		9232B0427C6E459FD6AF875B = { isa = "PBXBuildFile"; fileRef = "62CCD59D7AA2006A4CBACE95"; };
--		926DD3AEA52C59A65D5C926C = { isa = "PBXFileReference"; lastKnownFileType = "sourcecode.swift"; path = "DeepSeekPocket/Views/LocalNovelReader.swift"; sourceTree = "SOURCE_ROOT"; };
--		92D5DE561F6D6344F4F1E849 = { isa = "PBXFileReference"; lastKnownFileType = "sourcecode.swift"; path = "DeepSeekPocket/Core/CanonPlan.swift"; sourceTree = "SOURCE_ROOT"; };
--		93BD463C99712EC6B71C9B25 = { isa = "PBXFileReference"; lastKnownFileType = "sourcecode.swift"; path = "DeepSeekPocket/Core/PeakHours.swift"; sourceTree = "SOURCE_ROOT"; };
--		93C55804D0A002E6F50CC03A = { isa = "PBXBuildFile"; fileRef = "DDB66D1025589264C189D898"; };
--		95BAB71F9CB1DEB93C0F8533 = { isa = "PBXFileReference"; lastKnownFileType = "sourcecode.swift"; path = "DeepSeekPocket/Views/ContentView.swift"; sourceTree = "SOURCE_ROOT"; };
--		973EB79B3C8EAC5EF2205A8C = { isa = "PBXFileReference"; lastKnownFileType = "sourcecode.swift"; path = "DeepSeekPocket/Core/UsageLedger.swift"; sourceTree = "SOURCE_ROOT"; };
--		978354DB0C00FC78C3A5524F = { isa = "PBXNativeTarget"; buildConfigurationList = "268CBE1AF5194DBF401BFB20"; buildPhases = ( "CAF85B0888D78F1F83771A07", "CAFD6B725820BD8EFB592E21", "E89B30AA1DC30A6AD8C34610", ); buildRules = (  ); dependencies = (  ); name = "QingJian"; productName = "DeepSeekPocket"; productReference = "FB9EF894175C327470F768D9"; productType = "com.apple.product-type.application"; packageProductDependencies = ( "10146A7A8B3BF4AB38D4A8FB", ); };
--		97A63A01E61FD439E8760B8E = { isa = "PBXGroup"; children = ( "0D25A9A11793BE91427A3D7D", "4EDC8BFAFC6BD936B849F38C", ); sourceTree = "<group>"; };
--		985959785319747668373CC6 = { isa = "PBXProject"; attributes = { LastUpgradeCheck = "1600"; LastSwiftUpdateCheck = "1600"; TargetAttributes = { 978354DB0C00FC78C3A5524F = { CreatedOnToolsVersion = "16.0"; }; 52A966A000CFCE4A907042FB = { CreatedOnToolsVersion = "26.0"; TestTargetID = "978354DB0C00FC78C3A5524F"; }; }; }; buildConfigurationList = "3C05BEEE7303EE3FA7B250FA"; compatibilityVersion = "Xcode 14.0"; developmentRegion = "zh_CN"; hasScannedForEncodings = 0; knownRegions = ( "zh_CN", "en", "Base", ); mainGroup = "97A63A01E61FD439E8760B8E"; productRefGroup = "4EDC8BFAFC6BD936B849F38C"; projectDirPath = ""; projectRoot = ""; targets = ( "978354DB0C00FC78C3A5524F", "52A966A000CFCE4A907042FB", ); packageReferences = ( "B8078308CC38995CEA1C768A", ); };
--		98A9397B71FC018A86B6A9CF = { isa = "PBXFileReference"; lastKnownFileType = "file"; path = "DeepSeekPocket/Resources/JWTKit-LICENSE.txt"; sourceTree = "SOURCE_ROOT"; };
--		98CA89B300D05FAB1C0A165B = { isa = "PBXFileReference"; lastKnownFileType = "sourcecode.swift"; path = "DeepSeekPocket/Services/BookStore.swift"; sourceTree = "SOURCE_ROOT"; };
--		99709B02CEF3FAA4050BC61D = { isa = "PBXBuildFile"; fileRef = "00D8CF4642795E39ACCADFD1"; };
--		9AC3B5AD93CBC0305C62F78F = { isa = "PBXFileReference"; lastKnownFileType = "text.plist.xml"; path = "DeepSeekPocket/Info.plist"; sourceTree = "SOURCE_ROOT"; };
--		9B51D9445C18E97AAE0517EB = { isa = "PBXFileReference"; lastKnownFileType = "sourcecode.swift"; path = "DeepSeekPocket/Services/ImageStore.swift"; sourceTree = "SOURCE_ROOT"; };
--		9B7A1A5EE5F6E529FC5346DF = { isa = "PBXBuildFile"; fileRef = "7BEFAE98F099D42E86AFCE2F"; };
--		9F24E094D2EAF557E9505734 = { isa = "PBXFileReference"; lastKnownFileType = "sourcecode.swift"; path = "DeepSeekPocket/Core/StoryPlay.swift"; sourceTree = "SOURCE_ROOT"; };
--		9FF974FF1A7A01698A0EB089 = { isa = "PBXBuildFile"; fileRef = "A1BAEE5F47ADE2787F688212"; };
--		A0C36F214349A4024DA16F0B = { isa = "PBXFileReference"; lastKnownFileType = "file"; path = "DeepSeekPocket/Resources/SwiftCrypto-LICENSE.txt"; sourceTree = "SOURCE_ROOT"; };
--		A1885169992B9DA1F71C9D3A = { isa = "PBXBuildFile"; fileRef = "8B37FFF4CB7BE1135BD14ACD"; };
--		A1BAEE5F47ADE2787F688212 = { isa = "PBXFileReference"; lastKnownFileType = "sourcecode.swift"; path = "DeepSeekPocket/Core/AccountBalance.swift"; sourceTree = "SOURCE_ROOT"; };
--		A7A1263DA7F96EFDF23924DF = { isa = "PBXFileReference"; lastKnownFileType = "file"; path = "DeepSeekPocket/Resources/FONT-LICENSE.txt"; sourceTree = "SOURCE_ROOT"; };
--		AAE9D7A34AB701355C8069DD = { isa = "PBXFileReference"; lastKnownFileType = "sourcecode.swift"; path = "DeepSeekPocket/Views/KeyboardDock.swift"; sourceTree = "SOURCE_ROOT"; };
--		AD92BA6DC4001011664987DD = { isa = "PBXFileReference"; lastKnownFileType = "sourcecode.swift"; path = "DeepSeekPocket/Services/AppPersistence.swift"; sourceTree = "SOURCE_ROOT"; };
--		AE5AB6B5334FF712BC06316C = { isa = "PBXBuildFile"; fileRef = "23C8840CB93C92C84773A259"; };
--		B3CAC62F8D306494B7224227 = { isa = "PBXBuildFile"; fileRef = "50118F9B93B4FBE19611394C"; };
--		B45916FAB27540E1AA4487FF = { isa = "PBXBuildFile"; fileRef = "54FF733A5B7ACBFD6776F557"; };
--		B52B5536BEEA5535FC6C5CC5 = { isa = "PBXFileReference"; lastKnownFileType = "sourcecode.swift"; path = "DeepSeekPocket/Core/ReasoningTranslation.swift"; sourceTree = "SOURCE_ROOT"; };
--		B54B612585B9A027D4A40B7B = { isa = "PBXBuildFile"; fileRef = "41FAC8D62982AC0FBB5502B1"; };
--		B66AD6CFBDD62302AE452474 = { isa = "PBXBuildFile"; fileRef = "B52B5536BEEA5535FC6C5CC5"; };
--		B6AE52DDC1C5CBA92CD28A43 = { isa = "PBXFileReference"; lastKnownFileType = "sourcecode.swift"; path = "DeepSeekPocket/Core/BookScenes.swift"; sourceTree = "SOURCE_ROOT"; };
--		B7BFB6A05148667494BA47E9 = { isa = "PBXBuildFile"; fileRef = "973EB79B3C8EAC5EF2205A8C"; };
--		B7FACC675FCEA1EA7607D847 = { isa = "PBXFileReference"; lastKnownFileType = "sourcecode.swift"; path = "DeepSeekPocket/Core/ProjectMemory.swift"; sourceTree = "SOURCE_ROOT"; };
--		B8078308CC38995CEA1C768A = { isa = "XCRemoteSwiftPackageReference"; repositoryURL = "https://github.com/vapor/jwt-kit.git"; requirement = { kind = "revision"; revision = "13e7513b3ba0afa13967daf77af2fb4ad087306c"; }; };
--		BA82B5D5902FD5D83C01B5D9 = { isa = "PBXFileReference"; lastKnownFileType = "sourcecode.swift"; path = "DeepSeekPocket/AppStore.swift"; sourceTree = "SOURCE_ROOT"; };
--		BC434C77C371EB518C8DD1E2 = { isa = "PBXBuildFile"; fileRef = "95BAB71F9CB1DEB93C0F8533"; };
--		BD0345E57D029730BA2C6C0F = { isa = "PBXFileReference"; lastKnownFileType = "sourcecode.swift"; path = "DeepSeekPocket/Views/SettingsView.swift"; sourceTree = "SOURCE_ROOT"; };
--		BD12731D7BC9B843D8523E65 = { isa = "PBXFileReference"; lastKnownFileType = "folder.assetcatalog"; path = "DeepSeekPocket/Assets.xcassets"; sourceTree = "SOURCE_ROOT"; };
--		BF41F4472847DA8EE81FF145 = { isa = "PBXBuildFile"; fileRef = "42CC3A23349A29CD3B9B13B7"; };
--		C0C355164654B03A78373B5A = { isa = "PBXBuildFile"; fileRef = "39F9C2B4BC13DE9D1B7A0828"; };
--		C131AA990408F5A8B287713E = { isa = "XCBuildConfiguration"; buildSettings = { PRODUCT_BUNDLE_IDENTIFIER = "com.xiaolong.qingjian"; PRODUCT_NAME = "DeepSeekPocket"; INFOPLIST_FILE = "DeepSeekPocket/Info.plist"; GENERATE_INFOPLIST_FILE = "NO"; MARKETING_VERSION = "1.16.0"; CURRENT_PROJECT_VERSION = "40"; ASSETCATALOG_COMPILER_APPICON_NAME = "AppIcon"; ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = "AccentColor"; TARGETED_DEVICE_FAMILY = "1,2"; CODE_SIGN_STYLE = "Automatic"; LD_RUNPATH_SEARCH_PATHS = ( "$(inherited)", "@executable_path/Frameworks", ); SUPPORTED_PLATFORMS = "iphoneos iphonesimulator"; SUPPORTS_MACCATALYST = "NO"; SWIFT_EMIT_LOC_STRINGS = "YES"; }; name = "Debug"; };
--		C4BF254EBAFEB4755D037451 = { isa = "PBXFileReference"; lastKnownFileType = "sourcecode.swift"; path = "DeepSeekPocket/Views/StreamActivityView.swift"; sourceTree = "SOURCE_ROOT"; };
--		C7B5A2A8067AD2778E7DFC27 = { isa = "PBXFileReference"; lastKnownFileType = "sourcecode.swift"; path = "DeepSeekPocket/Views/HighlightColorSettings.swift"; sourceTree = "SOURCE_ROOT"; };
--		C7D59EFCCEB862427B91F038 = { isa = "PBXBuildFile"; fileRef = "5A6EB7F92D195E7AEE28EEB7"; };
--		C93ECEBE886357B59681D1FA = { isa = "PBXFileReference"; lastKnownFileType = "sourcecode.swift"; path = "DeepSeekPocket/Views/FeatureOverviewView.swift"; sourceTree = "SOURCE_ROOT"; };
--		CAF85B0888D78F1F83771A07 = { isa = "PBXSourcesBuildPhase"; buildActionMask = 2147483647; files = ( "E948187D43088941245A631E", "9FF974FF1A7A01698A0EB089", "AE5AB6B5334FF712BC06316C", "82FA67131BBD396F86E2116A", "3819C361B7DC7B77A28862B2", "8EBF55DF7A23747C523905AF", "9B7A1A5EE5F6E529FC5346DF", "E7512F4F4D393A3B8E0B0188", "5C2F81BA0DCABB1C947E8ADD", "3EC0A14FC47CAC7393C3CFC5", "3248447040E933CB13B916AD", "93C55804D0A002E6F50CC03A", "B45916FAB27540E1AA4487FF", "B3CAC62F8D306494B7224227", "1845C5AD066558E7144B7A6E", "0BA7C9F5FA8508621EACC596", "555C32303FEC01FE5E890101", "599445434071846A03BA3ED1", "99709B02CEF3FAA4050BC61D", "F24DA10456EA38E753D6C74D", "4C67B3A8644B4131323338F4", "F0A4A6294A6A2DAFB51F05BF", "635B5ADE4A5E7F06D6C91A6C", "E4B822909F0928DC4F3F03C0", "6335A3ABBB0B66D5D0420B9E", "6AD311ADCA667A1D74A87613", "0EC4668D1A56EAD4350FFE9F", "2641567C8C0322C33318455F", "B66AD6CFBDD62302AE452474", "CBD0145EB624304E838BBE9D", "FB410379C42CF47534789D88", "18781602F2DAC47C56D28606", "FB9E20AB7E8E06C373CDA6EB", "DE30184B8E6325B41598B181", "B7BFB6A05148667494BA47E9", "FB49B3481328743886952A70", "A1885169992B9DA1F71C9D3A", "4FBDFDCFC3CFFD142126E109", "D1A92F5601359551C9B8EB06", "014292AAA8BB8AB00EA13508", "3E0D35CAE80749D7F5FB6D13", "E7DB6125112F4EF79C55BDEB", "43C7B65820360906F420796E", "E715D9455A07BCBF7EFC9131", "3D2F39C11C18228DFD26B4A3", "720570CFEE65A21BDA860D46", "91CA4F5122CF851CBABC1631", "4186E26C097F90A818146EA1", "83A2F5A6AC45B5491E1C720F", "C0C355164654B03A78373B5A", "3563E1CA6E8BD48C822B8C2B", "8BDCEEA2EB43FC91018F696F", "3AF1148164389B2CC77540CD", "E10BDB58B530EC57C8033683", "BC434C77C371EB518C8DD1E2", "77394EDED1F7CF17C1F2512B", "0F1AB7060410FF4D6A6E4245", "013A200081DDFA129E024241", "7B5B5297E38CBC81C550A88F", "B54B612585B9A027D4A40B7B", "CBABA1324B4A6FFF626FB91A", "2DBA81CFAB963C38BD67BAAB", "75981805E17934BCC1B71965", "8FA7E3DF6C6F91D1C46B5352", "EF6344819D40317F305D9D14", "9232B0427C6E459FD6AF875B", "61DB8ED7A72CB549987256AB", "44B8EB12DD9DE929E91EF2CF", "53C8AF5B49804551DD1C4276", "14004662B30440DD39B2FD3D", "72AFE7DB75131F9CD4DAE2C5", "F395A59B3AD4CC62F8FB6DE0", "56F9015EE386D8F5ED234311", "3F452BEF31103F0C30FEFFE2", "8DC8B347FABBF6896F349134", "BF41F4472847DA8EE81FF145", "E982314EBDF88FC6958B913E", "8216719DC2925895D3795135", "36AC5AEEFF9F752936F195D9", ); runOnlyForDeploymentPostprocessing = 0; };
--		CAFD6B725820BD8EFB592E21 = { isa = "PBXFrameworksBuildPhase"; buildActionMask = 2147483647; files = ( "E4D99E707D8FD16E84B712A5", ); runOnlyForDeploymentPostprocessing = 0; };
--		CBABA1324B4A6FFF626FB91A = { isa = "PBXBuildFile"; fileRef = "F90101C27E9790F534D72698"; };
--		CBD0145EB624304E838BBE9D = { isa = "PBXBuildFile"; fileRef = "D3E3BBB1101A11CA28FB4C79"; };
--		CFDAA41C4590CD92C81751E3 = { isa = "PBXBuildFile"; fileRef = "D1AB79AE04F0E5061CAD8E66"; };
--		D1A92F5601359551C9B8EB06 = { isa = "PBXBuildFile"; fileRef = "AD92BA6DC4001011664987DD"; };
--		D1AB79AE04F0E5061CAD8E66 = { isa = "PBXFileReference"; lastKnownFileType = "file"; path = "DeepSeekPocket/Resources/JWTKit-BoringSSL-LICENSE.txt"; sourceTree = "SOURCE_ROOT"; };
--		D3E3BBB1101A11CA28FB4C79 = { isa = "PBXFileReference"; lastKnownFileType = "sourcecode.swift"; path = "DeepSeekPocket/Core/ReplySuggestions.swift"; sourceTree = "SOURCE_ROOT"; };
--		D61504B3E2AD3EC7347CDBFD = { isa = "XCBuildConfiguration"; name = "Release"; buildSettings = { PRODUCT_BUNDLE_IDENTIFIER = "com.xiaolong.qingjian.uitests"; PRODUCT_NAME = "QingJianUITests"; GENERATE_INFOPLIST_FILE = "YES"; TEST_TARGET_NAME = "QingJian"; TARGETED_DEVICE_FAMILY = "1,2"; CODE_SIGNING_ALLOWED = "NO"; LD_RUNPATH_SEARCH_PATHS = ( "$(inherited)", "@executable_path/Frameworks", "@loader_path/Frameworks", ); }; };
--		D6456752316CA8F0F4B9E303 = { isa = "PBXFileReference"; lastKnownFileType = "sourcecode.swift"; path = "DeepSeekPocket/Views/WelcomeView.swift"; sourceTree = "SOURCE_ROOT"; };
--		D6B647D5B29452553C8EF1BC = { isa = "PBXFileReference"; lastKnownFileType = "sourcecode.swift"; path = "DeepSeekPocket/Views/ProfileView.swift"; sourceTree = "SOURCE_ROOT"; };
--		D9AAFC2AA60035AE48399289 = { isa = "PBXFileReference"; lastKnownFileType = "sourcecode.swift"; path = "DeepSeekPocket/Core/GoogleOAuth.swift"; sourceTree = "SOURCE_ROOT"; };
--		DDB66D1025589264C189D898 = { isa = "PBXFileReference"; lastKnownFileType = "sourcecode.swift"; path = "DeepSeekPocket/Core/ConversationHistory.swift"; sourceTree = "SOURCE_ROOT"; };
--		DE30184B8E6325B41598B181 = { isa = "PBXBuildFile"; fileRef = "16855DA320ABA3F12B25F4F6"; };
--		E10BDB58B530EC57C8033683 = { isa = "PBXBuildFile"; fileRef = "0CC0A6383A15174D7C9F9702"; };
--		E1EF6CA3533AB8263E7B820C = { isa = "PBXFileReference"; lastKnownFileType = "file"; path = "DeepSeekPocket/Resources/SwiftASN1-LICENSE.txt"; sourceTree = "SOURCE_ROOT"; };
--		E323CC18207F69BBC446367A = { isa = "PBXResourcesBuildPhase"; buildActionMask = 2147483647; files = (  ); runOnlyForDeploymentPostprocessing = 0; };
--		E46E7597BF87BCC4D6F7D139 = { isa = "PBXContainerItemProxy"; containerPortal = "985959785319747668373CC6"; proxyType = 1; remoteGlobalIDString = "978354DB0C00FC78C3A5524F"; remoteInfo = "QingJian"; };
--		E4B822909F0928DC4F3F03C0 = { isa = "PBXBuildFile"; fileRef = "93BD463C99712EC6B71C9B25"; };
--		E4D99E707D8FD16E84B712A5 = { isa = "PBXBuildFile"; productRef = "10146A7A8B3BF4AB38D4A8FB"; };
--		E715D9455A07BCBF7EFC9131 = { isa = "PBXBuildFile"; fileRef = "48B681429152B286258D24C5"; };
--		E7512F4F4D393A3B8E0B0188 = { isa = "PBXBuildFile"; fileRef = "92D5DE561F6D6344F4F1E849"; };
--		E7DB6125112F4EF79C55BDEB = { isa = "PBXBuildFile"; fileRef = "72BB5DB29666265C05EF806D"; };
--		E89B30AA1DC30A6AD8C34610 = { isa = "PBXResourcesBuildPhase"; buildActionMask = 2147483647; files = ( "8FA7AFBAD5313C05CC0951BD", "38CD29483D7413C09C3F9B7F", "CFDAA41C4590CD92C81751E3", "28EA6468023058069802F2EB", "69C3F2F333D2E2B3A3F24FF1", "C7D59EFCCEB862427B91F038", "EE64A02FB3225F6C48A80A42", "0CBEED5B5A349A63CE11CFA6", ); runOnlyForDeploymentPostprocessing = 0; };
--		E8ECF3B1EE37473287E90555 = { isa = "PBXFileReference"; lastKnownFileType = "sourcecode.swift"; path = "DeepSeekPocket/Services/GoogleDrive.swift"; sourceTree = "SOURCE_ROOT"; };
--		E9356E900EF90F1AB17B213D = { isa = "PBXBuildFile"; fileRef = "0E8330815093FF36160824F6"; };
--		E948187D43088941245A631E = { isa = "PBXBuildFile"; fileRef = "BA82B5D5902FD5D83C01B5D9"; };
--		E982314EBDF88FC6958B913E = { isa = "PBXBuildFile"; fileRef = "40D1773EBB20645E76A2BD2C"; };
--		ED158573A061B231C0A453CC = { isa = "PBXSourcesBuildPhase"; buildActionMask = 2147483647; files = ( "E9356E900EF90F1AB17B213D", ); runOnlyForDeploymentPostprocessing = 0; };
--		EDCA7BAC8FB04D1994C0047E = { isa = "PBXFileReference"; lastKnownFileType = "sourcecode.swift"; path = "DeepSeekPocket/Views/StoryPlayViews.swift"; sourceTree = "SOURCE_ROOT"; };
--		EE64A02FB3225F6C48A80A42 = { isa = "PBXBuildFile"; fileRef = "E1EF6CA3533AB8263E7B820C"; };
--		EF6344819D40317F305D9D14 = { isa = "PBXBuildFile"; fileRef = "926DD3AEA52C59A65D5C926C"; };
--		F0A4A6294A6A2DAFB51F05BF = { isa = "PBXBuildFile"; fileRef = "FC192FF984009EFE924DF27C"; };
--		F24DA10456EA38E753D6C74D = { isa = "PBXBuildFile"; fileRef = "72FA68DF57F2D70F1E5A0638"; };
--		F395A59B3AD4CC62F8FB6DE0 = { isa = "PBXBuildFile"; fileRef = "4651FC8E0770D946922382DD"; };
--		F3F3A92718A75943C2F8CA78 = { isa = "PBXFileReference"; lastKnownFileType = "sourcecode.swift"; path = "DeepSeekPocket/Views/BookshelfView.swift"; sourceTree = "SOURCE_ROOT"; };
--		F44A0164865FBFB081630EA8 = { isa = "PBXFileReference"; lastKnownFileType = "sourcecode.swift"; path = "DeepSeekPocket/Views/KeyboardBoundary.swift"; sourceTree = "SOURCE_ROOT"; };
--		F86D2500D0147860A94850A2 = { isa = "PBXFileReference"; lastKnownFileType = "sourcecode.swift"; path = "DeepSeekPocket/Views/KeyboardChatLayout.swift"; sourceTree = "SOURCE_ROOT"; };
--		F90101C27E9790F534D72698 = { isa = "PBXFileReference"; lastKnownFileType = "sourcecode.swift"; path = "DeepSeekPocket/Views/InterfaceStyle.swift"; sourceTree = "SOURCE_ROOT"; };
--		FB410379C42CF47534789D88 = { isa = "PBXBuildFile"; fileRef = "9F24E094D2EAF557E9505734"; };
--		FB49B3481328743886952A70 = { isa = "PBXBuildFile"; fileRef = "49F32A6687CDAA14DCF065B0"; };
--		FB6ADA06E8FE26751C48D7EC = { isa = "PBXFileReference"; lastKnownFileType = "sourcecode.swift"; path = "DeepSeekPocket/Core/Projects.swift"; sourceTree = "SOURCE_ROOT"; };
--		FB9E20AB7E8E06C373CDA6EB = { isa = "PBXBuildFile"; fileRef = "2A5703C0962491E211B88DF0"; };
--		FB9EF894175C327470F768D9 = { isa = "PBXFileReference"; explicitFileType = "wrapper.application"; includeInIndex = 0; path = "DeepSeekPocket.app"; sourceTree = "BUILT_PRODUCTS_DIR"; };
--		FC192FF984009EFE924DF27C = { isa = "PBXFileReference"; lastKnownFileType = "sourcecode.swift"; path = "DeepSeekPocket/Core/MarkdownBlocks.swift"; sourceTree = "SOURCE_ROOT"; };
--		FC6B172857114F4E30B4F727 = { isa = "PBXFileReference"; lastKnownFileType = "sourcecode.swift"; path = "DeepSeekPocket/Core/InnerThoughts.swift"; sourceTree = "SOURCE_ROOT"; };
--		FD74A26728B90EEDF0289739 = { isa = "PBXFileReference"; lastKnownFileType = "sourcecode.swift"; path = "DeepSeekPocket/Core/BookDiscussion.swift"; sourceTree = "SOURCE_ROOT"; };
--		FF1F92A5772CD6C2220F3CD7 = { isa = "PBXFileReference"; lastKnownFileType = "sourcecode.swift"; path = "DeepSeekPocket/Views/BookDiscussionViews.swift"; sourceTree = "SOURCE_ROOT"; };
--	};
--	rootObject = 985959785319747668373CC6;
--}
-+// !$*UTF8*$!
-+{
-+	archiveVersion = 1;
-+	classes = {};
-+	objectVersion = 56;
-+	objects = {
-+		00D8CF4642795E39ACCADFD1 = { isa = "PBXFileReference"; lastKnownFileType = "sourcecode.swift"; path = "DeepSeekPocket/Core/HighlightHex.swift"; sourceTree = "SOURCE_ROOT"; };
-+		013A200081DDFA129E024241 = { isa = "PBXBuildFile"; fileRef = "C7B5A2A8067AD2778E7DFC27"; };
-+		014292AAA8BB8AB00EA13508 = { isa = "PBXBuildFile"; fileRef = "66C6786FD14B357C617200EA"; };
-+		063FEBB10611D214D2399967 = { isa = "PBXFileReference"; lastKnownFileType = "sourcecode.swift"; path = "DeepSeekPocket/Services/KeychainStore.swift"; sourceTree = "SOURCE_ROOT"; };
-+		086CDA6F68B1B5AD31D43829 = { isa = "PBXFileReference"; lastKnownFileType = "sourcecode.swift"; path = "DeepSeekPocket/Core/ChatProtocol.swift"; sourceTree = "SOURCE_ROOT"; };
-+		094C3E3EB09428AAEE56F120 = { isa = "PBXFileReference"; lastKnownFileType = "sourcecode.swift"; path = "DeepSeekPocket/QingJianApp.swift"; sourceTree = "SOURCE_ROOT"; };
-+		0BA7C9F5FA8508621EACC596 = { isa = "PBXBuildFile"; fileRef = "845ECD744C27640FC0E6C3BE"; };
-+		0CBEED5B5A349A63CE11CFA6 = { isa = "PBXBuildFile"; fileRef = "A0C36F214349A4024DA16F0B"; };
-+		0CC0A6383A15174D7C9F9702 = { isa = "PBXFileReference"; lastKnownFileType = "sourcecode.swift"; path = "DeepSeekPocket/Views/ChatConnectionTestView.swift"; sourceTree = "SOURCE_ROOT"; };
-+		0D25A9A11793BE91427A3D7D = { isa = "PBXGroup"; children = ( "BA82B5D5902FD5D83C01B5D9", "A1BAEE5F47ADE2787F688212", "23C8840CB93C92C84773A259", "FD74A26728B90EEDF0289739", "5F2BA8CB38D38142769293B0", "B6AE52DDC1C5CBA92CD28A43", "7BEFAE98F099D42E86AFCE2F", "92D5DE561F6D6344F4F1E849", "086CDA6F68B1B5AD31D43829", "345D74DD50A3314087A530B8", "548103644044DDF7B2911E26", "DDB66D1025589264C189D898", "54FF733A5B7ACBFD6776F557", "50118F9B93B4FBE19611394C", "1D1F67BC893A430FB3847CD2", "845ECD744C27640FC0E6C3BE", "D9AAFC2AA60035AE48399289", "66C64B061717612F0CE8B1A8", "00D8CF4642795E39ACCADFD1", "72FA68DF57F2D70F1E5A0638", "FC6B172857114F4E30B4F727", "FC192FF984009EFE924DF27C", "44FD3E8A4D7D0C5796409F45", "93BD463C99712EC6B71C9B25", "B7FACC675FCEA1EA7607D847", "FB6ADA06E8FE26751C48D7EC", "5F9FB4D1A16CECC89A97F23F", "531D661A4BF1AB0F96CD354D", "B52B5536BEEA5535FC6C5CC5", "D3E3BBB1101A11CA28FB4C79", "9F24E094D2EAF557E9505734", "7129BCFD12E8630ED14571FE", "2A5703C0962491E211B88DF0", "16855DA320ABA3F12B25F4F6", "973EB79B3C8EAC5EF2205A8C", "49F32A6687CDAA14DCF065B0", "8B37FFF4CB7BE1135BD14ACD", "094C3E3EB09428AAEE56F120", "AD92BA6DC4001011664987DD", "66C6786FD14B357C617200EA", "98CA89B300D05FAB1C0A165B", "72BB5DB29666265C05EF806D", "5102D1229EDEDE7DD1805ED1", "48B681429152B286258D24C5", "E8ECF3B1EE37473287E90555", "9B51D9445C18E97AAE0517EB", "063FEBB10611D214D2399967", "1C4B28E4FD7873262DF7A812", "7904190125DA8DD29BF99CDB", "39F9C2B4BC13DE9D1B7A0828", "6C4714B23764E9468AB107AA", "FF1F92A5772CD6C2220F3CD7", "F3F3A92718A75943C2F8CA78", "0CC0A6383A15174D7C9F9702", "95BAB71F9CB1DEB93C0F8533", "21A2F8D84CD9124CC9645933", "C93ECEBE886357B59681D1FA", "C7B5A2A8067AD2778E7DFC27", "66D8472F4A968E0F4F2F7218", "41FAC8D62982AC0FBB5502B1", "F90101C27E9790F534D72698", "F44A0164865FBFB081630EA8", "F86D2500D0147860A94850A2", "AAE9D7A34AB701355C8069DD", "926DD3AEA52C59A65D5C926C", "62CCD59D7AA2006A4CBACE95", "D6B647D5B29452553C8EF1BC", "178DF27EB53631744F9BA2BD", "35DBD1C095E4C5EAEFFDF230", "8C6280633D259F66427E2288", "BD0345E57D029730BA2C6C0F", "4651FC8E0770D946922382DD", "EDCA7BAC8FB04D1994C0047E", "C4BF254EBAFEB4755D037451", "145471E1190983B0C2FED779", "42CC3A23349A29CD3B9B13B7", "40D1773EBB20645E76A2BD2C", "666D5A120EA1400EA50FE685", "D6456752316CA8F0F4B9E303", "9AC3B5AD93CBC0305C62F78F", "BD12731D7BC9B843D8523E65", "A7A1263DA7F96EFDF23924DF", "D1AB79AE04F0E5061CAD8E66", "98A9397B71FC018A86B6A9CF", "7B7741279B4DDFE50C3CB56D", "5A6EB7F92D195E7AEE28EEB7", "E1EF6CA3533AB8263E7B820C", "A0C36F214349A4024DA16F0B", "0E8330815093FF36160824F6", ); name = "App"; sourceTree = "<group>"; };
-+		0E8330815093FF36160824F6 = { isa = "PBXFileReference"; lastKnownFileType = "sourcecode.swift"; path = "UITests/NavigationUITests.swift"; sourceTree = "SOURCE_ROOT"; };
-+		0EC4668D1A56EAD4350FFE9F = { isa = "PBXBuildFile"; fileRef = "5F9FB4D1A16CECC89A97F23F"; };
-+		0F1AB7060410FF4D6A6E4245 = { isa = "PBXBuildFile"; fileRef = "C93ECEBE886357B59681D1FA"; };
-+		10146A7A8B3BF4AB38D4A8FB = { isa = "XCSwiftPackageProductDependency"; package = "B8078308CC38995CEA1C768A"; productName = "JWTKit"; };
-+		14004662B30440DD39B2FD3D = { isa = "PBXBuildFile"; fileRef = "8C6280633D259F66427E2288"; };
-+		145471E1190983B0C2FED779 = { isa = "PBXFileReference"; lastKnownFileType = "sourcecode.swift"; path = "DeepSeekPocket/Views/SubscriptionSettingsSection.swift"; sourceTree = "SOURCE_ROOT"; };
-+		16855DA320ABA3F12B25F4F6 = { isa = "PBXFileReference"; lastKnownFileType = "sourcecode.swift"; path = "DeepSeekPocket/Core/ToolCalling.swift"; sourceTree = "SOURCE_ROOT"; };
-+		178DF27EB53631744F9BA2BD = { isa = "PBXFileReference"; lastKnownFileType = "sourcecode.swift"; path = "DeepSeekPocket/Views/ProjectsView.swift"; sourceTree = "SOURCE_ROOT"; };
-+		1845C5AD066558E7144B7A6E = { isa = "PBXBuildFile"; fileRef = "1D1F67BC893A430FB3847CD2"; };
-+		18781602F2DAC47C56D28606 = { isa = "PBXBuildFile"; fileRef = "7129BCFD12E8630ED14571FE"; };
-+		1C4B28E4FD7873262DF7A812 = { isa = "PBXFileReference"; lastKnownFileType = "sourcecode.swift"; path = "DeepSeekPocket/Services/SubscriptionHTTP.swift"; sourceTree = "SOURCE_ROOT"; };
-+		1D1F67BC893A430FB3847CD2 = { isa = "PBXFileReference"; lastKnownFileType = "sourcecode.swift"; path = "DeepSeekPocket/Core/Epub.swift"; sourceTree = "SOURCE_ROOT"; };
-+		21A2F8D84CD9124CC9645933 = { isa = "PBXFileReference"; lastKnownFileType = "sourcecode.swift"; path = "DeepSeekPocket/Views/DocumentPicker.swift"; sourceTree = "SOURCE_ROOT"; };
-+		23C8840CB93C92C84773A259 = { isa = "PBXFileReference"; lastKnownFileType = "sourcecode.swift"; path = "DeepSeekPocket/Core/AppManual.swift"; sourceTree = "SOURCE_ROOT"; };
-+		2641567C8C0322C33318455F = { isa = "PBXBuildFile"; fileRef = "531D661A4BF1AB0F96CD354D"; };
-+		268CBE1AF5194DBF401BFB20 = { isa = "XCConfigurationList"; buildConfigurations = ( "C131AA990408F5A8B287713E", "86A46D98C12482E1EF3DC46C", ); defaultConfigurationIsVisible = 0; defaultConfigurationName = "Release"; };
-+		28EA6468023058069802F2EB = { isa = "PBXBuildFile"; fileRef = "98A9397B71FC018A86B6A9CF"; };
-+		2A5703C0962491E211B88DF0 = { isa = "PBXFileReference"; lastKnownFileType = "sourcecode.swift"; path = "DeepSeekPocket/Core/SubscriptionProtocol.swift"; sourceTree = "SOURCE_ROOT"; };
-+		2DBA81CFAB963C38BD67BAAB = { isa = "PBXBuildFile"; fileRef = "F44A0164865FBFB081630EA8"; };
-+		3248447040E933CB13B916AD = { isa = "PBXBuildFile"; fileRef = "548103644044DDF7B2911E26"; };
-+		345D74DD50A3314087A530B8 = { isa = "PBXFileReference"; lastKnownFileType = "sourcecode.swift"; path = "DeepSeekPocket/Core/ChatStreamProgress.swift"; sourceTree = "SOURCE_ROOT"; };
-+		3563E1CA6E8BD48C822B8C2B = { isa = "PBXBuildFile"; fileRef = "6C4714B23764E9468AB107AA"; };
-+		35DBD1C095E4C5EAEFFDF230 = { isa = "PBXFileReference"; lastKnownFileType = "sourcecode.swift"; path = "DeepSeekPocket/Views/ReaderVolumeKeys.swift"; sourceTree = "SOURCE_ROOT"; };
-+		36AC5AEEFF9F752936F195D9 = { isa = "PBXBuildFile"; fileRef = "D6456752316CA8F0F4B9E303"; };
-+		3819C361B7DC7B77A28862B2 = { isa = "PBXBuildFile"; fileRef = "5F2BA8CB38D38142769293B0"; };
-+		38CD29483D7413C09C3F9B7F = { isa = "PBXBuildFile"; fileRef = "A7A1263DA7F96EFDF23924DF"; };
-+		39F9C2B4BC13DE9D1B7A0828 = { isa = "PBXFileReference"; lastKnownFileType = "sourcecode.swift"; path = "DeepSeekPocket/Services/SubscriptionStore.swift"; sourceTree = "SOURCE_ROOT"; };
-+		3AF1148164389B2CC77540CD = { isa = "PBXBuildFile"; fileRef = "F3F3A92718A75943C2F8CA78"; };
-+		3C05BEEE7303EE3FA7B250FA = { isa = "XCConfigurationList"; buildConfigurations = ( "5AF4ED5F6E2EA1D4B91E386E", "3D6B24BD8575F8B6B236FC9D", ); defaultConfigurationIsVisible = 0; defaultConfigurationName = "Release"; };
-+		3D2F39C11C18228DFD26B4A3 = { isa = "PBXBuildFile"; fileRef = "E8ECF3B1EE37473287E90555"; };
-+		3D6B24BD8575F8B6B236FC9D = { isa = "XCBuildConfiguration"; buildSettings = { CLANG_ENABLE_MODULES = "YES"; CLANG_ENABLE_OBJC_ARC = "YES"; IPHONEOS_DEPLOYMENT_TARGET = "26.0"; SDKROOT = "iphoneos"; SWIFT_VERSION = "5.0"; SWIFT_STRICT_CONCURRENCY = "targeted"; ENABLE_USER_SCRIPT_SANDBOXING = "YES"; DEBUG_INFORMATION_FORMAT = "dwarf-with-dsym"; SWIFT_OPTIMIZATION_LEVEL = "-O"; GCC_PREPROCESSOR_DEFINITIONS = ( "$(inherited)", ); }; name = "Release"; };
-+		3E0D35CAE80749D7F5FB6D13 = { isa = "PBXBuildFile"; fileRef = "98CA89B300D05FAB1C0A165B"; };
-+		3EC0A14FC47CAC7393C3CFC5 = { isa = "PBXBuildFile"; fileRef = "345D74DD50A3314087A530B8"; };
-+		3F452BEF31103F0C30FEFFE2 = { isa = "PBXBuildFile"; fileRef = "C4BF254EBAFEB4755D037451"; };
-+		40D1773EBB20645E76A2BD2C = { isa = "PBXFileReference"; lastKnownFileType = "sourcecode.swift"; path = "DeepSeekPocket/Views/ToolViews.swift"; sourceTree = "SOURCE_ROOT"; };
-+		4186E26C097F90A818146EA1 = { isa = "PBXBuildFile"; fileRef = "1C4B28E4FD7873262DF7A812"; };
-+		41FAC8D62982AC0FBB5502B1 = { isa = "PBXFileReference"; lastKnownFileType = "sourcecode.swift"; path = "DeepSeekPocket/Views/HistoryView.swift"; sourceTree = "SOURCE_ROOT"; };
-+		42CC3A23349A29CD3B9B13B7 = { isa = "PBXFileReference"; lastKnownFileType = "sourcecode.swift"; path = "DeepSeekPocket/Views/ToolSettingsSections.swift"; sourceTree = "SOURCE_ROOT"; };
-+		4337AA19FF78732FCFC05268 = { isa = "XCConfigurationList"; buildConfigurations = ( "7F316CD55831600CFEC8032B", "D61504B3E2AD3EC7347CDBFD", ); defaultConfigurationIsVisible = 0; defaultConfigurationName = "Debug"; };
-+		43C7B65820360906F420796E = { isa = "PBXBuildFile"; fileRef = "5102D1229EDEDE7DD1805ED1"; };
-+		44B8EB12DD9DE929E91EF2CF = { isa = "PBXBuildFile"; fileRef = "178DF27EB53631744F9BA2BD"; };
-+		44FD3E8A4D7D0C5796409F45 = { isa = "PBXFileReference"; lastKnownFileType = "sourcecode.swift"; path = "DeepSeekPocket/Core/Models.swift"; sourceTree = "SOURCE_ROOT"; };
-+		4651FC8E0770D946922382DD = { isa = "PBXFileReference"; lastKnownFileType = "sourcecode.swift"; path = "DeepSeekPocket/Views/SidebarPan.swift"; sourceTree = "SOURCE_ROOT"; };
-+		48B681429152B286258D24C5 = { isa = "PBXFileReference"; lastKnownFileType = "sourcecode.swift"; path = "DeepSeekPocket/Services/GitHubClient.swift"; sourceTree = "SOURCE_ROOT"; };
-+		49F32A6687CDAA14DCF065B0 = { isa = "PBXFileReference"; lastKnownFileType = "sourcecode.swift"; path = "DeepSeekPocket/Core/WebPages.swift"; sourceTree = "SOURCE_ROOT"; };
-+		4C67B3A8644B4131323338F4 = { isa = "PBXBuildFile"; fileRef = "FC6B172857114F4E30B4F727"; };
-+		4ED35644D2543696A1034554 = { isa = "PBXFileReference"; explicitFileType = "wrapper.cfbundle"; includeInIndex = 0; path = "QingJianUITests.xctest"; sourceTree = "BUILT_PRODUCTS_DIR"; };
-+		4EDC8BFAFC6BD936B849F38C = { isa = "PBXGroup"; children = ( "FB9EF894175C327470F768D9", "4ED35644D2543696A1034554", ); name = "Products"; sourceTree = "<group>"; };
-+		4FBDFDCFC3CFFD142126E109 = { isa = "PBXBuildFile"; fileRef = "094C3E3EB09428AAEE56F120"; };
-+		50118F9B93B4FBE19611394C = { isa = "PBXFileReference"; lastKnownFileType = "sourcecode.swift"; path = "DeepSeekPocket/Core/DriveTools.swift"; sourceTree = "SOURCE_ROOT"; };
-+		5102D1229EDEDE7DD1805ED1 = { isa = "PBXFileReference"; lastKnownFileType = "sourcecode.swift"; path = "DeepSeekPocket/Services/FontLibrary.swift"; sourceTree = "SOURCE_ROOT"; };
-+		52A966A000CFCE4A907042FB = { isa = "PBXNativeTarget"; buildConfigurationList = "4337AA19FF78732FCFC05268"; buildPhases = ( "ED158573A061B231C0A453CC", "759B9AA7EC9C7FA58FA8BD3B", "E323CC18207F69BBC446367A", ); buildRules = (  ); dependencies = ( "7DF141D821033A3120190D37", ); name = "QingJianUITests"; productName = "QingJianUITests"; productReference = "4ED35644D2543696A1034554"; productType = "com.apple.product-type.bundle.ui-testing"; };
-+		531D661A4BF1AB0F96CD354D = { isa = "PBXFileReference"; lastKnownFileType = "sourcecode.swift"; path = "DeepSeekPocket/Core/PublicWebAddress.swift"; sourceTree = "SOURCE_ROOT"; };
-+		53C8AF5B49804551DD1C4276 = { isa = "PBXBuildFile"; fileRef = "35DBD1C095E4C5EAEFFDF230"; };
-+		548103644044DDF7B2911E26 = { isa = "PBXFileReference"; lastKnownFileType = "sourcecode.swift"; path = "DeepSeekPocket/Core/ConversationEditing.swift"; sourceTree = "SOURCE_ROOT"; };
-+		54FF733A5B7ACBFD6776F557 = { isa = "PBXFileReference"; lastKnownFileType = "sourcecode.swift"; path = "DeepSeekPocket/Core/Dialogue.swift"; sourceTree = "SOURCE_ROOT"; };
-+		555C32303FEC01FE5E890101 = { isa = "PBXBuildFile"; fileRef = "D9AAFC2AA60035AE48399289"; };
-+		56F9015EE386D8F5ED234311 = { isa = "PBXBuildFile"; fileRef = "EDCA7BAC8FB04D1994C0047E"; };
-+		599445434071846A03BA3ED1 = { isa = "PBXBuildFile"; fileRef = "66C64B061717612F0CE8B1A8"; };
-+		5A6EB7F92D195E7AEE28EEB7 = { isa = "PBXFileReference"; lastKnownFileType = "file"; path = "DeepSeekPocket/Resources/NotoSerifSC-Regular.otf"; sourceTree = "SOURCE_ROOT"; };
-+		5AF4ED5F6E2EA1D4B91E386E = { isa = "XCBuildConfiguration"; buildSettings = { CLANG_ENABLE_MODULES = "YES"; CLANG_ENABLE_OBJC_ARC = "YES"; IPHONEOS_DEPLOYMENT_TARGET = "26.0"; SDKROOT = "iphoneos"; SWIFT_VERSION = "5.0"; SWIFT_STRICT_CONCURRENCY = "targeted"; ENABLE_USER_SCRIPT_SANDBOXING = "YES"; DEBUG_INFORMATION_FORMAT = "dwarf"; SWIFT_OPTIMIZATION_LEVEL = "-Onone"; GCC_PREPROCESSOR_DEFINITIONS = ( "$(inherited)", "DEBUG=1", ); ENABLE_TESTABILITY = "YES"; SWIFT_ACTIVE_COMPILATION_CONDITIONS = "DEBUG"; }; name = "Debug"; };
-+		5C2F81BA0DCABB1C947E8ADD = { isa = "PBXBuildFile"; fileRef = "086CDA6F68B1B5AD31D43829"; };
-+		5F2BA8CB38D38142769293B0 = { isa = "PBXFileReference"; lastKnownFileType = "sourcecode.swift"; path = "DeepSeekPocket/Core/BookReading.swift"; sourceTree = "SOURCE_ROOT"; };
-+		5F9FB4D1A16CECC89A97F23F = { isa = "PBXFileReference"; lastKnownFileType = "sourcecode.swift"; path = "DeepSeekPocket/Core/PromptVariables.swift"; sourceTree = "SOURCE_ROOT"; };
-+		61DB8ED7A72CB549987256AB = { isa = "PBXBuildFile"; fileRef = "D6B647D5B29452553C8EF1BC"; };
-+		62CCD59D7AA2006A4CBACE95 = { isa = "PBXFileReference"; lastKnownFileType = "sourcecode.swift"; path = "DeepSeekPocket/Views/NovelReaderCanvas.swift"; sourceTree = "SOURCE_ROOT"; };
-+		6335A3ABBB0B66D5D0420B9E = { isa = "PBXBuildFile"; fileRef = "B7FACC675FCEA1EA7607D847"; };
-+		635B5ADE4A5E7F06D6C91A6C = { isa = "PBXBuildFile"; fileRef = "44FD3E8A4D7D0C5796409F45"; };
-+		666D5A120EA1400EA50FE685 = { isa = "PBXFileReference"; lastKnownFileType = "sourcecode.swift"; path = "DeepSeekPocket/Views/UsageView.swift"; sourceTree = "SOURCE_ROOT"; };
-+		66C64B061717612F0CE8B1A8 = { isa = "PBXFileReference"; lastKnownFileType = "sourcecode.swift"; path = "DeepSeekPocket/Core/GoogleRefreshTask.swift"; sourceTree = "SOURCE_ROOT"; };
-+		66C6786FD14B357C617200EA = { isa = "PBXFileReference"; lastKnownFileType = "sourcecode.swift"; path = "DeepSeekPocket/Services/BackupFolder.swift"; sourceTree = "SOURCE_ROOT"; };
-+		66D8472F4A968E0F4F2F7218 = { isa = "PBXFileReference"; lastKnownFileType = "sourcecode.swift"; path = "DeepSeekPocket/Views/HighlightMarker.swift"; sourceTree = "SOURCE_ROOT"; };
-+		69C3F2F333D2E2B3A3F24FF1 = { isa = "PBXBuildFile"; fileRef = "7B7741279B4DDFE50C3CB56D"; };
-+		6AD311ADCA667A1D74A87613 = { isa = "PBXBuildFile"; fileRef = "FB6ADA06E8FE26751C48D7EC"; };
-+		6C4714B23764E9468AB107AA = { isa = "PBXFileReference"; lastKnownFileType = "sourcecode.swift"; path = "DeepSeekPocket/Views/AppTheme.swift"; sourceTree = "SOURCE_ROOT"; };
-+		7129BCFD12E8630ED14571FE = { isa = "PBXFileReference"; lastKnownFileType = "sourcecode.swift"; path = "DeepSeekPocket/Core/StoryPrompt.swift"; sourceTree = "SOURCE_ROOT"; };
-+		720570CFEE65A21BDA860D46 = { isa = "PBXBuildFile"; fileRef = "9B51D9445C18E97AAE0517EB"; };
-+		72AFE7DB75131F9CD4DAE2C5 = { isa = "PBXBuildFile"; fileRef = "BD0345E57D029730BA2C6C0F"; };
-+		72BB5DB29666265C05EF806D = { isa = "PBXFileReference"; lastKnownFileType = "sourcecode.swift"; path = "DeepSeekPocket/Services/DeepSeekClient.swift"; sourceTree = "SOURCE_ROOT"; };
-+		72FA68DF57F2D70F1E5A0638 = { isa = "PBXFileReference"; lastKnownFileType = "sourcecode.swift"; path = "DeepSeekPocket/Core/HighlightMarks.swift"; sourceTree = "SOURCE_ROOT"; };
-+		75981805E17934BCC1B71965 = { isa = "PBXBuildFile"; fileRef = "F86D2500D0147860A94850A2"; };
-+		759B9AA7EC9C7FA58FA8BD3B = { isa = "PBXFrameworksBuildPhase"; buildActionMask = 2147483647; files = (  ); runOnlyForDeploymentPostprocessing = 0; };
-+		77394EDED1F7CF17C1F2512B = { isa = "PBXBuildFile"; fileRef = "21A2F8D84CD9124CC9645933"; };
-+		7904190125DA8DD29BF99CDB = { isa = "PBXFileReference"; lastKnownFileType = "sourcecode.swift"; path = "DeepSeekPocket/Services/SubscriptionLoopback.swift"; sourceTree = "SOURCE_ROOT"; };
-+		7B5B5297E38CBC81C550A88F = { isa = "PBXBuildFile"; fileRef = "66D8472F4A968E0F4F2F7218"; };
-+		7B7741279B4DDFE50C3CB56D = { isa = "PBXFileReference"; lastKnownFileType = "file"; path = "DeepSeekPocket/Resources/NotoSerifSC-Bold.otf"; sourceTree = "SOURCE_ROOT"; };
-+		7BEFAE98F099D42E86AFCE2F = { isa = "PBXFileReference"; lastKnownFileType = "sourcecode.swift"; path = "DeepSeekPocket/Core/Books.swift"; sourceTree = "SOURCE_ROOT"; };
-+		7DF141D821033A3120190D37 = { isa = "PBXTargetDependency"; target = "978354DB0C00FC78C3A5524F"; targetProxy = "E46E7597BF87BCC4D6F7D139"; };
-+		7F316CD55831600CFEC8032B = { isa = "XCBuildConfiguration"; name = "Debug"; buildSettings = { PRODUCT_BUNDLE_IDENTIFIER = "com.xiaolong.qingjian.uitests"; PRODUCT_NAME = "QingJianUITests"; GENERATE_INFOPLIST_FILE = "YES"; TEST_TARGET_NAME = "QingJian"; TARGETED_DEVICE_FAMILY = "1,2"; CODE_SIGNING_ALLOWED = "NO"; LD_RUNPATH_SEARCH_PATHS = ( "$(inherited)", "@executable_path/Frameworks", "@loader_path/Frameworks", ); }; };
-+		8216719DC2925895D3795135 = { isa = "PBXBuildFile"; fileRef = "666D5A120EA1400EA50FE685"; };
-+		82FA67131BBD396F86E2116A = { isa = "PBXBuildFile"; fileRef = "FD74A26728B90EEDF0289739"; };
-+		83A2F5A6AC45B5491E1C720F = { isa = "PBXBuildFile"; fileRef = "7904190125DA8DD29BF99CDB"; };
-+		845ECD744C27640FC0E6C3BE = { isa = "PBXFileReference"; lastKnownFileType = "sourcecode.swift"; path = "DeepSeekPocket/Core/GitHubTools.swift"; sourceTree = "SOURCE_ROOT"; };
 +		86A46D98C12482E1EF3DC46C = { isa = "XCBuildConfiguration"; buildSettings = { PRODUCT_BUNDLE_IDENTIFIER = "com.xiaolong.qingjian"; PRODUCT_NAME = "DeepSeekPocket"; INFOPLIST_FILE = "DeepSeekPocket/Info.plist"; GENERATE_INFOPLIST_FILE = "NO"; MARKETING_VERSION = "1.17.0"; CURRENT_PROJECT_VERSION = "41"; ASSETCATALOG_COMPILER_APPICON_NAME = "AppIcon"; ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = "AccentColor"; TARGETED_DEVICE_FAMILY = "1,2"; CODE_SIGN_STYLE = "Automatic"; LD_RUNPATH_SEARCH_PATHS = ( "$(inherited)", "@executable_path/Frameworks", ); SUPPORTED_PLATFORMS = "iphoneos iphonesimulator"; SUPPORTS_MACCATALYST = "NO"; SWIFT_EMIT_LOC_STRINGS = "YES"; }; name = "Release"; };
-+		8B37FFF4CB7BE1135BD14ACD = { isa = "PBXFileReference"; lastKnownFileType = "sourcecode.swift"; path = "DeepSeekPocket/Core/WebSearch.swift"; sourceTree = "SOURCE_ROOT"; };
-+		8BDCEEA2EB43FC91018F696F = { isa = "PBXBuildFile"; fileRef = "FF1F92A5772CD6C2220F3CD7"; };
-+		8C6280633D259F66427E2288 = { isa = "PBXFileReference"; lastKnownFileType = "sourcecode.swift"; path = "DeepSeekPocket/Views/ReasoningView.swift"; sourceTree = "SOURCE_ROOT"; };
-+		8DC8B347FABBF6896F349134 = { isa = "PBXBuildFile"; fileRef = "145471E1190983B0C2FED779"; };
-+		8EBF55DF7A23747C523905AF = { isa = "PBXBuildFile"; fileRef = "B6AE52DDC1C5CBA92CD28A43"; };
-+		8FA7AFBAD5313C05CC0951BD = { isa = "PBXBuildFile"; fileRef = "BD12731D7BC9B843D8523E65"; };
-+		8FA7E3DF6C6F91D1C46B5352 = { isa = "PBXBuildFile"; fileRef = "AAE9D7A34AB701355C8069DD"; };
-+		91CA4F5122CF851CBABC1631 = { isa = "PBXBuildFile"; fileRef = "063FEBB10611D214D2399967"; };
-+		9232B0427C6E459FD6AF875B = { isa = "PBXBuildFile"; fileRef = "62CCD59D7AA2006A4CBACE95"; };
-+		926DD3AEA52C59A65D5C926C = { isa = "PBXFileReference"; lastKnownFileType = "sourcecode.swift"; path = "DeepSeekPocket/Views/LocalNovelReader.swift"; sourceTree = "SOURCE_ROOT"; };
-+		92D5DE561F6D6344F4F1E849 = { isa = "PBXFileReference"; lastKnownFileType = "sourcecode.swift"; path = "DeepSeekPocket/Core/CanonPlan.swift"; sourceTree = "SOURCE_ROOT"; };
-+		93BD463C99712EC6B71C9B25 = { isa = "PBXFileReference"; lastKnownFileType = "sourcecode.swift"; path = "DeepSeekPocket/Core/PeakHours.swift"; sourceTree = "SOURCE_ROOT"; };
-+		93C55804D0A002E6F50CC03A = { isa = "PBXBuildFile"; fileRef = "DDB66D1025589264C189D898"; };
-+		95BAB71F9CB1DEB93C0F8533 = { isa = "PBXFileReference"; lastKnownFileType = "sourcecode.swift"; path = "DeepSeekPocket/Views/ContentView.swift"; sourceTree = "SOURCE_ROOT"; };
-+		973EB79B3C8EAC5EF2205A8C = { isa = "PBXFileReference"; lastKnownFileType = "sourcecode.swift"; path = "DeepSeekPocket/Core/UsageLedger.swift"; sourceTree = "SOURCE_ROOT"; };
-+		978354DB0C00FC78C3A5524F = { isa = "PBXNativeTarget"; buildConfigurationList = "268CBE1AF5194DBF401BFB20"; buildPhases = ( "CAF85B0888D78F1F83771A07", "CAFD6B725820BD8EFB592E21", "E89B30AA1DC30A6AD8C34610", ); buildRules = (  ); dependencies = (  ); name = "QingJian"; productName = "DeepSeekPocket"; productReference = "FB9EF894175C327470F768D9"; productType = "com.apple.product-type.application"; packageProductDependencies = ( "10146A7A8B3BF4AB38D4A8FB", ); };
-+		97A63A01E61FD439E8760B8E = { isa = "PBXGroup"; children = ( "0D25A9A11793BE91427A3D7D", "4EDC8BFAFC6BD936B849F38C", ); sourceTree = "<group>"; };
-+		985959785319747668373CC6 = { isa = "PBXProject"; attributes = { LastUpgradeCheck = "1600"; LastSwiftUpdateCheck = "1600"; TargetAttributes = { 978354DB0C00FC78C3A5524F = { CreatedOnToolsVersion = "16.0"; }; 52A966A000CFCE4A907042FB = { CreatedOnToolsVersion = "26.0"; TestTargetID = "978354DB0C00FC78C3A5524F"; }; }; }; buildConfigurationList = "3C05BEEE7303EE3FA7B250FA"; compatibilityVersion = "Xcode 14.0"; developmentRegion = "zh_CN"; hasScannedForEncodings = 0; knownRegions = ( "zh_CN", "en", "Base", ); mainGroup = "97A63A01E61FD439E8760B8E"; productRefGroup = "4EDC8BFAFC6BD936B849F38C"; projectDirPath = ""; projectRoot = ""; targets = ( "978354DB0C00FC78C3A5524F", "52A966A000CFCE4A907042FB", ); packageReferences = ( "B8078308CC38995CEA1C768A", ); };
-+		98A9397B71FC018A86B6A9CF = { isa = "PBXFileReference"; lastKnownFileType = "file"; path = "DeepSeekPocket/Resources/JWTKit-LICENSE.txt"; sourceTree = "SOURCE_ROOT"; };
-+		98CA89B300D05FAB1C0A165B = { isa = "PBXFileReference"; lastKnownFileType = "sourcecode.swift"; path = "DeepSeekPocket/Services/BookStore.swift"; sourceTree = "SOURCE_ROOT"; };
-+		99709B02CEF3FAA4050BC61D = { isa = "PBXBuildFile"; fileRef = "00D8CF4642795E39ACCADFD1"; };
-+		9AC3B5AD93CBC0305C62F78F = { isa = "PBXFileReference"; lastKnownFileType = "text.plist.xml"; path = "DeepSeekPocket/Info.plist"; sourceTree = "SOURCE_ROOT"; };
-+		9B51D9445C18E97AAE0517EB = { isa = "PBXFileReference"; lastKnownFileType = "sourcecode.swift"; path = "DeepSeekPocket/Services/ImageStore.swift"; sourceTree = "SOURCE_ROOT"; };
-+		9B7A1A5EE5F6E529FC5346DF = { isa = "PBXBuildFile"; fileRef = "7BEFAE98F099D42E86AFCE2F"; };
-+		9F24E094D2EAF557E9505734 = { isa = "PBXFileReference"; lastKnownFileType = "sourcecode.swift"; path = "DeepSeekPocket/Core/StoryPlay.swift"; sourceTree = "SOURCE_ROOT"; };
-+		9FF974FF1A7A01698A0EB089 = { isa = "PBXBuildFile"; fileRef = "A1BAEE5F47ADE2787F688212"; };
-+		A0C36F214349A4024DA16F0B = { isa = "PBXFileReference"; lastKnownFileType = "file"; path = "DeepSeekPocket/Resources/SwiftCrypto-LICENSE.txt"; sourceTree = "SOURCE_ROOT"; };
-+		A1885169992B9DA1F71C9D3A = { isa = "PBXBuildFile"; fileRef = "8B37FFF4CB7BE1135BD14ACD"; };
-+		A1BAEE5F47ADE2787F688212 = { isa = "PBXFileReference"; lastKnownFileType = "sourcecode.swift"; path = "DeepSeekPocket/Core/AccountBalance.swift"; sourceTree = "SOURCE_ROOT"; };
-+		A7A1263DA7F96EFDF23924DF = { isa = "PBXFileReference"; lastKnownFileType = "file"; path = "DeepSeekPocket/Resources/FONT-LICENSE.txt"; sourceTree = "SOURCE_ROOT"; };
-+		AAE9D7A34AB701355C8069DD = { isa = "PBXFileReference"; lastKnownFileType = "sourcecode.swift"; path = "DeepSeekPocket/Views/KeyboardDock.swift"; sourceTree = "SOURCE_ROOT"; };
-+		AD92BA6DC4001011664987DD = { isa = "PBXFileReference"; lastKnownFileType = "sourcecode.swift"; path = "DeepSeekPocket/Services/AppPersistence.swift"; sourceTree = "SOURCE_ROOT"; };
-+		AE5AB6B5334FF712BC06316C = { isa = "PBXBuildFile"; fileRef = "23C8840CB93C92C84773A259"; };
-+		B3CAC62F8D306494B7224227 = { isa = "PBXBuildFile"; fileRef = "50118F9B93B4FBE19611394C"; };
-+		B45916FAB27540E1AA4487FF = { isa = "PBXBuildFile"; fileRef = "54FF733A5B7ACBFD6776F557"; };
-+		B52B5536BEEA5535FC6C5CC5 = { isa = "PBXFileReference"; lastKnownFileType = "sourcecode.swift"; path = "DeepSeekPocket/Core/ReasoningTranslation.swift"; sourceTree = "SOURCE_ROOT"; };
-+		B54B612585B9A027D4A40B7B = { isa = "PBXBuildFile"; fileRef = "41FAC8D62982AC0FBB5502B1"; };
-+		B66AD6CFBDD62302AE452474 = { isa = "PBXBuildFile"; fileRef = "B52B5536BEEA5535FC6C5CC5"; };
-+		B6AE52DDC1C5CBA92CD28A43 = { isa = "PBXFileReference"; lastKnownFileType = "sourcecode.swift"; path = "DeepSeekPocket/Core/BookScenes.swift"; sourceTree = "SOURCE_ROOT"; };
-+		B7BFB6A05148667494BA47E9 = { isa = "PBXBuildFile"; fileRef = "973EB79B3C8EAC5EF2205A8C"; };
-+		B7FACC675FCEA1EA7607D847 = { isa = "PBXFileReference"; lastKnownFileType = "sourcecode.swift"; path = "DeepSeekPocket/Core/ProjectMemory.swift"; sourceTree = "SOURCE_ROOT"; };
-+		B8078308CC38995CEA1C768A = { isa = "XCRemoteSwiftPackageReference"; repositoryURL = "https://github.com/vapor/jwt-kit.git"; requirement = { kind = "revision"; revision = "13e7513b3ba0afa13967daf77af2fb4ad087306c"; }; };
-+		BA82B5D5902FD5D83C01B5D9 = { isa = "PBXFileReference"; lastKnownFileType = "sourcecode.swift"; path = "DeepSeekPocket/AppStore.swift"; sourceTree = "SOURCE_ROOT"; };
-+		BC434C77C371EB518C8DD1E2 = { isa = "PBXBuildFile"; fileRef = "95BAB71F9CB1DEB93C0F8533"; };
-+		BD0345E57D029730BA2C6C0F = { isa = "PBXFileReference"; lastKnownFileType = "sourcecode.swift"; path = "DeepSeekPocket/Views/SettingsView.swift"; sourceTree = "SOURCE_ROOT"; };
-+		BD12731D7BC9B843D8523E65 = { isa = "PBXFileReference"; lastKnownFileType = "folder.assetcatalog"; path = "DeepSeekPocket/Assets.xcassets"; sourceTree = "SOURCE_ROOT"; };
-+		BF41F4472847DA8EE81FF145 = { isa = "PBXBuildFile"; fileRef = "42CC3A23349A29CD3B9B13B7"; };
-+		C0C355164654B03A78373B5A = { isa = "PBXBuildFile"; fileRef = "39F9C2B4BC13DE9D1B7A0828"; };
+ 		8B37FFF4CB7BE1135BD14ACD = { isa = "PBXFileReference"; lastKnownFileType = "sourcecode.swift"; path = "DeepSeekPocket/Core/WebSearch.swift"; sourceTree = "SOURCE_ROOT"; };
+ 		8BDCEEA2EB43FC91018F696F = { isa = "PBXBuildFile"; fileRef = "FF1F92A5772CD6C2220F3CD7"; };
+ 		8C6280633D259F66427E2288 = { isa = "PBXFileReference"; lastKnownFileType = "sourcecode.swift"; path = "DeepSeekPocket/Views/ReasoningView.swift"; sourceTree = "SOURCE_ROOT"; };
+@@ -156,7 +156,7 @@
+ 		BD12731D7BC9B843D8523E65 = { isa = "PBXFileReference"; lastKnownFileType = "folder.assetcatalog"; path = "DeepSeekPocket/Assets.xcassets"; sourceTree = "SOURCE_ROOT"; };
+ 		BF41F4472847DA8EE81FF145 = { isa = "PBXBuildFile"; fileRef = "42CC3A23349A29CD3B9B13B7"; };
+ 		C0C355164654B03A78373B5A = { isa = "PBXBuildFile"; fileRef = "39F9C2B4BC13DE9D1B7A0828"; };
+-		C131AA990408F5A8B287713E = { isa = "XCBuildConfiguration"; buildSettings = { PRODUCT_BUNDLE_IDENTIFIER = "com.xiaolong.qingjian"; PRODUCT_NAME = "DeepSeekPocket"; INFOPLIST_FILE = "DeepSeekPocket/Info.plist"; GENERATE_INFOPLIST_FILE = "NO"; MARKETING_VERSION = "1.16.0"; CURRENT_PROJECT_VERSION = "40"; ASSETCATALOG_COMPILER_APPICON_NAME = "AppIcon"; ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = "AccentColor"; TARGETED_DEVICE_FAMILY = "1,2"; CODE_SIGN_STYLE = "Automatic"; LD_RUNPATH_SEARCH_PATHS = ( "$(inherited)", "@executable_path/Frameworks", ); SUPPORTED_PLATFORMS = "iphoneos iphonesimulator"; SUPPORTS_MACCATALYST = "NO"; SWIFT_EMIT_LOC_STRINGS = "YES"; }; name = "Debug"; };
 +		C131AA990408F5A8B287713E = { isa = "XCBuildConfiguration"; buildSettings = { PRODUCT_BUNDLE_IDENTIFIER = "com.xiaolong.qingjian"; PRODUCT_NAME = "DeepSeekPocket"; INFOPLIST_FILE = "DeepSeekPocket/Info.plist"; GENERATE_INFOPLIST_FILE = "NO"; MARKETING_VERSION = "1.17.0"; CURRENT_PROJECT_VERSION = "41"; ASSETCATALOG_COMPILER_APPICON_NAME = "AppIcon"; ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = "AccentColor"; TARGETED_DEVICE_FAMILY = "1,2"; CODE_SIGN_STYLE = "Automatic"; LD_RUNPATH_SEARCH_PATHS = ( "$(inherited)", "@executable_path/Frameworks", ); SUPPORTED_PLATFORMS = "iphoneos iphonesimulator"; SUPPORTS_MACCATALYST = "NO"; SWIFT_EMIT_LOC_STRINGS = "YES"; }; name = "Debug"; };
-+		C4BF254EBAFEB4755D037451 = { isa = "PBXFileReference"; lastKnownFileType = "sourcecode.swift"; path = "DeepSeekPocket/Views/StreamActivityView.swift"; sourceTree = "SOURCE_ROOT"; };
-+		C7B5A2A8067AD2778E7DFC27 = { isa = "PBXFileReference"; lastKnownFileType = "sourcecode.swift"; path = "DeepSeekPocket/Views/HighlightColorSettings.swift"; sourceTree = "SOURCE_ROOT"; };
-+		C7D59EFCCEB862427B91F038 = { isa = "PBXBuildFile"; fileRef = "5A6EB7F92D195E7AEE28EEB7"; };
-+		C93ECEBE886357B59681D1FA = { isa = "PBXFileReference"; lastKnownFileType = "sourcecode.swift"; path = "DeepSeekPocket/Views/FeatureOverviewView.swift"; sourceTree = "SOURCE_ROOT"; };
-+		CAF85B0888D78F1F83771A07 = { isa = "PBXSourcesBuildPhase"; buildActionMask = 2147483647; files = ( "E948187D43088941245A631E", "9FF974FF1A7A01698A0EB089", "AE5AB6B5334FF712BC06316C", "82FA67131BBD396F86E2116A", "3819C361B7DC7B77A28862B2", "8EBF55DF7A23747C523905AF", "9B7A1A5EE5F6E529FC5346DF", "E7512F4F4D393A3B8E0B0188", "5C2F81BA0DCABB1C947E8ADD", "3EC0A14FC47CAC7393C3CFC5", "3248447040E933CB13B916AD", "93C55804D0A002E6F50CC03A", "B45916FAB27540E1AA4487FF", "B3CAC62F8D306494B7224227", "1845C5AD066558E7144B7A6E", "0BA7C9F5FA8508621EACC596", "555C32303FEC01FE5E890101", "599445434071846A03BA3ED1", "99709B02CEF3FAA4050BC61D", "F24DA10456EA38E753D6C74D", "4C67B3A8644B4131323338F4", "F0A4A6294A6A2DAFB51F05BF", "635B5ADE4A5E7F06D6C91A6C", "E4B822909F0928DC4F3F03C0", "6335A3ABBB0B66D5D0420B9E", "6AD311ADCA667A1D74A87613", "0EC4668D1A56EAD4350FFE9F", "2641567C8C0322C33318455F", "B66AD6CFBDD62302AE452474", "CBD0145EB624304E838BBE9D", "FB410379C42CF47534789D88", "18781602F2DAC47C56D28606", "FB9E20AB7E8E06C373CDA6EB", "DE30184B8E6325B41598B181", "B7BFB6A05148667494BA47E9", "FB49B3481328743886952A70", "A1885169992B9DA1F71C9D3A", "4FBDFDCFC3CFFD142126E109", "D1A92F5601359551C9B8EB06", "014292AAA8BB8AB00EA13508", "3E0D35CAE80749D7F5FB6D13", "E7DB6125112F4EF79C55BDEB", "43C7B65820360906F420796E", "E715D9455A07BCBF7EFC9131", "3D2F39C11C18228DFD26B4A3", "720570CFEE65A21BDA860D46", "91CA4F5122CF851CBABC1631", "4186E26C097F90A818146EA1", "83A2F5A6AC45B5491E1C720F", "C0C355164654B03A78373B5A", "3563E1CA6E8BD48C822B8C2B", "8BDCEEA2EB43FC91018F696F", "3AF1148164389B2CC77540CD", "E10BDB58B530EC57C8033683", "BC434C77C371EB518C8DD1E2", "77394EDED1F7CF17C1F2512B", "0F1AB7060410FF4D6A6E4245", "013A200081DDFA129E024241", "7B5B5297E38CBC81C550A88F", "B54B612585B9A027D4A40B7B", "CBABA1324B4A6FFF626FB91A", "2DBA81CFAB963C38BD67BAAB", "75981805E17934BCC1B71965", "8FA7E3DF6C6F91D1C46B5352", "EF6344819D40317F305D9D14", "9232B0427C6E459FD6AF875B", "61DB8ED7A72CB549987256AB", "44B8EB12DD9DE929E91EF2CF", "53C8AF5B49804551DD1C4276", "14004662B30440DD39B2FD3D", "72AFE7DB75131F9CD4DAE2C5", "F395A59B3AD4CC62F8FB6DE0", "56F9015EE386D8F5ED234311", "3F452BEF31103F0C30FEFFE2", "8DC8B347FABBF6896F349134", "BF41F4472847DA8EE81FF145", "E982314EBDF88FC6958B913E", "8216719DC2925895D3795135", "36AC5AEEFF9F752936F195D9", ); runOnlyForDeploymentPostprocessing = 0; };
-+		CAFD6B725820BD8EFB592E21 = { isa = "PBXFrameworksBuildPhase"; buildActionMask = 2147483647; files = ( "E4D99E707D8FD16E84B712A5", ); runOnlyForDeploymentPostprocessing = 0; };
-+		CBABA1324B4A6FFF626FB91A = { isa = "PBXBuildFile"; fileRef = "F90101C27E9790F534D72698"; };
-+		CBD0145EB624304E838BBE9D = { isa = "PBXBuildFile"; fileRef = "D3E3BBB1101A11CA28FB4C79"; };
-+		CFDAA41C4590CD92C81751E3 = { isa = "PBXBuildFile"; fileRef = "D1AB79AE04F0E5061CAD8E66"; };
-+		D1A92F5601359551C9B8EB06 = { isa = "PBXBuildFile"; fileRef = "AD92BA6DC4001011664987DD"; };
-+		D1AB79AE04F0E5061CAD8E66 = { isa = "PBXFileReference"; lastKnownFileType = "file"; path = "DeepSeekPocket/Resources/JWTKit-BoringSSL-LICENSE.txt"; sourceTree = "SOURCE_ROOT"; };
-+		D3E3BBB1101A11CA28FB4C79 = { isa = "PBXFileReference"; lastKnownFileType = "sourcecode.swift"; path = "DeepSeekPocket/Core/ReplySuggestions.swift"; sourceTree = "SOURCE_ROOT"; };
-+		D61504B3E2AD3EC7347CDBFD = { isa = "XCBuildConfiguration"; name = "Release"; buildSettings = { PRODUCT_BUNDLE_IDENTIFIER = "com.xiaolong.qingjian.uitests"; PRODUCT_NAME = "QingJianUITests"; GENERATE_INFOPLIST_FILE = "YES"; TEST_TARGET_NAME = "QingJian"; TARGETED_DEVICE_FAMILY = "1,2"; CODE_SIGNING_ALLOWED = "NO"; LD_RUNPATH_SEARCH_PATHS = ( "$(inherited)", "@executable_path/Frameworks", "@loader_path/Frameworks", ); }; };
-+		D6456752316CA8F0F4B9E303 = { isa = "PBXFileReference"; lastKnownFileType = "sourcecode.swift"; path = "DeepSeekPocket/Views/WelcomeView.swift"; sourceTree = "SOURCE_ROOT"; };
-+		D6B647D5B29452553C8EF1BC = { isa = "PBXFileReference"; lastKnownFileType = "sourcecode.swift"; path = "DeepSeekPocket/Views/ProfileView.swift"; sourceTree = "SOURCE_ROOT"; };
-+		D9AAFC2AA60035AE48399289 = { isa = "PBXFileReference"; lastKnownFileType = "sourcecode.swift"; path = "DeepSeekPocket/Core/GoogleOAuth.swift"; sourceTree = "SOURCE_ROOT"; };
-+		DDB66D1025589264C189D898 = { isa = "PBXFileReference"; lastKnownFileType = "sourcecode.swift"; path = "DeepSeekPocket/Core/ConversationHistory.swift"; sourceTree = "SOURCE_ROOT"; };
-+		DE30184B8E6325B41598B181 = { isa = "PBXBuildFile"; fileRef = "16855DA320ABA3F12B25F4F6"; };
-+		E10BDB58B530EC57C8033683 = { isa = "PBXBuildFile"; fileRef = "0CC0A6383A15174D7C9F9702"; };
-+		E1EF6CA3533AB8263E7B820C = { isa = "PBXFileReference"; lastKnownFileType = "file"; path = "DeepSeekPocket/Resources/SwiftASN1-LICENSE.txt"; sourceTree = "SOURCE_ROOT"; };
-+		E323CC18207F69BBC446367A = { isa = "PBXResourcesBuildPhase"; buildActionMask = 2147483647; files = (  ); runOnlyForDeploymentPostprocessing = 0; };
-+		E46E7597BF87BCC4D6F7D139 = { isa = "PBXContainerItemProxy"; containerPortal = "985959785319747668373CC6"; proxyType = 1; remoteGlobalIDString = "978354DB0C00FC78C3A5524F"; remoteInfo = "QingJian"; };
-+		E4B822909F0928DC4F3F03C0 = { isa = "PBXBuildFile"; fileRef = "93BD463C99712EC6B71C9B25"; };
-+		E4D99E707D8FD16E84B712A5 = { isa = "PBXBuildFile"; productRef = "10146A7A8B3BF4AB38D4A8FB"; };
-+		E715D9455A07BCBF7EFC9131 = { isa = "PBXBuildFile"; fileRef = "48B681429152B286258D24C5"; };
-+		E7512F4F4D393A3B8E0B0188 = { isa = "PBXBuildFile"; fileRef = "92D5DE561F6D6344F4F1E849"; };
-+		E7DB6125112F4EF79C55BDEB = { isa = "PBXBuildFile"; fileRef = "72BB5DB29666265C05EF806D"; };
-+		E89B30AA1DC30A6AD8C34610 = { isa = "PBXResourcesBuildPhase"; buildActionMask = 2147483647; files = ( "8FA7AFBAD5313C05CC0951BD", "38CD29483D7413C09C3F9B7F", "CFDAA41C4590CD92C81751E3", "28EA6468023058069802F2EB", "69C3F2F333D2E2B3A3F24FF1", "C7D59EFCCEB862427B91F038", "EE64A02FB3225F6C48A80A42", "0CBEED5B5A349A63CE11CFA6", ); runOnlyForDeploymentPostprocessing = 0; };
-+		E8ECF3B1EE37473287E90555 = { isa = "PBXFileReference"; lastKnownFileType = "sourcecode.swift"; path = "DeepSeekPocket/Services/GoogleDrive.swift"; sourceTree = "SOURCE_ROOT"; };
-+		E9356E900EF90F1AB17B213D = { isa = "PBXBuildFile"; fileRef = "0E8330815093FF36160824F6"; };
-+		E948187D43088941245A631E = { isa = "PBXBuildFile"; fileRef = "BA82B5D5902FD5D83C01B5D9"; };
-+		E982314EBDF88FC6958B913E = { isa = "PBXBuildFile"; fileRef = "40D1773EBB20645E76A2BD2C"; };
-+		ED158573A061B231C0A453CC = { isa = "PBXSourcesBuildPhase"; buildActionMask = 2147483647; files = ( "E9356E900EF90F1AB17B213D", ); runOnlyForDeploymentPostprocessing = 0; };
-+		EDCA7BAC8FB04D1994C0047E = { isa = "PBXFileReference"; lastKnownFileType = "sourcecode.swift"; path = "DeepSeekPocket/Views/StoryPlayViews.swift"; sourceTree = "SOURCE_ROOT"; };
-+		EE64A02FB3225F6C48A80A42 = { isa = "PBXBuildFile"; fileRef = "E1EF6CA3533AB8263E7B820C"; };
-+		EF6344819D40317F305D9D14 = { isa = "PBXBuildFile"; fileRef = "926DD3AEA52C59A65D5C926C"; };
-+		F0A4A6294A6A2DAFB51F05BF = { isa = "PBXBuildFile"; fileRef = "FC192FF984009EFE924DF27C"; };
-+		F24DA10456EA38E753D6C74D = { isa = "PBXBuildFile"; fileRef = "72FA68DF57F2D70F1E5A0638"; };
-+		F395A59B3AD4CC62F8FB6DE0 = { isa = "PBXBuildFile"; fileRef = "4651FC8E0770D946922382DD"; };
-+		F3F3A92718A75943C2F8CA78 = { isa = "PBXFileReference"; lastKnownFileType = "sourcecode.swift"; path = "DeepSeekPocket/Views/BookshelfView.swift"; sourceTree = "SOURCE_ROOT"; };
-+		F44A0164865FBFB081630EA8 = { isa = "PBXFileReference"; lastKnownFileType = "sourcecode.swift"; path = "DeepSeekPocket/Views/KeyboardBoundary.swift"; sourceTree = "SOURCE_ROOT"; };
-+		F86D2500D0147860A94850A2 = { isa = "PBXFileReference"; lastKnownFileType = "sourcecode.swift"; path = "DeepSeekPocket/Views/KeyboardChatLayout.swift"; sourceTree = "SOURCE_ROOT"; };
-+		F90101C27E9790F534D72698 = { isa = "PBXFileReference"; lastKnownFileType = "sourcecode.swift"; path = "DeepSeekPocket/Views/InterfaceStyle.swift"; sourceTree = "SOURCE_ROOT"; };
-+		FB410379C42CF47534789D88 = { isa = "PBXBuildFile"; fileRef = "9F24E094D2EAF557E9505734"; };
-+		FB49B3481328743886952A70 = { isa = "PBXBuildFile"; fileRef = "49F32A6687CDAA14DCF065B0"; };
-+		FB6ADA06E8FE26751C48D7EC = { isa = "PBXFileReference"; lastKnownFileType = "sourcecode.swift"; path = "DeepSeekPocket/Core/Projects.swift"; sourceTree = "SOURCE_ROOT"; };
-+		FB9E20AB7E8E06C373CDA6EB = { isa = "PBXBuildFile"; fileRef = "2A5703C0962491E211B88DF0"; };
-+		FB9EF894175C327470F768D9 = { isa = "PBXFileReference"; explicitFileType = "wrapper.application"; includeInIndex = 0; path = "DeepSeekPocket.app"; sourceTree = "BUILT_PRODUCTS_DIR"; };
-+		FC192FF984009EFE924DF27C = { isa = "PBXFileReference"; lastKnownFileType = "sourcecode.swift"; path = "DeepSeekPocket/Core/MarkdownBlocks.swift"; sourceTree = "SOURCE_ROOT"; };
-+		FC6B172857114F4E30B4F727 = { isa = "PBXFileReference"; lastKnownFileType = "sourcecode.swift"; path = "DeepSeekPocket/Core/InnerThoughts.swift"; sourceTree = "SOURCE_ROOT"; };
-+		FD74A26728B90EEDF0289739 = { isa = "PBXFileReference"; lastKnownFileType = "sourcecode.swift"; path = "DeepSeekPocket/Core/BookDiscussion.swift"; sourceTree = "SOURCE_ROOT"; };
-+		FF1F92A5772CD6C2220F3CD7 = { isa = "PBXFileReference"; lastKnownFileType = "sourcecode.swift"; path = "DeepSeekPocket/Views/BookDiscussionViews.swift"; sourceTree = "SOURCE_ROOT"; };
-+	};
-+	rootObject = 985959785319747668373CC6;
-+}
+ 		C4BF254EBAFEB4755D037451 = { isa = "PBXFileReference"; lastKnownFileType = "sourcecode.swift"; path = "DeepSeekPocket/Views/StreamActivityView.swift"; sourceTree = "SOURCE_ROOT"; };
+ 		C7B5A2A8067AD2778E7DFC27 = { isa = "PBXFileReference"; lastKnownFileType = "sourcecode.swift"; path = "DeepSeekPocket/Views/HighlightColorSettings.swift"; sourceTree = "SOURCE_ROOT"; };
+ 		C7D59EFCCEB862427B91F038 = { isa = "PBXBuildFile"; fileRef = "5A6EB7F92D195E7AEE28EEB7"; };
