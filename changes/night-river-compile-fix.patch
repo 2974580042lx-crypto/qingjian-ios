@@ -1,0 +1,10 @@
+--- a/QingJian/DeepSeekPocket/Views/InterfaceStyle.swift
++++ b/QingJian/DeepSeekPocket/Views/InterfaceStyle.swift
+@@ -182 +182 @@
+-        let p = min(1, max(0, phase))
++        let p = CGFloat(min(1, max(0, phase)))
+@@ -192,2 +192,2 @@
+-            let t = Double(step) / Double(steps)
+-            let angle = Double.pi / 2 - t * Double.pi          // 90° → -90°, bottom to top
++            let t = CGFloat(step) / CGFloat(steps)
++            let angle = CGFloat.pi / 2 - t * CGFloat.pi       // 90° → -90°, bottom to top

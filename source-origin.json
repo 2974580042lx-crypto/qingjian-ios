@@ -10,9 +10,10 @@
   "version": "1.17.0",
   "build": "41",
   "base_commit": "f7973bef433c2e1b10667ebcfac603e7f202adc6",
-  "overlay_sha256": "8739c76e681f900923b900c9df0ef75cf421d39cabb54650c4b9ad19b6a76d85",
+  "overlay_sha256": "30da7e2dba1242a2947ea59e2a2be03d924b0e48733b9d119a4883f8a8397e14",
   "tests_run": false,
-  "validation": "Edited without a Mac; not compiled locally. Build with GitHub Actions.",
+  "validation": "Release rebuild pending",
   "sha256": "7f880fef3bf46623cb1d1cbcb36d5b8023958ed25bf5176c895f24cabc7a1da8",
-  "source_layout": "complete archive; empty overlay"
+  "source_layout": "user complete archive plus CGFloat-only moon drawing compile fix",
+  "source_drive_id": "1B7KmqadnW-eE77k-tapyRASmAxWe-eKi"
 }
