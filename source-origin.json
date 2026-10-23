@@ -7,14 +7,12 @@
     "build": "36",
     "tests_run": false
   },
-  "version": "1.17.0",
-  "build": "41",
+  "version": "1.18.0",
+  "build": "42",
   "base_commit": "e0be8a6c5cf9dbde40451513fc6ea75d3240b676",
-  "overlay_sha256": "5bee7ee3b68496ee03717cbc1363d06dbab5c53bd54b2fb6e713a2af52cda613",
+  "overlay_sha256": "5b6922d9db6388a7c100a3c288ccc3391203e9a40b532dba4785b0e3d3e9cad4",
   "tests_run": false,
-  "validation": "GitHub Actions Release compilation succeeded; no unit/UI tests run",
+  "validation": "Release compilation pending; no unit or UI tests requested",
   "sha256": "cb5332b71990c74ff38670cbb7d6213d55b49ecafa6255cd75869f573b2ff460",
-  "source_layout": "verified 1.16.0 archive plus reader visual overlay",
-  "compiled_commit": "02788695dca65039174d59e72b7f85383715a45b",
-  "build_run_url": "https://github.com/2974580042lx-crypto/qingjian-ios/actions/runs/39964636003"
+  "source_layout": "verified 1.16.0 archive plus cumulative 1.17 reader and 1.18 reading tools overlay"
 }
