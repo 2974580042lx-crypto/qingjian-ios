@@ -56,7 +56,7 @@
   "QingJian/DeepSeekPocket/Resources/SwiftCrypto-LICENSE.txt": "cfc7749b96f63bd31c3c42b5c471bf756814053e847c10f3eb003417bc523d30",
   "QingJian/DeepSeekPocket/Services/AppPersistence.swift": "eb5600c0e07c59a23011a7a118cd5c3faf7d4989ee0df8e39033718599c21afa",
   "QingJian/DeepSeekPocket/Services/BackupFolder.swift": "6edc06598c8d30305b436181be32e3719447e724a6bf8d19d0bf0b0db86d3277",
-  "QingJian/DeepSeekPocket/Services/BookStore.swift": "06d755d8408629efc7a5cab26813ca8153ef4f22e06e0c6fb9b31c33220cf63a",
+  "QingJian/DeepSeekPocket/Services/BookStore.swift": "7e7ebbe3adf7cad8dec317be721c7299df19b5a704c6218874d3ace0fbaf6c7c",
   "QingJian/DeepSeekPocket/Services/DeepSeekClient.swift": "f60ac6ce78d613a8fd6d741e6d3c1319dc6c60b769953f841456b52da7851df9",
   "QingJian/DeepSeekPocket/Services/FontLibrary.swift": "2b8057de3142f6d5ca82a70e5d4eb48024f276360c2953c76a8964da88c21d31",
   "QingJian/DeepSeekPocket/Services/GitHubClient.swift": "cef7135ace81dc267ca5be784f477270b391852d2b7f16feea3bc47f5e547745",

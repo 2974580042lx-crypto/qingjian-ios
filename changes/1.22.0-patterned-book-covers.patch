@@ -132,7 +132,7 @@
          books.removeAll { $0.id == id }
          if cachedChapters?.id == id { cachedChapters = nil }
          if cachedDiscussion?.id == id { cachedDiscussion = nil }
-@@ -655,3 +665,64 @@
+@@ -655,3 +665,75 @@
  private final class BookTextBuffer {
      var value = BookTextAccumulator()
  }
@@ -177,6 +177,7 @@
 +
 +    func localCover(_ id: UUID) {
 +        guard var latest = book(id) else { return }
++        cancelQueuedCover(id)
 +        latest.coverDesign = .local(title: latest.title, seed: Int.random(in: 0...65535))
 +        latest.coverJPEG = nil
 +        latest.coverRevision = UUID()
@@ -186,6 +187,7 @@
 +
 +    func setCoverJPEG(_ data: Data, for id: UUID) {
 +        guard var latest = book(id), data.count <= 500_000, UIImage(data: data) != nil else { return }
++        cancelQueuedCover(id)
 +        latest.coverJPEG = data
 +        latest.coverRevision = UUID()
 +        latest.coverNote = "自选封面"
@@ -195,6 +197,15 @@
 +    private func saveCover(_ next: Book) {
 +        let before = book(next.id)
 +        if !save(next), let before, let index = books.firstIndex(where: { $0.id == before.id }) { books[index] = before }
++    }
++
++    private func cancelQueuedCover(_ id: UUID) {
++        // A queued job has not captured a revision yet, so remove it explicitly.
++        // An active job is superseded by the new revision when it completes.
++        if coverQueue.contains(id) {
++            coverQueue.removeAll { $0 == id }
++            designingCovers.remove(id)
++        }
 +    }
 +}
 --- a/QingJian/DeepSeekPocket/Views/BookshelfView.swift
