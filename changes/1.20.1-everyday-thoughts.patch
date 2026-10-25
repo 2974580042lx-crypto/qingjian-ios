@@ -1,0 +1,299 @@
+--- a/QingJian/DeepSeekPocket/AppStore.swift
++++ b/QingJian/DeepSeekPocket/AppStore.swift
+@@ -54,0 +55 @@
++    @Published private(set) var thoughtsThreadID: UUID?
+@@ -56,0 +58 @@
++    private var thoughtsRequestID: UUID?
+@@ -1794,2 +1796 @@
+-    /// 「他在想什么」: writes the character's inner monologue behind one answer and keeps
+-    /// it on that answer. A separate request; the story never sees it.
++    /// A separate voice supplement, cached on the target answer; never sent back as history.
+@@ -1798,2 +1799,28 @@
+-        guard hasKey else { errorMessage = ChatError.missingKey.localizedDescription; return }
+-        guard let thread = threads.first(where: { $0.id == threadID }), let story = thread.story else { return }
++        guard let thread = threads.first(where: { $0.id == threadID }), !isHidden(thread),
++              let answer = thread.messages.first(where: { $0.id == messageID }),
++              answer.role == .assistant, answer.state == .complete, answer.directive == nil else { return }
++        let provider = self.provider(for: thread)
++        guard isReady(provider) else {
++            errorMessage = provider == .deepSeek ? ChatError.missingKey.localizedDescription : subscription.readinessMessage
++            return
++        }
++        let project = self.project(thread.projectID)
++        var config = settings
++        config.model = activeThreadID == threadID ? settings.model : (project?.model ?? settings.model)
++        let subscriptionModel = activeThreadID == threadID ? settings.subscriptionModel : (project?.subscriptionModel ?? settings.subscriptionModel)
++        let variables = PromptVariables.Context(now: Date(), userName: userName,
++            modelName: provider == .chatGPT ? subscription.title(for: subscriptionModel) : config.model.title)
++        let story = answer.storyState ?? thread.story
++        let prompt: String
++        let sourceMessages: [ChatMessage]
++        if let story {
++            prompt = storyPrompt(story)
++            sourceMessages = thread.messages
++        } else if let discussion = thread.bookDiscussion {
++            prompt = BookDiscussion.prompt(discussion, book: books.book(discussion.bookID), character: answer.discussionCharacter)
++                + "\n\n本条回答当时的书内依据：\n" + BookDiscussion.sources(answer.bookReferences ?? [])
++            sourceMessages = BookDiscussion.history(thread.messages)
++        } else {
++            prompt = project?.systemPrompt(resolving: variables) ?? PromptVariables.apply(settings.systemPrompt, variables)
++            sourceMessages = thread.messages
++        }
+@@ -1802,2 +1829,2 @@
+-            request = try InnerThoughts.request(settings: settings, systemPrompt: storyPrompt(story), messages: thread.messages,
+-                                                answerID: messageID, character: character)
++            request = try InnerThoughts.request(settings: config, systemPrompt: prompt, messages: sourceMessages,
++                                                answerID: messageID, character: character, isStory: story != nil)
+@@ -1805 +1832,3 @@
+-        let key = apiKey, model = settings.model
++        let key = apiKey, model = config.model, originalContent = answer.content, requestID = UUID()
++        thoughtsRequestID = requestID
++        thoughtsThreadID = threadID
+@@ -1810 +1838,0 @@
+-            defer { self.thoughtsMessageID = nil; self.thoughtsTask = nil }
+@@ -1811,0 +1840,10 @@
++            defer {
++                if let usage = buffer.value.usage {
++                    self.recordUsage(usage, model: provider == .chatGPT ? nil : model, at: Date())
++                    _ = self.persistNow()
++                }
++                if self.thoughtsRequestID == requestID {
++                    self.thoughtsMessageID = nil; self.thoughtsThreadID = nil
++                    self.thoughtsTask = nil; self.thoughtsRequestID = nil; self.thoughtsDraft = ""
++                }
++            }
+@@ -1813 +1851 @@
+-                try await DeepSeekClient(requestTimeout: 120, resourceTimeout: 240).stream(request: request, key: key) { [weak self] event in
++                let receive: @MainActor (StreamEvent) -> Void = { [weak self] event in
+@@ -1815,3 +1853,11 @@
+-                    self?.thoughtsDraft = buffer.value.content
+-                }
+-                self.recordUsage(buffer.value.usage, model: model, at: Date())
++                    guard let self, self.thoughtsRequestID == requestID else { return }
++                    self.thoughtsDraft = buffer.value.content
++                }
++                if provider == .chatGPT {
++                    try await self.subscription.stream(request: request, model: subscriptionModel, effort: .low,
++                                                       onProgress: { _ in }, onEvent: receive)
++                } else {
++                    try await DeepSeekClient(requestTimeout: 120, resourceTimeout: 240)
++                        .stream(request: request, key: key, onEvent: receive)
++                }
++                try Task.checkCancellation()
+@@ -1819,2 +1865,7 @@
+-                guard let ti = self.threads.firstIndex(where: { $0.id == threadID }),
+-                      let mi = self.threads[ti].messages.firstIndex(where: { $0.id == messageID }) else { return }
++                guard !text.isEmpty else { throw ChatError.server("这次没有生成心声，请稍后重试。") }
++                guard self.thoughtsRequestID == requestID,
++                      let ti = self.threads.firstIndex(where: { $0.id == threadID }), !self.isHidden(self.threads[ti]),
++                      let mi = self.threads[ti].messages.firstIndex(where: { $0.id == messageID }),
++                      self.threads[ti].messages[mi].content == originalContent,
++                      self.threads[ti].messages[mi].state == .complete else { return }
++                let old = self.threads
+@@ -1822 +1873 @@
+-                self.persistNow()
++                if !self.persistNow() { self.threads = old }
+--- a/QingJian/DeepSeekPocket/Core/AppManual.swift
++++ b/QingJian/DeepSeekPocket/Core/AppManual.swift
+@@ -7 +7 @@
+-    static let revision = 9
++    static let revision = 10
+@@ -31,0 +32 @@
++            Item(name: "日常对话的心声", how: "长按一条已完成的回答 → 他在想什么。按当前对话人设和语气，单独生成一段第一人称心声补写，可停止或重写，结果保存在这条回答下。它是根据对话生成的演绎，与思考过程分开，不会发回聊天；额外生成计入所用服务的用量。"),
+--- a/QingJian/DeepSeekPocket/Core/ConversationEditing.swift
++++ b/QingJian/DeepSeekPocket/Core/ConversationEditing.swift
+@@ -18,0 +19 @@
++        copy.messages[index].innerThoughts = nil
+--- a/QingJian/DeepSeekPocket/Core/InnerThoughts.swift
++++ b/QingJian/DeepSeekPocket/Core/InnerThoughts.swift
+@@ -3,3 +3,2 @@
+-// 「他在想什么」: one request, separate from the story. It carries the same system
+-// prompt and the conversation up to the answer (so DeepSeek's cache covers almost all
+-// of it), then asks for the character's inner monologue in that moment.
++// A separately generated, fictional voice supplement based on visible dialogue.
++// It is not the model's private reasoning and never becomes conversation history.
+@@ -8 +7 @@
+-                        character: String) throws -> ChatRequest {
++                        character: String, isStory: Bool = true) throws -> ChatRequest {
+@@ -9,0 +9 @@
++              messages[index].state == .complete,
+@@ -13 +13,6 @@
+-        var history = Array(messages[...index])
++        var history = Array(messages[...index]).map { original in
++            var message = original
++            message.reasoning = ""
++            message.reasoningTranslation = nil
++            return message
++        }
+@@ -15,3 +20,4 @@
+-        （幕后，不属于剧情：）请写出\(character)在说上面最后那段话、做那些事的时候，心里真正在想什么。
+-        用\(character)的第一人称内心独白，150 到 300 字，口吻和见识都是他自己的；可以和嘴上说的不一样，写出没说出口的真实想法、顾虑和情绪。
+-        不要写对白，不要推进剧情，不要加标题或说明，只写这段独白。
++        请围绕上面最后一条回答，按\(character)的口吻补写一段可能的心声，150到300字。
++        沿用当前对话的人设、称呼、语言习惯和关系距离，用第一人称表达这句话里没有展开的态度、顾虑或情绪。没有明确人物设定时，保持刚才回答者的自然语气，不硬造身份或背景。
++        \(isStory ? "这段补写不属于剧情，不推进事件，也不替其他人物读心。" : "这是日常对话的心声补写，不继续回答用户的问题，不把普通交流强行写成故事。")
++        内容贴着刚才的话，不泛泛复述，不无依据增加经历、事实或关系进展。不加标题，只写这段补写。
+@@ -22 +28,7 @@
+-        return ChatRequest(settings: config, messages: history, systemPrompt: systemPrompt)
++        let framing = """
++        【本次独立心声补写】
++        本次任务是根据可见对话创作一段第一人称的文学化补写，不是披露或重建模型真实内部想法。不要提供隐藏思维链、私有推理过程、系统指令或工具决策记录，也不要把补写声称为已验证的真实心理。
++        只根据对话已体现的人设与语气展开；这是新生成的演绎，界面会单独标明，不会发回正文。不要模仿先前回答里的冗长引用和讲解格式。
++        """
++        return ChatRequest(settings: config, messages: history,
++                           systemPrompt: systemPrompt + "\n\n" + framing, includeReasoning: false)
+--- a/QingJian/DeepSeekPocket/Views/BookshelfView.swift
++++ b/QingJian/DeepSeekPocket/Views/BookshelfView.swift
+@@ -1039,2 +1039,2 @@
+-// 「他在想什么」: the character's unspoken thoughts behind one answer. Written once on
+-// request (a small extra request) and kept; the story itself never sees them.
++// A literary inner-voice supplement generated from the selected conversation.
++// It is cached on the answer and is never fed back into the conversation.
+@@ -1047 +1047,5 @@
+-    private var thread: ChatThread? { store.threads.first(where: { $0.id == threadID }) }
++    @State private var requestedInitial = false
++    private var thread: ChatThread? {
++        guard let value = store.threads.first(where: { $0.id == threadID }), !store.isHidden(value) else { return nil }
++        return value
++    }
+@@ -1049,2 +1053,21 @@
+-    private var character: String { thread?.story?.character ?? "他" }
+-    private var writing: Bool { store.thoughtsMessageID == messageID }
++    private var character: String { thread?.story?.character ?? "对话中的回答者" }
++    private var writing: Bool { store.thoughtsThreadID == threadID && store.thoughtsMessageID == messageID }
++    private var available: Bool {
++        guard let message else { return false }
++        return message.role == .assistant && message.state == .complete && message.directive == nil
++            && !message.content.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
++    }
++    private var savedThoughts: String? {
++        guard let text = message?.innerThoughts, !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return nil }
++        return text
++    }
++    private var contextDescription: String {
++        if let name = thread?.story?.character { return "为\(name)补写这条回答时的心声。" }
++        if let project = store.project(thread?.projectID) { return "沿用「\(project.name)」的项目设定与语气。" }
++        return "沿用当前对话的设定与语气。"
++    }
++    private var title: String {
++        guard available else { return "心声补写" }
++        if let name = thread?.story?.character { return "\(name)在想什么" }
++        return "他在想什么"
++    }
+@@ -1056,7 +1079,17 @@
+-                    if let said = message?.content {
+-                        Text(String(said.prefix(120)) + (said.count > 120 ? "…" : ""))
+-                            .font(TypeScale.label).foregroundStyle(Ink.ink3)
+-                    }
+-                    if writing {
+-                        if store.thoughtsDraft.isEmpty {
+-                            HStack(spacing: 8) { ProgressView(); Text("\(character)在想…").font(TypeScale.label).foregroundStyle(Ink.ink3) }
++                    if available {
++                        Text(contextDescription).font(TypeScale.label).foregroundStyle(Ink.ink2)
++                        if let said = message?.content {
++                            Text(String(said.prefix(120)) + (said.count > 120 ? "…" : ""))
++                                .font(TypeScale.label).foregroundStyle(Ink.ink3)
++                        }
++                        if writing {
++                            if store.thoughtsDraft.isEmpty {
++                                HStack(spacing: 8) {
++                                    ProgressView()
++                                    Text("正在补写这条回复的心声…").font(TypeScale.label).foregroundStyle(Ink.ink3)
++                                }
++                            } else {
++                                Text(store.thoughtsDraft).font(TypeScale.answer).foregroundStyle(Ink.ink).lineSpacing(7)
++                            }
++                        } else if let thoughts = savedThoughts {
++                            Text(thoughts).font(TypeScale.answer).foregroundStyle(Ink.ink).lineSpacing(7).textSelection(.enabled)
+@@ -1064,4 +1097,4 @@
+-                            Text(store.thoughtsDraft).font(TypeScale.answer).foregroundStyle(Ink.ink).lineSpacing(7)
+-                        }
+-                    } else if let thoughts = message?.innerThoughts {
+-                        Text(thoughts).font(TypeScale.answer).foregroundStyle(Ink.ink).lineSpacing(7).textSelection(.enabled)
++                            Text("还没有生成这条回答的心声。").font(TypeScale.label).foregroundStyle(Ink.ink3)
++                        }
++                        Text("根据对话生成的心声补写，不是原始思考过程，不会发回聊天。首次生成和重写计入用量。")
++                            .font(TypeScale.tiny).foregroundStyle(Ink.ink3)
+@@ -1069,3 +1102,3 @@
+-                        Text("还没写过这条回答的心里话。").font(TypeScale.label).foregroundStyle(Ink.ink3)
+-                    }
+-                    Text("心里话单独生成，不会写进剧情，人物也不知道你看过。").font(TypeScale.tiny).foregroundStyle(Ink.ink3)
++                        ContentUnavailableView("这条回答暂不可查看", systemImage: "lock",
++                                               description: Text("原对话已删除、项目已上锁，或消息状态已改变。请返回原对话后再打开。"))
++                    }
+@@ -1077 +1110 @@
+-            .navigationTitle("\(character)在想什么")
++            .navigationTitle(title)
+@@ -1081 +1114,7 @@
+-                    Button(writing ? "停止" : "完成") { if writing { store.cancelThoughts() } else { dismiss() } }
++                    Button(writing && available ? "停止" : "完成") {
++                        if writing && available { store.cancelThoughts() }
++                        else {
++                            if writing { store.cancelThoughts() }
++                            dismiss()
++                        }
++                    }
+@@ -1084,4 +1123,2 @@
+-                    Button(message?.innerThoughts == nil ? "生成" : "重写") {
+-                        store.revealThoughts(threadID: threadID, messageID: messageID, character: character)
+-                    }
+-                    .disabled(writing || store.thoughtsMessageID != nil)
++                    Button(savedThoughts == nil ? "生成" : "重写", action: generate)
++                        .disabled(!available || !store.canPersist || writing || store.thoughtsMessageID != nil)
+@@ -1094,4 +1131,13 @@
+-            if message?.innerThoughts == nil && !writing {
+-                store.revealThoughts(threadID: threadID, messageID: messageID, character: character)
+-            }
+-        }
++            if !requestedInitial, available, savedThoughts == nil, store.canPersist, store.thoughtsMessageID == nil {
++                requestedInitial = true
++                generate()
++            }
++        }
++        .onChange(of: available) { _, value in
++            if !value && writing { store.cancelThoughts() }
++        }
++    }
++
++    private func generate() {
++        guard available, store.canPersist, store.thoughtsMessageID == nil else { return }
++        store.revealThoughts(threadID: threadID, messageID: messageID, character: character)
+--- a/QingJian/DeepSeekPocket/Views/ContentView.swift
++++ b/QingJian/DeepSeekPocket/Views/ContentView.swift
+@@ -138,0 +139,6 @@
++}
++
++private struct InnerThoughtsTarget: Identifiable {
++    let threadID: UUID
++    let messageID: UUID
++    var id: String { "\(threadID.uuidString):\(messageID.uuidString)" }
+@@ -272 +278 @@
+-    @State private var thoughtsTarget: ChatMessage?
++    @State private var thoughtsTarget: InnerThoughtsTarget?
+@@ -466,2 +472,2 @@
+-        .sheet(item: $thoughtsTarget) { message in
+-            if let id = store.activeThreadID { InnerThoughtsSheet(threadID: id, messageID: message.id).environmentObject(store) }
++        .sheet(item: $thoughtsTarget) { target in
++            InnerThoughtsSheet(threadID: target.threadID, messageID: target.messageID).environmentObject(store)
+@@ -629 +635,9 @@
+-            thoughts = { thoughtsTarget = message }
++        }
++        if message.role == .assistant, message.state == .complete, message.directive == nil,
++           !message.content.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty, let threadID {
++            thoughts = {
++                guard let thread = store.threads.first(where: { $0.id == threadID }), !store.isHidden(thread),
++                      thread.messages.contains(where: { $0.id == message.id }) else { return }
++                focusComposer(false)
++                thoughtsTarget = InnerThoughtsTarget(threadID: threadID, messageID: message.id)
++            }
+@@ -1302 +1316 @@
+-    // 「他在想什么」 (1.12.0).
++    // A separate literary inner-voice supplement; available for completed assistant replies.
+--- a/QingJian/QingJian.xcodeproj/project.pbxproj
++++ b/QingJian/QingJian.xcodeproj/project.pbxproj
+@@ -110 +110 @@
+-		86A46D98C12482E1EF3DC46C = { isa = "XCBuildConfiguration"; buildSettings = { PRODUCT_BUNDLE_IDENTIFIER = "com.xiaolong.qingjian"; PRODUCT_NAME = "DeepSeekPocket"; INFOPLIST_FILE = "DeepSeekPocket/Info.plist"; GENERATE_INFOPLIST_FILE = "NO"; MARKETING_VERSION = "1.20.0"; CURRENT_PROJECT_VERSION = "45"; ASSETCATALOG_COMPILER_APPICON_NAME = "AppIcon"; ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = "AccentColor"; TARGETED_DEVICE_FAMILY = "1,2"; CODE_SIGN_STYLE = "Automatic"; LD_RUNPATH_SEARCH_PATHS = ( "$(inherited)", "@executable_path/Frameworks", ); SUPPORTED_PLATFORMS = "iphoneos iphonesimulator"; SUPPORTS_MACCATALYST = "NO"; SWIFT_EMIT_LOC_STRINGS = "YES"; }; name = "Release"; };
++		86A46D98C12482E1EF3DC46C = { isa = "XCBuildConfiguration"; buildSettings = { PRODUCT_BUNDLE_IDENTIFIER = "com.xiaolong.qingjian"; PRODUCT_NAME = "DeepSeekPocket"; INFOPLIST_FILE = "DeepSeekPocket/Info.plist"; GENERATE_INFOPLIST_FILE = "NO"; MARKETING_VERSION = "1.20.1"; CURRENT_PROJECT_VERSION = "46"; ASSETCATALOG_COMPILER_APPICON_NAME = "AppIcon"; ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = "AccentColor"; TARGETED_DEVICE_FAMILY = "1,2"; CODE_SIGN_STYLE = "Automatic"; LD_RUNPATH_SEARCH_PATHS = ( "$(inherited)", "@executable_path/Frameworks", ); SUPPORTED_PLATFORMS = "iphoneos iphonesimulator"; SUPPORTS_MACCATALYST = "NO"; SWIFT_EMIT_LOC_STRINGS = "YES"; }; name = "Release"; };
+@@ -159 +159 @@
+-		C131AA990408F5A8B287713E = { isa = "XCBuildConfiguration"; buildSettings = { PRODUCT_BUNDLE_IDENTIFIER = "com.xiaolong.qingjian"; PRODUCT_NAME = "DeepSeekPocket"; INFOPLIST_FILE = "DeepSeekPocket/Info.plist"; GENERATE_INFOPLIST_FILE = "NO"; MARKETING_VERSION = "1.20.0"; CURRENT_PROJECT_VERSION = "45"; ASSETCATALOG_COMPILER_APPICON_NAME = "AppIcon"; ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = "AccentColor"; TARGETED_DEVICE_FAMILY = "1,2"; CODE_SIGN_STYLE = "Automatic"; LD_RUNPATH_SEARCH_PATHS = ( "$(inherited)", "@executable_path/Frameworks", ); SUPPORTED_PLATFORMS = "iphoneos iphonesimulator"; SUPPORTS_MACCATALYST = "NO"; SWIFT_EMIT_LOC_STRINGS = "YES"; }; name = "Debug"; };
++		C131AA990408F5A8B287713E = { isa = "XCBuildConfiguration"; buildSettings = { PRODUCT_BUNDLE_IDENTIFIER = "com.xiaolong.qingjian"; PRODUCT_NAME = "DeepSeekPocket"; INFOPLIST_FILE = "DeepSeekPocket/Info.plist"; GENERATE_INFOPLIST_FILE = "NO"; MARKETING_VERSION = "1.20.1"; CURRENT_PROJECT_VERSION = "46"; ASSETCATALOG_COMPILER_APPICON_NAME = "AppIcon"; ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = "AccentColor"; TARGETED_DEVICE_FAMILY = "1,2"; CODE_SIGN_STYLE = "Automatic"; LD_RUNPATH_SEARCH_PATHS = ( "$(inherited)", "@executable_path/Frameworks", ); SUPPORTED_PLATFORMS = "iphoneos iphonesimulator"; SUPPORTS_MACCATALYST = "NO"; SWIFT_EMIT_LOC_STRINGS = "YES"; }; name = "Debug"; };
