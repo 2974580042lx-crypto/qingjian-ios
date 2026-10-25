@@ -39,4 +39,4 @@ expected = json.loads((ROOT / 'source-manifest.json').read_text())
 actual = {p.relative_to(ROOT).as_posix(): hashlib.sha256(p.read_bytes()).hexdigest()
           for p in (ROOT / 'QingJian').rglob('*') if p.is_file()}
 assert actual == expected, f'Source manifest mismatch: missing={expected.keys()-actual.keys()}, extra={actual.keys()-expected.keys()}, changed={[k for k in expected.keys() & actual.keys() if expected[k] != actual[k]]}'
-print(f'Verified reconstructed source contents: {len(actual)} files, Sermo 1.19.1 build 44.')
+print(f'Verified reconstructed source contents: {len(actual)} files, Sermo 1.20.0 build 45.')

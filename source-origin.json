@@ -7,14 +7,12 @@
     "build": "36",
     "tests_run": false
   },
-  "version": "1.19.1",
-  "build": "44",
+  "version": "1.20.0",
+  "build": "45",
   "base_commit": "e0be8a6c5cf9dbde40451513fc6ea75d3240b676",
-  "overlay_sha256": "44e2b1cac1e38a81056b870b467738a0b312c3620fa232f5bc5bfe562c476ac4",
+  "overlay_sha256": "5229804a1b0f2881f817ca349b83afedd97c09590beb591d07266ee37ed0dd5a",
   "tests_run": false,
-  "validation": "GitHub Actions Release compilation succeeded; no unit/UI tests run",
+  "validation": "Release compilation pending; no unit/UI tests requested",
   "sha256": "cb5332b71990c74ff38670cbb7d6213d55b49ecafa6255cd75869f573b2ff460",
-  "source_layout": "verified 1.16.0 archive plus cumulative 1.17-1.19 reader and core app improvements",
-  "compiled_commit": "6d6b403d2b0473e18d994bde2e2a12fc252e9f39",
-  "build_run_url": "https://github.com/2974580042lx-crypto/qingjian-ios/actions/runs/39997980109"
+  "source_layout": "1.16 baseline plus cumulative 1.19.1 features, Night River theme, PDF and reliable attachment controls"
 }
