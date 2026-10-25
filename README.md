@@ -1,3 +1,9 @@
+Sermo 1.22.0 已通过 Release 编译并交付，未做真机验证。
+
+安装包：https://drive.google.com/file/d/1_dunl55-nbsZO2g2aylDqR4WughptQOV/view?usp=drivesdk
+
+构建：https://github.com/2974580042lx-crypto/qingjian-ios/actions/runs/40215295882
+
 Sermo 1.22.0 / build 48：花纹书封与全屏氛围背景
 
 - 新书先显示本地装帧；订阅连接就绪时串行请求 GPT 配色/花纹参数，使用本地绘图生成封面，书名本地排版。
@@ -6,7 +12,7 @@ Sermo 1.22.0 / build 48：花纹书封与全屏氛围背景
 - 手动换图优先于在途模型结果；封面及参数随完整书架备份保存，旧版无封面备份兼容。
 - 图片输入经缩略、裁切为 600×900 JPEG，上限 500 KB；书封有内存缓存，尊重减少动态效果。
 - 使用现有订阅文字通道，不调用图片生成 API、不切换到额外付费服务。离线/未连接时使用本地花纹。
-- 保留 1.21.0 全部功能。Release编译待完成，未运行单元/UI测试或真机验证。
+- 保留 1.21.0 全部功能。Release编译已通过，未运行单元/UI测试或真机验证。
 
 Sermo 1.21.0 / build 47：系统指令库与旧答案
 

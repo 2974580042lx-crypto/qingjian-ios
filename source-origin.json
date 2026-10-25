@@ -12,7 +12,9 @@
   "base_commit": "e0be8a6c5cf9dbde40451513fc6ea75d3240b676",
   "overlay_sha256": "ef0b8c5980c40a269ebf8dcb84d36fe9da6ad7f78d4b5de88ed1fad8ea7ea856",
   "tests_run": false,
-  "validation": "Release compilation pending; no unit/UI tests requested",
+  "validation": "GitHub Actions Release compilation succeeded; no unit/UI tests run",
   "sha256": "cb5332b71990c74ff38670cbb7d6213d55b49ecafa6255cd75869f573b2ff460",
-  "source_layout": "verified 1.16 baseline plus cumulative feature overlay through 1.22.0"
+  "source_layout": "verified 1.16 baseline plus cumulative feature overlay through 1.22.0",
+  "compiled_commit": "2ef84dab7cb98f93efc81ff40e1ba4743c7903f5",
+  "build_run_url": "https://github.com/2974580042lx-crypto/qingjian-ios/actions/runs/40215295882"
 }
