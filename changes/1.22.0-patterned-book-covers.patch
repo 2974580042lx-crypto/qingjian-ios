@@ -436,12 +436,13 @@
          .navigationTitle(book?.title ?? "书")
          .navigationBarTitleDisplayMode(.inline)
          .toolbar {
-@@ -1153,7 +1192,7 @@
+@@ -1152,8 +1191,8 @@
+ struct NightShelf: View {
      let books: [Book]
      let readingID: UUID?
++    @Binding var picked: UUID?
      let open: (UUID) -> Void
 -    @State private var picked: UUID?
-+    @Binding var picked: UUID?
  
      private var selected: Book? { books.first { $0.id == picked } ?? books.first }
  
