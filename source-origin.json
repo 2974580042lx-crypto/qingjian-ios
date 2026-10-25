@@ -10,7 +10,7 @@
   "version": "1.22.0",
   "build": "48",
   "base_commit": "e0be8a6c5cf9dbde40451513fc6ea75d3240b676",
-  "overlay_sha256": "597643f9b5ca6235026445754b415dd1f87346f545dd46e08d0419c3d832b5f7",
+  "overlay_sha256": "a240f6098eedf89d800a1e1db59975bcd8a9712a755167eb25562a4af3d07707",
   "tests_run": false,
   "validation": "Release compilation pending; no unit/UI tests requested",
   "sha256": "cb5332b71990c74ff38670cbb7d6213d55b49ecafa6255cd75869f573b2ff460",

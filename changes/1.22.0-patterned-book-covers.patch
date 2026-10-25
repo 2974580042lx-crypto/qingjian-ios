@@ -227,7 +227,82 @@
      @AppStorage("qingjian.bookshelf.sort") private var sortPreference = ShelfSort.recentImport.rawValue
  
      private enum ShelfSort: String, CaseIterable {
-@@ -76,7 +79,7 @@
+@@ -59,6 +62,65 @@
+     var body: some View {
+         NavigationStack(path: $path) {
+             List {
++                emptyShelf
++                recentShelf
++                shelfHeading
++                emptySearch
++                shelfBooks
++            }
++            .listStyle(.plain)
++            .searchable(text: $search, prompt: "搜索书名")
++            .scrollContentBackground(.hidden)
++            .background {
++                ShelfAtmosphere(book: visibleBooks.first(where: { $0.id == selectedCoverID }) ?? visibleBooks.first)
++            }
++            .toolbarBackground(.hidden, for: .navigationBar)
++            .overlay {
++                if books.isImporting {
++                    VStack(spacing: 12) {
++                        ProgressView()
++                        Text("正在导入并分章…").font(TypeScale.label).foregroundStyle(Ink.ink2)
++                    }
++                    .padding(24)
++                    .background(Ink.raised, in: RoundedRectangle(cornerRadius: 16, style: .continuous))
++                }
++            }
++            .navigationTitle("书架")
++            .toolbar {
++                ToolbarItem(placement: .topBarLeading) { Button("完成") { dismiss() } }
++                ToolbarItem(placement: .topBarTrailing) {
++                    Menu {
++                        Button("导出完整书架", systemImage: "square.and.arrow.up") {
++                            Task { shelfExport = await store.exportShelfArchive() }
++                        }
++                        Button("恢复书架备份", systemImage: "square.and.arrow.down") {
++                            DocumentPicker.present([.json], asCopy: false) { url in Task { await store.importShelfArchive(url) } }
++                        }
++                    } label: {
++                        if store.shelfBackupBusy { ProgressView() } else { Image(systemName: "externaldrive") }
++                    }.disabled(store.shelfBackupBusy || store.isGenerating)
++                    .accessibilityLabel("完整书架备份")
++                }
++                ToolbarItem(placement: .topBarTrailing) {
++                    Button { managingPersonas = true } label: { Image(systemName: "person.crop.square") }.accessibilityLabel("我的人物卡")
++                }
++                ToolbarItem(placement: .topBarTrailing) {
++                    Button { pickBook() } label: { Image(systemName: "plus") }.accessibilityLabel("导入小说")
++                        .disabled(books.isImporting)
++                }
++            }
++            .sheet(isPresented: Binding(get: { shelfExport != nil }, set: { if !$0 { shelfExport = nil } })) {
++                if let url = shelfExport { ShareSheet(items: [url]) }
++            }
++            .navigationDestination(for: UUID.self) { id in BookDetailView(bookID: id, opened: opened) }
++            .bookAlerts(store, books)
++            .sheet(isPresented: $managingPersonas) { PersonaListView().environmentObject(books) }
++        }
++        .tint(Ink.ink)
++    }
++
++
++    @ViewBuilder private var emptyShelf: some View {
+                 if books.books.isEmpty {
+                     VStack(alignment: .leading, spacing: 16) {
+                         Text("导入一本小说的 TXT 或 EPUB 文件，Sermo 会分段读完全书，整理出人物档案、作者笔触和名场面。读完之后，选一个人物就能开聊。")
+@@ -70,13 +132,16 @@
+                     .padding(.vertical, 8)
+                     .listRowBackground(Color.clear)
+                 }
++    }
++
++    @ViewBuilder private var recentShelf: some View {
+                 if !InterfaceStyle.isNight, query.isEmpty,
+                    let recent = books.books.filter({ $0.bookmark != nil }).max(by: { ($0.lastReadAt ?? $0.importedAt) < ($1.lastReadAt ?? $1.importedAt) }),
+                    let mark = recent.bookmark {
                      Section("最近阅读") {
                          NavigationLink(value: recent.id) {
                              HStack(spacing: 14) {
@@ -236,8 +311,33 @@
                                  VStack(alignment: .leading, spacing: 6) {
                                      Text(recent.title).font(TypeScale.serif(19)).foregroundStyle(Ink.ink)
                                      Text(recent.chapterLabel(mark.chapter)).font(TypeScale.label).foregroundStyle(Ink.ink3).lineLimit(1)
-@@ -118,7 +121,7 @@
+@@ -86,6 +151,9 @@
+                         }.listRowBackground(Color.clear)
+                     }
                  }
++    }
++
++    @ViewBuilder private var shelfHeading: some View {
+                 if !books.books.isEmpty {
+                     HStack {
+                         Text(query.isEmpty ? "全部图书 · \(visibleBooks.count)" : "搜索结果 · \(visibleBooks.count)")
+@@ -107,6 +175,9 @@
+                     }
+                     .listRowBackground(Color.clear)
+                 }
++    }
++
++    @ViewBuilder private var emptySearch: some View {
+                 if !query.isEmpty && visibleBooks.isEmpty && !books.books.isEmpty {
+                     VStack(alignment: .leading, spacing: 8) {
+                         Text("没有找到匹配的书").font(TypeScale.body).foregroundStyle(Ink.ink)
+@@ -116,9 +187,12 @@
+                     .padding(.vertical, 12)
+                     .listRowBackground(Color.clear)
+                 }
++    }
++
++    @ViewBuilder private var shelfBooks: some View {
                  if InterfaceStyle.isNight {
                      if !visibleBooks.isEmpty {
 -                        NightShelf(books: visibleBooks, readingID: books.readingBookID) { path.append($0) }
@@ -245,7 +345,7 @@
                              .listRowBackground(Color.clear)
                              .listRowInsets(EdgeInsets())
                              .listRowSeparator(.hidden)
-@@ -127,7 +130,7 @@
+@@ -127,7 +201,7 @@
                  ForEach(visibleBooks) { book in
                      NavigationLink(value: book.id) {
                          HStack(spacing: 14) {
@@ -254,19 +354,61 @@
                              VStack(alignment: .leading, spacing: 3) {
                                  Text(book.title).font(TypeScale.serif(17)).foregroundStyle(Ink.ink).lineLimit(1)
                                  Text(BookStatusText.short(book, reading: books.readingBookID == book.id))
-@@ -147,7 +150,10 @@
-             .listStyle(.plain)
-             .searchable(text: $search, prompt: "搜索书名")
-             .scrollContentBackground(.hidden)
+@@ -143,53 +217,6 @@
+                     .accessibilityIdentifier("book-row")
+                 }
+                 }
+-            }
+-            .listStyle(.plain)
+-            .searchable(text: $search, prompt: "搜索书名")
+-            .scrollContentBackground(.hidden)
 -            .background(AppBackground())
-+            .background {
-+                ShelfAtmosphere(book: visibleBooks.first(where: { $0.id == selectedCoverID }) ?? visibleBooks.first)
-+            }
-+            .toolbarBackground(.hidden, for: .navigationBar)
-             .overlay {
-                 if books.isImporting {
-                     VStack(spacing: 12) {
-@@ -242,6 +248,18 @@
+-            .overlay {
+-                if books.isImporting {
+-                    VStack(spacing: 12) {
+-                        ProgressView()
+-                        Text("正在导入并分章…").font(TypeScale.label).foregroundStyle(Ink.ink2)
+-                    }
+-                    .padding(24)
+-                    .background(Ink.raised, in: RoundedRectangle(cornerRadius: 16, style: .continuous))
+-                }
+-            }
+-            .navigationTitle("书架")
+-            .toolbar {
+-                ToolbarItem(placement: .topBarLeading) { Button("完成") { dismiss() } }
+-                ToolbarItem(placement: .topBarTrailing) {
+-                    Menu {
+-                        Button("导出完整书架", systemImage: "square.and.arrow.up") {
+-                            Task { shelfExport = await store.exportShelfArchive() }
+-                        }
+-                        Button("恢复书架备份", systemImage: "square.and.arrow.down") {
+-                            DocumentPicker.present([.json], asCopy: false) { url in Task { await store.importShelfArchive(url) } }
+-                        }
+-                    } label: {
+-                        if store.shelfBackupBusy { ProgressView() } else { Image(systemName: "externaldrive") }
+-                    }.disabled(store.shelfBackupBusy || store.isGenerating)
+-                    .accessibilityLabel("完整书架备份")
+-                }
+-                ToolbarItem(placement: .topBarTrailing) {
+-                    Button { managingPersonas = true } label: { Image(systemName: "person.crop.square") }.accessibilityLabel("我的人物卡")
+-                }
+-                ToolbarItem(placement: .topBarTrailing) {
+-                    Button { pickBook() } label: { Image(systemName: "plus") }.accessibilityLabel("导入小说")
+-                        .disabled(books.isImporting)
+-                }
+-            }
+-            .sheet(isPresented: Binding(get: { shelfExport != nil }, set: { if !$0 { shelfExport = nil } })) {
+-                if let url = shelfExport { ShareSheet(items: [url]) }
+-            }
+-            .navigationDestination(for: UUID.self) { id in BookDetailView(bookID: id, opened: opened) }
+-            .bookAlerts(store, books)
+-            .sheet(isPresented: $managingPersonas) { PersonaListView().environmentObject(books) }
+-        }
+-        .tint(Ink.ink)
+     }
+ 
+     // SwiftUI's .fileImporter does not open from this sheet while the chat page
+@@ -242,6 +269,18 @@
      var body: some View {
          Form {
              if let book {
@@ -285,7 +427,7 @@
                  Section {
                      LabeledContent("字数", value: BookStatusText.wan(book.characterCount))
                      LabeledContent("章节", value: "\(book.chapterTitles.count) 章，分 \(book.segments.count) 段读")
-@@ -273,7 +291,7 @@
+@@ -273,7 +312,7 @@
          .font(TypeScale.body)
          .tint(Ink.seal)
          .scrollContentBackground(.hidden)
@@ -294,7 +436,7 @@
          .navigationTitle(book?.title ?? "书")
          .navigationBarTitleDisplayMode(.inline)
          .toolbar {
-@@ -1153,7 +1171,7 @@
+@@ -1153,7 +1192,7 @@
      let books: [Book]
      let readingID: UUID?
      let open: (UUID) -> Void
@@ -303,7 +445,7 @@
  
      private var selected: Book? { books.first { $0.id == picked } ?? books.first }
  
-@@ -1205,6 +1223,7 @@
+@@ -1205,6 +1244,7 @@
                  Button { withAnimation(.snappy(duration: 0.25)) { picked = book.id } } label: {
                      Spine(book: book)
                  }
@@ -311,7 +453,7 @@
                  .buttonStyle(.plain)
                  .offset(y: lifted ? -12 : 0)
                  .disabled(reflection)
-@@ -1216,10 +1235,16 @@
+@@ -1216,10 +1256,16 @@
  
      @ViewBuilder private func panel(_ book: Book) -> some View {
          VStack(alignment: .leading, spacing: 0) {
@@ -330,7 +472,7 @@
              GeometryReader { proxy in
                  ZStack(alignment: .leading) {
                      Rectangle().fill(Ink.line)
-@@ -1273,6 +1298,8 @@
+@@ -1273,6 +1319,8 @@
          ZStack(alignment: .top) {
              UnevenRoundedRectangle(topLeadingRadius: 2, topTrailingRadius: 2, style: .continuous)
                  .fill(cloth)
@@ -339,7 +481,7 @@
                  .overlay(alignment: .trailing) { Rectangle().fill(Color.black.opacity(0.18)).frame(width: 3) }
              VStack(spacing: 2) {
                  ForEach(Array(letters.enumerated()), id: \.offset) { _, letter in
-@@ -1287,3 +1314,197 @@
+@@ -1287,3 +1335,197 @@
          .frame(width: width, height: height)
      }
  }
