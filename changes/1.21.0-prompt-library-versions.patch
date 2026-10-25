@@ -4,7 +4,7 @@
 +    @Published private(set) var systemPromptPresets: [SystemPromptPreset] = []
 @@ -205,0 +207 @@
 +                systemPromptPresets = snapshot.systemPromptPresets ?? []
-@@ -341,0 +344,96 @@
+@@ -341,0 +344,97 @@
 +    }
 +
 +    // MARK: System prompt library
@@ -96,12 +96,13 @@
 +            errorMessage = "这个版本暂时不能打开，请等待回答结束或解锁项目。"
 +            return false
 +        }
-+        let oldID = activeThreadID
++        let oldID = activeThreadID, oldThreads = threads
 +        cancelReplySuggestions()
 +        activeThreadID = id
-+        if !persistNow() { activeThreadID = oldID; return false }
++        if let index = threads.firstIndex(where: { $0.id == id }) { threads[index].updatedAt = Date() }
++        if !persistNow() { activeThreadID = oldID; threads = oldThreads; return false }
 +        return true
-@@ -641,0 +740,23 @@
+@@ -641,0 +741,23 @@
 +        if generate {
 +            // Preserve the complete prior path, including answers and its selected prompt.
 +            guard threads.count < 2000 else { errorMessage = "对话与历史版本合计已达2000份，请先导出并整理。"; return false }
@@ -125,22 +126,25 @@
 +            if !saved { threads = old; projects = oldProjects; activeThreadID = oldID }
 +            return saved
 +        }
-@@ -767,2 +888 @@
+@@ -767,2 +889 @@
 -            ?? chatProject?.systemPrompt(resolving: variables)
 -            ?? PromptVariables.apply(settings.systemPrompt, variables)
 +            ?? normalSystemPrompt(for: threads[ti], resolving: variables)
-@@ -1433 +1553,2 @@
+@@ -1433 +1554,2 @@
 -        let style = thread.story.map { storyPrompt($0) } ?? project(thread.projectID)?.systemPrompt
 +        let variables = PromptVariables.Context(now: Date(), userName: userName, modelName: pillModelTitle)
 +        let style = thread.story.map { storyPrompt($0) } ?? normalSystemPrompt(for: thread, resolving: variables)
-@@ -1824 +1945 @@
+@@ -1547 +1669 @@
+-        threads.filter { $0.bookDiscussion?.bookID == bookID && !isHidden($0) }.sorted { $0.updatedAt > $1.updatedAt }
++        sortedThreads.filter { $0.bookDiscussion?.bookID == bookID && !isHidden($0) }.sorted { $0.updatedAt > $1.updatedAt }
+@@ -1824 +1946 @@
 -            prompt = project?.systemPrompt(resolving: variables) ?? PromptVariables.apply(settings.systemPrompt, variables)
 +            prompt = normalSystemPrompt(for: thread, resolving: variables)
-@@ -1959 +2080,2 @@
+@@ -1959 +2081,2 @@
 -        AppSnapshot(settings: settings, threads: threads, activeThreadID: activeThreadID, projects: projects, usage: usage)
 +        AppSnapshot(settings: settings, threads: threads, activeThreadID: activeThreadID, projects: projects, usage: usage,
 +                    systemPromptPresets: systemPromptPresets)
-@@ -2109,0 +2232,22 @@
+@@ -2109,0 +2233,22 @@
 +            var mergedPresets = systemPromptPresets
 +            var presetRemap: [UUID: UUID] = [:]
 +            for originalPreset in incoming.systemPromptPresets ?? [] {
@@ -163,12 +167,12 @@
 +                    added[index].systemPromptPreset?.id = newID
 +                }
 +            }
-@@ -2122 +2266 @@
+@@ -2122 +2267 @@
 -            let old = threads, oldProjects = projects, oldUsage = usage
 +            let old = threads, oldProjects = projects, oldUsage = usage, oldPresets = systemPromptPresets
-@@ -2124,0 +2269 @@
+@@ -2124,0 +2270 @@
 +            systemPromptPresets = mergedPresets
-@@ -2126,2 +2271,4 @@
+@@ -2126,2 +2272,4 @@
 -            guard persistNow() else { threads = old; projects = oldProjects; usage = oldUsage; return }
 -            noticeMessage = "已导入 \(added.count) 个新对话" + (addedProjects.isEmpty ? "" : "、\(addedProjects.count) 个项目") + "，现有记录、设置和 API Key 保持不变。"
 +            guard persistNow() else { threads = old; projects = oldProjects; usage = oldUsage; systemPromptPresets = oldPresets; return }
