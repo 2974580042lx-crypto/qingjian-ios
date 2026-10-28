@@ -1,4 +1,8 @@
-Sermo 1.23.0 / build 49：带事实账本的小说创作（本次 Release 编译待完成）
+Sermo 1.23.0 / build 49：带事实账本的小说创作（Release 编译已通过，未真机验证）
+
+构建：https://github.com/2974580042lx-crypto/qingjian-ios/actions/runs/40632423549
+
+草稿 PR：https://github.com/2974580042lx-crypto/qingjian-ios/pull/6
 
 - 侧栏新增「小说创作」，简报、世界设定、人物、全书大纲和章节独立保存。
 - 默认逐章共创：提纲、起草、审稿、润色生成候选；从正文提取记忆候选，核对并确认后才定稿。
