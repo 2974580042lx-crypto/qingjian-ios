@@ -545,7 +545,7 @@
 +}
 --- a/QingJian/DeepSeekPocket/Core/NovelWorkflow.swift
 +++ b/QingJian/DeepSeekPocket/Core/NovelWorkflow.swift
-@@ -0,0 +1,241 @@
+@@ -0,0 +1,247 @@
 +import Foundation
 +import CryptoKit
 +
@@ -741,7 +741,13 @@
 +                $0.kind == item.kind && $0.subject == subject && $0.predicate == predicate && $0.value == factValue
 +            }) { return nil }
 +            try validateEvidence(item.evidence, body: chapter.body)
-+            return NovelFact(id: UUID(), kind: item.kind, subject: subject, predicate: predicate, value: factValue,
++            let previousID = chapter.memoryDelta.flatMap { previous -> UUID? in
++                guard previous.sourceBodyFingerprint == bodyFingerprint else { return nil }
++                return previous.updates.first {
++                    $0.kind == item.kind && $0.subject == subject && $0.predicate == predicate
++                }?.id
++            }
++            return NovelFact(id: previousID ?? UUID(), kind: item.kind, subject: subject, predicate: predicate, value: factValue,
 +                sourceChapterID: chapter.id, sourceBodyFingerprint: bodyFingerprint, evidence: item.evidence,
 +                validFromChapter: chapterIndex + 1, validUntilChapter: nil, origin: .extracted, locked: false)
 +        }
@@ -841,7 +847,7 @@
                              notes: Array(repeating: nil, count: prepared.segments.count))
 --- a/QingJian/DeepSeekPocket/Services/NovelStore.swift
 +++ b/QingJian/DeepSeekPocket/Services/NovelStore.swift
-@@ -0,0 +1,568 @@
+@@ -0,0 +1,578 @@
 +import Foundation
 +import Combine
 +
@@ -1183,7 +1189,17 @@
 +        if run.action == .confirm {
 +            guard let index = latest.chapters.firstIndex(where: { $0.id == chapterID }) else { throw CancellationError() }
 +            let ledger = try NovelMemory.replay(project: latest, beforeChapterID: chapterID)
-+            let memory = try NovelWorkflow.memory(text, chapter: latest.chapters[index], chapterIndex: index, ledger: ledger)
++            var memory = try NovelWorkflow.memory(text, chapter: latest.chapters[index], chapterIndex: index, ledger: ledger)
++            if let previous = latest.chapters[index].memoryDelta,
++               previous.sourceBodyFingerprint == memory.sourceBodyFingerprint {
++                // A model may omit an unchanged fact during a fresh extraction. Keep the
++                // exact source records that the author already corrected on this same body.
++                let correctedIDs = Set((latest.memoryCorrections ?? []).filter {
++                    $0.sourceChapterID == chapterID && $0.sourceBodyFingerprint == memory.sourceBodyFingerprint
++                }.map(\.factID))
++                let retainedIDs = Set(memory.updates.map(\.id))
++                memory.updates += previous.updates.filter { correctedIDs.contains($0.id) && !retainedIDs.contains($0.id) }
++            }
 +            try NovelMemory.validate(delta: memory, chapter: latest.chapters[index], ledger: ledger)
 +            latest.chapters[index].memoryCandidate = memory
 +            latest.candidates.remove(at: ci)
