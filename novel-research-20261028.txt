@@ -1,0 +1,63 @@
+Sermo 小说创作工作流调研与实现选择
+核验日期：2026-10-28
+
+用户选择：辅助创作与自动创作都要，默认逐章确认。
+集成基线：1.22.0/build 48，codex/reader-paper-polish-20261023，49b8b005374c37d315ab4b280e56a52466e806a0。
+当前 main 仍为 1.16 e0be8a6c5cf9dbde40451513fc6ea75d3240b676。本功能分支保留1.17至1.22累积改动。
+
+候选（Star为查询时累计数量，不是近期增长或文学质量排名）：
+1. InkOS：10,869 Star，默认分支最新提交10-24（文档）；AGPL-3.0；TypeScript/Node，Studio/TUI/CLI。master是2.0开发版本，主要功能合并在9-26。适合参考写作、审稿、修订、状态提交与恢复，不作为Swift包直接内置。
+   https://github.com/Narcooo/inkos
+2. AI_NovelGenerator：6,350 Star，默认分支最新提交10-16；AGPL-3.0。10-12重写为Next.js 16/FastAPI/MongoDB副本集，旧Tkinter版本移至old分支。不能按旧教程当作轻量桌面工具。
+   https://github.com/YILING0013/AI_NovelGenerator
+3. chinese-novelist-skill：4,438 Star，默认分支最新提交10-20；LICENSE为MIT。Markdown创作流程、人物/章纲模板及Python字数脚本；依赖编码代理工具，不是移动端SDK。
+   https://github.com/PenglongHuang/chinese-novelist-skill
+   https://github.com/PenglongHuang/chinese-novelist-skill/blob/master/LICENSE
+   https://github.com/PenglongHuang/chinese-novelist-skill/blob/master/references/flows/chapter-checklist.md
+4. MuMuAINovel：3,223 Star，默认分支最新提交10-16，包含知识库检索功能；GPL-3.0；FastAPI/React/PostgreSQL，需要后端。可参考创作向导、人物关系与分层上下文。
+   https://github.com/xiamuceer-j/MuMuAINovel
+   https://github.com/xiamuceer-j/MuMuAINovel/blob/main/backend/app/services/chapter_context_service.py
+5. ainovel-cli：2,244 Star，默认分支最新提交10-15，仓库最近推送10-25；Go命令行。LICENSE正文为Apache-2.0，README尾部仍写MIT，存在不一致。重点参考逐章确认、checkpoint、改稿后重新同步事实的方法。
+   https://github.com/voocel/ainovel-cli
+   https://github.com/voocel/ainovel-cli/blob/main/LICENSE
+   https://github.com/voocel/ainovel-cli/blob/main/docs/chapter-advance-gate.md
+
+补充：NovelForge为AGPL，不是MIT；Biz Novel Studio/AI-Novel-Writing-Assistant的LICENSE含额外服务型商用授权说明，GitHub识别NOASSERTION，不作为首版直接依赖。
+
+选择：重点参考InkOS的事实/伏笔账本、ainovel-cli的章节状态重放和MuMu的分类记忆，辅助参考chinese-novelist-skill的创作阶段，以Swift原生独立实现。没有复制第三方源码、提示词或商用服务，也不新增Node/Python/Go运行时依赖。没有运行这些外部项目或进行生成质量对比。
+
+第一版：新书简报→世界/人物→全书大纲→本章计划→读取正式记忆→正文草稿→按账本审稿/改写→提取记忆候选→作者确认记忆并定稿→下一章。
+自动模式：指定1-5章连续起草，草稿需确认；批次内使用前序候选的内容明确标为草稿。停止后保留进度，不承诺后台无限运行。
+状态：正文版本与正式记忆分开；模型生成不能覆盖在途编辑；改动旧章将后续记忆标为待复核。
+数据：独立小说存储；单作品JSON备份导入创建副本；TXT/Markdown导出；书架仅接收阅读副本，避免破坏既有书签/讨论锚点。
+复用：已有DeepSeek及订阅模型通道、用量记录、主题、阅读器、书架导入。不把普通项目4000字记忆当作长篇事实数据库。
+
+验证结果：1.23.0/build 49已通过Release编译，IPA内部版本号、bundle ID、SHA-256和源代码清单均核对。按用户既有要求未运行单元/UI测试或真机截图，也未做同模型长篇创作质量比较。
+最终构建：https://github.com/2974580042lx-crypto/qingjian-ios/actions/runs/40632423549
+编译源码提交：f733c9b606f97aaf338a1f82fc17508746a72649
+草稿PR：https://github.com/2974580042lx-crypto/qingjian-ios/pull/6 ，未合并main。
+
+用户纠偏后的核心要求：同一个模型的小说专项优化，而非额外的写作界面。
+三个文本摘要字段和最近6章+关键词4章仅是辅助；本版已增加结构化故事事实账本，全部未回收伏笔作为保护性上下文持续带入，超过输入上限时明确报错，不悄悄省略后继续。
+
+进一步源码证据：
+InkOS runtime-state.ts：事实有subject/predicate/object、有效章节及来源，伏笔有稳定ID、状态与预期回收信息。
+https://github.com/Narcooo/inkos/blob/master/packages/core/src/models/runtime-state.ts
+InkOS state-reducer.ts：按章节增量upsert/expire事实，resolve伏笔引用既有ID。
+https://github.com/Narcooo/inkos/blob/master/packages/core/src/state/state-reducer.ts
+ainovel-cli ChapterRecord与修改服务：绑定正文hash/revision，重放每章记录重建时间线、关系和伏笔。
+https://github.com/voocel/ainovel-cli/blob/main/internal/domain/revision.go
+https://github.com/voocel/ainovel-cli/blob/main/internal/revision/projector.go
+https://github.com/voocel/ainovel-cli/blob/main/internal/revision/service.go
+MuMu人物状态更新：按角色归档位置/处境/生存状态等章节变化。
+https://github.com/xiamuceer-j/MuMuAINovel/blob/main/backend/app/services/character_state_update_service.py
+MuMu独立伏笔表：埋入章、计划回收章、实际回收章、状态、相关角色，而非普通段落摘要。
+https://github.com/xiamuceer-j/MuMuAINovel/blob/main/backend/app/models/foreshadow.py
+
+工程价值与边界：
+- 已确认正文事实与作者未来规划分别存储，草稿猜想不能污染正式事实。
+- 角色知情范围与作者/读者知道的事独立组织；这部分是Sermo原生设计加强，不能宣称上述项目代码已经保证人物永不串信息。
+- 全局未回收伏笔不依赖“是否在最近几章”或“关键词能否命中”。
+- 章节记忆有正文出处与版本；旧章修改后旧记忆失效，后文需复核；按章节增量重新计算当前账本。
+- 写前组装本章用得上的记忆，写后审阅使用相同正式账本；模型抽取先作为候选，作者采纳后写入。
+- 同模型可能获得更好的连续性与可控性，但检索和事实抽取仍可能漏项或误解；源码审查和编译不等于已经做过同模型生成质量对比。
