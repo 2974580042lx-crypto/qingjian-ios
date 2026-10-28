@@ -1,0 +1,781 @@
+--- a/QingJian/DeepSeekPocket/AppStore.swift
++++ b/QingJian/DeepSeekPocket/AppStore.swift
+@@ -40,0 +41 @@
++    @Published private(set) var systemPromptPresets: [SystemPromptPreset] = []
+@@ -205,0 +207 @@
++                systemPromptPresets = snapshot.systemPromptPresets ?? []
+@@ -341,0 +344,97 @@
++    }
++
++    // MARK: System prompt library
++
++    func canChooseSystemPrompt(for thread: ChatThread?) -> Bool {
++        guard let thread else { return false }
++        return thread.story == nil && thread.bookDiscussion == nil && !isHidden(thread)
++    }
++
++    func systemPromptTitle(for thread: ChatThread?) -> String {
++        guard let thread else { return "默认指令" }
++        if thread.story != nil { return "故事指令" }
++        if thread.bookDiscussion != nil { return "本书讨论指令" }
++        if let preset = thread.systemPromptPreset { return preset.name }
++        return project(thread.projectID) == nil ? "默认指令" : "跟随项目"
++    }
++
++    @discardableResult
++    func upsertSystemPromptPreset(_ value: SystemPromptPreset) -> Bool {
++        guard canPersist else { return false }
++        var next = value
++        next.name = next.name.trimmingCharacters(in: .whitespacesAndNewlines)
++        next.content = next.content.trimmingCharacters(in: .whitespacesAndNewlines)
++        next.updatedAt = Date()
++        do { try next.validate() } catch { errorMessage = error.localizedDescription; return false }
++        let index = systemPromptPresets.firstIndex(where: { $0.id == next.id })
++        guard index != nil || systemPromptPresets.count < 100 else {
++            errorMessage = "系统指令库已达到100份上限，请先整理。"
++            return false
++        }
++        let old = systemPromptPresets
++        if let index { systemPromptPresets[index] = next } else { systemPromptPresets.append(next) }
++        if !persistNow() { systemPromptPresets = old; return false }
++        return true
++    }
++
++    @discardableResult
++    func deleteSystemPromptPreset(_ id: UUID) -> Bool {
++        guard canPersist else { return false }
++        let old = systemPromptPresets
++        systemPromptPresets.removeAll { $0.id == id }
++        if !persistNow() { systemPromptPresets = old; return false }
++        return true
++    }
++
++    @discardableResult
++    func selectSystemPromptPreset(_ id: UUID?, in threadID: UUID) -> Bool {
++        guard canPersist, !isGenerating,
++              let index = threads.firstIndex(where: { $0.id == threadID }),
++              canChooseSystemPrompt(for: threads[index]) else {
++            errorMessage = "当前对话暂时不能切换系统指令，请等待回答结束或重新打开对话。"
++            return false
++        }
++        let selected: SystemPromptPreset?
++        if let id {
++            guard let value = systemPromptPresets.first(where: { $0.id == id }) else {
++                errorMessage = "这份指令已不在指令库，请重新选择。"
++                return false
++            }
++            selected = value
++        } else { selected = nil }
++        let old = threads
++        threads[index].systemPromptPreset = selected
++        cancelReplySuggestions()
++        if !persistNow() { threads = old; return false }
++        return true
++    }
++
++    private func normalSystemPrompt(for thread: ChatThread, resolving variables: PromptVariables.Context) -> String {
++        if let project = project(thread.projectID) {
++            return project.systemPrompt(resolving: variables, instructionsOverride: thread.systemPromptPreset?.content)
++        }
++        return PromptVariables.apply(thread.systemPromptPreset?.content ?? settings.systemPrompt, variables)
++    }
++
++    func conversationVersions(for threadID: UUID) -> [ChatThread] {
++        guard let thread = threads.first(where: { $0.id == threadID }), thread.story == nil, !isHidden(thread) else { return [] }
++        let family = ConversationHistory.memberIDs(for: threadID, in: threads)
++        return threads.filter { family.contains($0.id) && $0.story == nil && !isHidden($0) }.sorted {
++            if $0.createdAt != $1.createdAt { return $0.createdAt < $1.createdAt }
++            return $0.id.uuidString < $1.id.uuidString
++        }
++    }
++
++    @discardableResult
++    func selectConversationVersion(_ id: UUID) -> Bool {
++        guard canPersist, !isGenerating,
++              let thread = threads.first(where: { $0.id == id }), thread.story == nil, !isHidden(thread) else {
++            errorMessage = "这个版本暂时不能打开，请等待回答结束或解锁项目。"
++            return false
++        }
++        let oldID = activeThreadID, oldThreads = threads
++        cancelReplySuggestions()
++        activeThreadID = id
++        if let index = threads.firstIndex(where: { $0.id == id }) { threads[index].updatedAt = Date() }
++        if !persistNow() { activeThreadID = oldID; threads = oldThreads; return false }
++        return true
+@@ -641,0 +741,23 @@
++        if generate {
++            // Preserve the complete prior path, including answers and its selected prompt.
++            guard threads.count < 2000 else { errorMessage = "对话与历史版本合计已达2000份，请先导出并整理。"; return false }
++            replacement.id = UUID()
++            replacement.parentThreadID = threads[index].id
++            replacement.createdAt = Date()
++            replacement.updatedAt = replacement.createdAt
++            let oldID = activeThreadID, oldProjects = projects
++            if let pi = projects.firstIndex(where: { $0.id == replacement.projectID }),
++               let count = projects[pi].memorizedCounts?[threads[index].id.uuidString] {
++                var unchangedSettled = 0
++                for (before, after) in zip(threads[index].messages, replacement.messages) {
++                    guard before.id == after.id, before.role == after.role, before.content == after.content else { break }
++                    if !after.content.isEmpty && (after.role == .user || after.state == .complete) { unchangedSettled += 1 }
++                }
++                projects[pi].memorizedCounts?[replacement.id.uuidString] = min(count, unchangedSettled)
++            }
++            threads.insert(replacement, at: 0)
++            activeThreadID = replacement.id
++            let saved = startGeneration(threadID: replacement.id)
++            if !saved { threads = old; projects = oldProjects; activeThreadID = oldID }
++            return saved
++        }
+@@ -767,2 +889 @@
+-            ?? chatProject?.systemPrompt(resolving: variables)
+-            ?? PromptVariables.apply(settings.systemPrompt, variables)
++            ?? normalSystemPrompt(for: threads[ti], resolving: variables)
+@@ -1433 +1554,2 @@
+-        let style = thread.story.map { storyPrompt($0) } ?? project(thread.projectID)?.systemPrompt
++        let variables = PromptVariables.Context(now: Date(), userName: userName, modelName: pillModelTitle)
++        let style = thread.story.map { storyPrompt($0) } ?? normalSystemPrompt(for: thread, resolving: variables)
+@@ -1547 +1669 @@
+-        threads.filter { $0.bookDiscussion?.bookID == bookID && !isHidden($0) }.sorted { $0.updatedAt > $1.updatedAt }
++        sortedThreads.filter { $0.bookDiscussion?.bookID == bookID && !isHidden($0) }.sorted { $0.updatedAt > $1.updatedAt }
+@@ -1824 +1946 @@
+-            prompt = project?.systemPrompt(resolving: variables) ?? PromptVariables.apply(settings.systemPrompt, variables)
++            prompt = normalSystemPrompt(for: thread, resolving: variables)
+@@ -1959 +2081,2 @@
+-        AppSnapshot(settings: settings, threads: threads, activeThreadID: activeThreadID, projects: projects, usage: usage)
++        AppSnapshot(settings: settings, threads: threads, activeThreadID: activeThreadID, projects: projects, usage: usage,
++                    systemPromptPresets: systemPromptPresets)
+@@ -2109,0 +2233,22 @@
++            var mergedPresets = systemPromptPresets
++            var presetRemap: [UUID: UUID] = [:]
++            for originalPreset in incoming.systemPromptPresets ?? [] {
++                var preset = originalPreset
++                if let existing = mergedPresets.first(where: { $0.id == preset.id }) {
++                    if existing.name == preset.name && existing.content == preset.content { continue }
++                    if let identical = mergedPresets.first(where: { $0.name == preset.name && $0.content == preset.content }) {
++                        presetRemap[originalPreset.id] = identical.id
++                        continue
++                    }
++                    preset.id = UUID()
++                    presetRemap[originalPreset.id] = preset.id
++                }
++                mergedPresets.append(preset)
++            }
++            guard mergedPresets.count <= 100 else { throw ChatError.invalidBackup("合并后的系统指令超过100份，请先整理指令库。") }
++            for index in added.indices {
++                if let originalID = added[index].systemPromptPreset?.id, let newID = presetRemap[originalID] {
++                    // The selected text stays a snapshot even if the backup library has a newer edit.
++                    added[index].systemPromptPreset?.id = newID
++                }
++            }
+@@ -2122 +2267 @@
+-            let old = threads, oldProjects = projects, oldUsage = usage
++            let old = threads, oldProjects = projects, oldUsage = usage, oldPresets = systemPromptPresets
+@@ -2124,0 +2270 @@
++            systemPromptPresets = mergedPresets
+@@ -2126,2 +2272,4 @@
+-            guard persistNow() else { threads = old; projects = oldProjects; usage = oldUsage; return }
+-            noticeMessage = "已导入 \(added.count) 个新对话" + (addedProjects.isEmpty ? "" : "、\(addedProjects.count) 个项目") + "，现有记录、设置和 API Key 保持不变。"
++            guard persistNow() else { threads = old; projects = oldProjects; usage = oldUsage; systemPromptPresets = oldPresets; return }
++            let addedPresetCount = mergedPresets.count - oldPresets.count
++            noticeMessage = "已导入 \(added.count) 个新对话" + (addedProjects.isEmpty ? "" : "、\(addedProjects.count) 个项目")
++                + (addedPresetCount == 0 ? "" : "、\(addedPresetCount) 份系统指令") + "，现有记录、默认设置和 API Key 保持不变。"
+--- a/QingJian/DeepSeekPocket/Core/AppManual.swift
++++ b/QingJian/DeepSeekPocket/Core/AppManual.swift
+@@ -7 +7 @@
+-    static let revision = 10
++    static let revision = 11
+@@ -22,0 +23,2 @@
++            Item(name: "切换系统指令", how: "输入区上方点当前指令名称，选择自己保存的另一份指令。下一次发送或重新生成起生效，历史消息不改写；每个聊天各自保存选择时的副本，其他聊天不受影响。"),
++            Item(name: "保留旧答案", how: "普通聊天重新生成，或修改问题后重新发送，会保留旧版本。右上角菜单 → 旧答案，可预览并切回之前的整条对话路径，再接着聊。切版本不调用模型；侧栏仍合并显示为一个对话，删除整条对话会连同其版本一起删除。"),
+@@ -75 +77,2 @@
+-            Item(name: "系统提示词", how: "不在项目里的对话使用它；有「自然聊天」「学习讲解」两个模板，也可以写提示词变量。"),
++            Item(name: "系统指令库", how: "设置 → 系统指令库，可自己命名、新建、编辑和删除多份指令，也可把原默认指令另存为一份；每份最多2万字，最多100份，不会自动加入学习模板。修改库内指令后，需要在相应聊天里重新选择才能使用新版。指令库随聊天备份保存和合并导入。"),
++            Item(name: "全局默认与项目", how: "原系统提示词作为全局默认保留。未选择自定义指令时，普通聊天用全局默认，项目聊天跟随项目；选择自定义指令会替代该聊天的说话规则，项目资料与记忆仍保留。书架故事和本书讨论使用专门指令，不参与这个切换。"),
+--- a/QingJian/DeepSeekPocket/Core/Models.swift
++++ b/QingJian/DeepSeekPocket/Core/Models.swift
+@@ -126,0 +127,13 @@
++struct SystemPromptPreset: Identifiable, Codable, Equatable, Sendable {
++    var id = UUID()
++    var name: String
++    var content: String
++    var updatedAt = Date()
++    func validate() throws {
++        guard !name.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty, name.count <= 60,
++              !content.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty, content.count <= 20_000 else {
++            throw ChatError.invalidBackup("系统指令需要名称和正文，名称最多60字，正文最多2万字。")
++        }
++    }
++}
++
+@@ -141,0 +155,2 @@
++    // A copy selected for this conversation; library edits cannot silently change it.
++    var systemPromptPreset: SystemPromptPreset?
+@@ -193,0 +209 @@
++    var systemPromptPresets: [SystemPromptPreset]?
+@@ -196,0 +213,5 @@
++        let presets = systemPromptPresets ?? []
++        guard presets.count <= 100, Set(presets.map(\.id)).count == presets.count else {
++            throw ChatError.invalidBackup("系统指令库最多100份，且编号不能重复。")
++        }
++        for preset in presets { try preset.validate() }
+@@ -205,0 +227 @@
++            try thread.systemPromptPreset?.validate()
+--- a/QingJian/DeepSeekPocket/Core/Projects.swift
++++ b/QingJian/DeepSeekPocket/Core/Projects.swift
+@@ -195,2 +195,2 @@
+-    func systemPrompt(resolving context: PromptVariables.Context) -> String {
+-        composedPrompt(instructions: PromptVariables.apply(instructions, context))
++    func systemPrompt(resolving context: PromptVariables.Context, instructionsOverride: String? = nil) -> String {
++        composedPrompt(instructions: PromptVariables.apply(instructionsOverride ?? instructions, context))
+--- a/QingJian/DeepSeekPocket/Views/ContentView.swift
++++ b/QingJian/DeepSeekPocket/Views/ContentView.swift
+@@ -146,0 +147,6 @@
++// These panels stay attached to the conversation that opened them.
++private struct ConversationPanelTarget: Identifiable {
++    let threadID: UUID
++    var id: UUID { threadID }
++}
++
+@@ -242,0 +249 @@
++    @State private var editingThreadID: UUID?
+@@ -271,0 +279,2 @@
++    @State private var systemPromptTarget: ConversationPanelTarget?
++    @State private var versionsTarget: ConversationPanelTarget?
+@@ -442,0 +452,10 @@
++    private var chatWithPromptAndVersionSheets: some View {
++        chatWithConversationActions
++        .sheet(item: $systemPromptTarget) { target in
++            SystemPromptPickerSheet(threadID: target.threadID).environmentObject(store)
++        }
++        .sheet(item: $versionsTarget) { target in
++            ConversationVersionsSheet(threadID: target.threadID).environmentObject(store)
++        }
++    }
++
+@@ -444 +463 @@
+-        chatWithConversationActions
++        chatWithPromptAndVersionSheets
+@@ -449,0 +469 @@
++            systemPromptTarget = nil; versionsTarget = nil
+@@ -467 +487 @@
+-        .sheet(item: $editedMessage) { message in EditMessageView(message: message) }
++        .sheet(item: $editedMessage, onDismiss: finishMessageEditing) { message in EditMessageView(message: message) }
+@@ -648,2 +668,2 @@
+-                    edit: { focusComposer(false); editedMessage = message },
+-                    regenerate: { store.regenerate() },
++                    edit: { focusComposer(false); editingThreadID = threadID; editedMessage = message },
++                    regenerate: regeneratePreservingDraftImages,
+@@ -664,0 +685,21 @@
++    }
++
++    private func regeneratePreservingDraftImages() {
++        let origin = store.activeThreadID
++        store.regenerate()
++        carryDraftImagesToNewVersion(from: origin)
++    }
++
++    private func finishMessageEditing() {
++        let origin = editingThreadID
++        editingThreadID = nil
++        carryDraftImagesToNewVersion(from: origin)
++    }
++
++    private func carryDraftImagesToNewVersion(from origin: UUID?) {
++        guard let origin, let current = store.activeThread, current.id != origin,
++              current.parentThreadID == origin, !store.isHidden(current),
++              imagesByThread[current.id]?.isEmpty != false,
++              let images = imagesByThread[origin], !images.isEmpty else { return }
++        // A retry/edit creates a new path. Manual version selection never calls this.
++        imagesByThread[current.id] = images
+@@ -738,0 +780,9 @@
++                let versionCount = store.conversationVersions(for: thread.id).count
++                if versionCount > 1 {
++                    Button("旧答案 · \(versionCount) 个版本", systemImage: "clock.arrow.circlepath") {
++                        focusComposer(false)
++                        versionsTarget = ConversationPanelTarget(threadID: thread.id)
++                    }
++                    .accessibilityLabel("查看旧答案和历史版本")
++                    .accessibilityIdentifier("chat-versions")
++                }
+@@ -957,7 +1007,41 @@
+-    private var composer: some View {
+-        VStack(spacing: 8) {
+-            // The transcript host extends beneath the composer. Keep this control
+-            // in the foreground composer host so it is visible and tappable with a keyboard.
+-            if store.activeThread?.messages.isEmpty == false {
+-                HStack {
+-                    Spacer()
++    private var showsSystemPromptControl: Bool {
++        guard let thread = store.activeThread, !store.isHidden(thread) else { return false }
++        return thread.story == nil && thread.bookDiscussion == nil
++    }
++
++    @ViewBuilder private var systemPromptControl: some View {
++        if showsSystemPromptControl, let thread = store.activeThread {
++            Button {
++                guard store.canChooseSystemPrompt(for: thread), !store.isGenerating, store.canPersist else { return }
++                focusComposer(false)
++                systemPromptTarget = ConversationPanelTarget(threadID: thread.id)
++            } label: {
++                HStack(spacing: 6) {
++                    Image(systemName: "text.bubble").font(.system(size: 13))
++                    Text("指令").font(TypeScale.tiny).foregroundStyle(Ink.ink3)
++                    Text(store.systemPromptTitle(for: thread)).font(TypeScale.label).lineLimit(1)
++                    Image(systemName: "chevron.down").font(.system(size: 9, weight: .semibold))
++                }
++                .foregroundStyle(Ink.ink)
++                .padding(.horizontal, 11).frame(minHeight: 44)
++                .background(Ink.raised, in: RoundedRectangle(cornerRadius: swiss ? 0 : 16, style: .continuous))
++                .overlay(RoundedRectangle(cornerRadius: swiss ? 0 : 16, style: .continuous).stroke(Ink.line, lineWidth: 0.8))
++                .contentShape(Rectangle())
++            }
++            .buttonStyle(.plain)
++            .frame(maxWidth: 220, alignment: .leading)
++            .disabled(store.isGenerating || !store.canPersist || !store.canChooseSystemPrompt(for: thread))
++            .accessibilityLabel("切换系统指令")
++            .accessibilityValue(store.systemPromptTitle(for: thread))
++            .accessibilityHint("为当前对话选择系统指令，草稿保持不变")
++            .accessibilityIdentifier("chat-system-prompt")
++        }
++    }
++
++    @ViewBuilder private var composerTopControls: some View {
++        if showsSystemPromptControl || store.activeThread?.messages.isEmpty == false {
++            // This row belongs to the foreground composer host, above the attachment row.
++            HStack(spacing: 8) {
++                systemPromptControl
++                Spacer(minLength: 0)
++                if store.activeThread?.messages.isEmpty == false {
+@@ -974,0 +1059,6 @@
++        }
++    }
++
++    private var composer: some View {
++        VStack(spacing: 8) {
++            composerTopControls
+--- a/QingJian/DeepSeekPocket/Views/HistoryView.swift
++++ b/QingJian/DeepSeekPocket/Views/HistoryView.swift
+@@ -266,0 +267,137 @@
++
++// Revisions share one sidebar entry but each keeps its own conversation path.
++// Resolve the live family on every update so a locked/deleted project is hidden.
++@MainActor
++struct ConversationVersionsSheet: View {
++    @EnvironmentObject private var store: AppStore
++    @Environment(\.dismiss) private var dismiss
++    let threadID: UUID
++    @State private var expanded: Set<UUID> = []
++    @State private var selectionError: String?
++
++    private var versions: [ChatThread] { store.conversationVersions(for: threadID) }
++
++    var body: some View {
++        NavigationStack {
++            contents
++                .navigationTitle("旧答案与版本")
++                .navigationBarTitleDisplayMode(.inline)
++                .toolbar {
++                    ToolbarItem(placement: .topBarTrailing) { Button("完成") { dismiss() } }
++                }
++        }
++        .tint(Ink.seal)
++        .preferredColorScheme(InterfaceStyle.isNight ? .dark : nil)
++        .presentationBackground(Ink.paper)
++    }
++
++    @ViewBuilder private var contents: some View {
++        if versions.isEmpty {
++            ContentUnavailableView("暂时没有可查看的版本", systemImage: "lock",
++                                   description: Text("对话可能已删除或项目已上锁，请返回原对话后再打开。"))
++                .foregroundStyle(Ink.ink)
++                .frame(maxWidth: .infinity, maxHeight: .infinity)
++                .background(AppBackground())
++        } else {
++            versionList
++        }
++    }
++
++    private var versionList: some View {
++        let current = versions
++        return List {
++            Section {
++                Text("重新生成或修改后重发会保留旧版本。切回不额外生成回答，你可以接着那个版本继续聊。")
++                    .font(TypeScale.label).foregroundStyle(Ink.ink2)
++                if current.count == 1 {
++                    Text("目前只有这个版本；后续重新生成时，新旧版本都会显示在这里。")
++                        .font(TypeScale.tiny).foregroundStyle(Ink.ink3)
++                }
++                if store.isGenerating {
++                    Label("回答正在生成，完成后可切换版本。", systemImage: "hourglass")
++                        .font(TypeScale.label).foregroundStyle(Ink.ink3)
++                }
++                if let selectionError {
++                    Text(selectionError).font(TypeScale.label).foregroundStyle(.red)
++                }
++            }.listRowBackground(Ink.raised)
++            ForEach(Array(current.enumerated()), id: \.element.id) { index, version in
++                Section {
++                    versionRow(version, number: index + 1)
++                }.listRowBackground(Ink.raised)
++            }
++            Section {
++                Text("这里保留每个版本的整条对话路径，下面只预览最后一条回答。删除整条对话时，其关联的旧版本也会一并删除。")
++                    .font(TypeScale.tiny).foregroundStyle(Ink.ink3)
++            }.listRowBackground(Color.clear)
++        }
++        .listStyle(.insetGrouped)
++        .scrollContentBackground(.hidden)
++        .foregroundStyle(Ink.ink)
++        .background(AppBackground())
++    }
++
++    private func versionRow(_ version: ChatThread, number: Int) -> some View {
++        let isCurrent = version.id == store.activeThreadID
++        let isExpanded = expanded.contains(version.id)
++        let answer = version.messages.last { $0.role == .assistant }
++        return VStack(alignment: .leading, spacing: 12) {
++            HStack(alignment: .firstTextBaseline) {
++                Text("版本 \(number)").font(TypeScale.serif(18).weight(.semibold))
++                Spacer()
++                if isCurrent {
++                    Label("当前", systemImage: "checkmark.circle.fill")
++                        .font(TypeScale.label).foregroundStyle(Ink.seal)
++                }
++            }
++            Text("\(version.createdAt.formatted(date: .abbreviated, time: .shortened)) · \(version.messages.count) 条消息")
++                .font(TypeScale.tiny).foregroundStyle(Ink.ink3)
++            if let answer {
++                Text("最后一条回答").font(TypeScale.tiny).foregroundStyle(Ink.ink3)
++                if answer.state != .complete {
++                    Text(answer.state == .streaming ? "正在生成" : (answer.state == .stopped ? "生成已停止" : "生成未完成"))
++                        .font(TypeScale.tiny).foregroundStyle(Ink.ink3)
++                }
++                if answer.content.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
++                    Text("这条回答还没有文字内容。").font(TypeScale.label).foregroundStyle(Ink.ink3)
++                } else if isExpanded {
++                    Text(String(answer.content.prefix(10_000)))
++                        .font(TypeScale.serif(15)).foregroundStyle(Ink.ink)
++                        .fixedSize(horizontal: false, vertical: true).textSelection(.enabled)
++                    if answer.content.count > 10_000 {
++                        Text("此处预览前10,000字，切回这个版本可查看完整回答。")
++                            .font(TypeScale.tiny).foregroundStyle(Ink.ink3)
++                    }
++                } else {
++                    Text(String(answer.content.prefix(400)))
++                        .font(TypeScale.serif(15)).foregroundStyle(Ink.ink2).lineLimit(3)
++                }
++                if !answer.content.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
++                    Button(isExpanded ? "收起预览" : "展开回答预览") {
++                        if isExpanded { expanded.remove(version.id) } else { expanded.insert(version.id) }
++                    }
++                    .font(TypeScale.label).buttonStyle(.borderless)
++                    .accessibilityIdentifier("conversation-version-preview-\(version.id)")
++                }
++            } else {
++                Text("这个版本尚没有文字回答。")
++                    .font(TypeScale.label).foregroundStyle(Ink.ink3)
++            }
++            Button(isCurrent ? "正在使用这个版本" : "切回这个版本继续聊") { choose(version.id) }
++                .font(TypeScale.label).buttonStyle(.borderless)
++                .disabled(isCurrent || store.isGenerating || !store.canPersist)
++                .accessibilityIdentifier("conversation-version-select-\(version.id)")
++        }
++        .padding(.vertical, 6)
++    }
++
++    private func choose(_ id: UUID) {
++        guard !store.isGenerating, store.canPersist, versions.contains(where: { $0.id == id }) else {
++            selectionError = "当前暂时无法切换，请在回答完成或重新打开对话后再试。"
++            return
++        }
++        selectionError = nil
++        if store.selectConversationVersion(id) { dismiss() }
++        else { selectionError = store.errorMessage ?? "这个版本暂时无法打开，请稍后再试。" }
++    }
++}
+--- a/QingJian/DeepSeekPocket/Views/SettingsView.swift
++++ b/QingJian/DeepSeekPocket/Views/SettingsView.swift
+@@ -21,0 +22 @@
++    @State private var loadedSettings = false
+@@ -133,0 +135,9 @@
++                    NavigationLink {
++                        SystemPromptLibraryView(defaultContent: draftSettings.systemPrompt)
++                    } label: {
++                        Label("系统指令库 · \(store.systemPromptPresets.count)", systemImage: "text.book.closed")
++                    }
++                    Text("在库里保存多份指令，聊天输入区可直接选择。指令库内的修改会单独保存。")
++                        .font(TypeScale.caption).foregroundStyle(Ink.ink3)
++                } header: { Text("系统指令库") }
++                Section {
+@@ -136,7 +146,2 @@
+-                    HStack {
+-                        Button("自然聊天") { draftSettings.systemPrompt = AppSettings.defaultPrompt }
+-                        Spacer()
+-                        Button("学习讲解") { draftSettings.systemPrompt = AppSettings.learningPrompt }
+-                    }.font(TypeScale.serif(13)).buttonStyle(.borderless)
+-                } header: { Text("系统提示词") } footer: {
+-                    Text("默认携带最近 200 条消息，约 100 轮对话。超长时优先保留最近的完整消息。系统提示词会随每次请求发送，思考原文与译文不占用普通聊天上下文。")
++                } header: { Text("全局默认指令") } footer: {
++                    Text("未选自定义指令、也不在项目里的聊天使用这里的内容；修改后点本页右上角保存。每个聊天可从输入区选择自己的指令，项目默认使用项目指令。思考原文与译文不占用普通聊天上下文。")
+@@ -206 +211,5 @@
+-            .onAppear { draftSettings = store.settings; draftKey = store.apiKey }
++            .onAppear {
++                guard !loadedSettings else { return }
++                loadedSettings = true
++                draftSettings = store.settings; draftKey = store.apiKey
++            }
+@@ -271,0 +281,246 @@
++@MainActor
++struct SystemPromptLibraryView: View {
++    @EnvironmentObject private var store: AppStore
++    var defaultContent: String? = nil
++    @State private var editing: SystemPromptPreset?
++    @State private var deleting: SystemPromptPreset?
++    @State private var issue: String?
++    private var presets: [SystemPromptPreset] {
++        store.systemPromptPresets.sorted {
++            if $0.updatedAt != $1.updatedAt { return $0.updatedAt > $1.updatedAt }
++            return $0.id.uuidString < $1.id.uuidString
++        }
++    }
++    private var atLimit: Bool { store.systemPromptPresets.count >= 100 }
++
++    var body: some View {
++        List {
++            Section {
++                Button {
++                    editing = SystemPromptPreset(name: "", content: "")
++                } label: { Label("新建系统指令", systemImage: "plus") }
++                    .disabled(!store.canPersist || atLimit)
++                    .accessibilityIdentifier("system-prompt-create")
++                Button {
++                    editing = SystemPromptPreset(name: "原默认指令", content: defaultContent ?? store.settings.systemPrompt)
++                } label: { Label("把默认指令另存为一份", systemImage: "doc.on.doc") }
++                    .disabled(!store.canPersist || atLimit)
++            } footer: {
++                Text(atLimit ? "已达到100份指令上限，可编辑或删除已有指令。" : "自己起名字并填写内容，不会自动添加模板。每份最多2万字，最多保存100份。")
++            }
++            Section {
++                if presets.isEmpty {
++                    Text("还没有保存的指令。可以先把现在的默认指令另存下来，再添加其他说话方式。")
++                        .font(TypeScale.label).foregroundStyle(Ink.ink3)
++                }
++                ForEach(presets) { preset in
++                    Button { editing = preset } label: {
++                        VStack(alignment: .leading, spacing: 6) {
++                            Text(preset.name).font(TypeScale.body).foregroundStyle(Ink.ink)
++                            Text(preset.content).font(TypeScale.label).foregroundStyle(Ink.ink3).lineLimit(2)
++                            Text("\(preset.content.count.formatted()) 字")
++                                .font(TypeScale.tiny).foregroundStyle(Ink.ink3)
++                        }.frame(maxWidth: .infinity, alignment: .leading).multilineTextAlignment(.leading)
++                            .padding(.vertical, 4)
++                    }
++                    .buttonStyle(.plain).disabled(!store.canPersist)
++                    .swipeActions {
++                        Button("删除", role: .destructive) { deleting = preset }.disabled(!store.canPersist)
++                    }
++                }
++            } header: { Text("我的指令 · \(presets.count)") } footer: {
++                Text("聊天会保存选择时的指令副本。修改或删除库内指令不会改动已经选用它的聊天；要使用新版，请在对应聊天里重新选择。")
++            }
++            if let issue {
++                Text(issue).font(TypeScale.label).foregroundStyle(.red)
++            }
++        }
++        .font(TypeScale.body).scrollContentBackground(.hidden).background(AppBackground())
++        .foregroundStyle(Ink.ink).tint(Ink.seal)
++        .navigationTitle("系统指令库").navigationBarTitleDisplayMode(.inline)
++        .sheet(item: $editing) { preset in
++            SystemPromptPresetEditor(preset: preset).environmentObject(store)
++        }
++        .confirmationDialog("从指令库删除这份指令？", isPresented: Binding(
++            get: { deleting != nil }, set: { if !$0 { deleting = nil } }), titleVisibility: .visible) {
++                Button("删除", role: .destructive) {
++                    guard let preset = deleting else { return }
++                    if !store.deleteSystemPromptPreset(preset.id) { issue = store.errorMessage ?? "指令没有删除成功，请稍后重试。" }
++                    deleting = nil
++                }
++                Button("取消", role: .cancel) { deleting = nil }
++            } message: { Text("已经选择它的聊天会保留自己的副本。") }
++    }
++}
++
++@MainActor
++private struct SystemPromptPresetEditor: View {
++    @EnvironmentObject private var store: AppStore
++    @Environment(\.dismiss) private var dismiss
++    let preset: SystemPromptPreset
++    @State private var name: String
++    @State private var content: String
++    @State private var issue: String?
++    init(preset: SystemPromptPreset) {
++        self.preset = preset
++        _name = State(initialValue: preset.name)
++        _content = State(initialValue: preset.content)
++    }
++    private var changed: Bool { name != preset.name || content != preset.content }
++    private var cleanName: String { name.trimmingCharacters(in: .whitespacesAndNewlines) }
++    private var cleanContent: String { content.trimmingCharacters(in: .whitespacesAndNewlines) }
++    private var validation: String? {
++        if cleanName.isEmpty { return "给这份指令起一个容易认出的名字。" }
++        if cleanName.count > 60 { return "名字最多60字。" }
++        if cleanContent.isEmpty { return "请填写这份指令的内容。" }
++        if content.count > 20_000 { return "内容超过2万字，请缩短后保存；不会自动截断。" }
++        if !store.canPersist { return "当前暂时不能保存，请稍后重试。" }
++        return nil
++    }
++    var body: some View {
++        NavigationStack {
++            Form {
++                Section("名字 · \(name.count) / 60") {
++                    TextField("例如：随便聊聊、简洁一点、角色名字", text: $name)
++                        .accessibilityIdentifier("system-prompt-name")
++                }
++                Section {
++                    TextEditor(text: $content).frame(minHeight: 280).scrollContentBackground(.hidden)
++                        .font(TypeScale.serif(16)).accessibilityIdentifier("system-prompt-content")
++                } header: { Text("指令内容 · \(content.count.formatted()) / 20,000 字") } footer: {
++                    Text("写下你想要的人设、语气或回答方式。支持已有的提示词变量，例如 {{名字}} 和 {{时间}}。")
++                }
++                if let validation { Text(validation).font(TypeScale.label).foregroundStyle(Ink.ink3) }
++                if let issue { Text(issue).font(TypeScale.label).foregroundStyle(.red) }
++            }
++            .font(TypeScale.body).scrollContentBackground(.hidden).background(AppBackground())
++            .navigationTitle(preset.name.isEmpty ? "新建系统指令" : "编辑系统指令")
++            .navigationBarTitleDisplayMode(.inline)
++            .toolbar {
++                ToolbarItem(placement: .cancellationAction) { Button("取消") { dismiss() } }
++                ToolbarItem(placement: .confirmationAction) {
++                    Button("保存") {
++                        guard validation == nil else { return }
++                        var next = preset
++                        next.name = cleanName; next.content = content; next.updatedAt = Date()
++                        if store.upsertSystemPromptPreset(next) { dismiss() }
++                        else { issue = store.errorMessage ?? "指令没有保存成功，请稍后重试。" }
++                    }.disabled(validation != nil || (!changed && store.systemPromptPresets.contains(where: { $0.id == preset.id })))
++                }
++            }
++        }
++        .tint(Ink.seal).interactiveDismissDisabled(changed)
++    }
++}
++
++@MainActor
++struct SystemPromptPickerSheet: View {
++    @EnvironmentObject private var store: AppStore
++    @Environment(\.dismiss) private var dismiss
++    let threadID: UUID
++    @State private var issue: String?
++    private var thread: ChatThread? {
++        guard let value = store.threads.first(where: { $0.id == threadID }), !store.isHidden(value) else { return nil }
++        return value
++    }
++    private var selection: SystemPromptPreset? { thread?.systemPromptPreset }
++    private var canSelect: Bool { store.canPersist && !store.isGenerating && store.canChooseSystemPrompt(for: thread) }
++    private var defaultTitle: String { thread?.projectID == nil ? "全局默认指令" : "跟随项目指令" }
++    private var defaultContent: String {
++        guard let thread else { return "" }
++        return store.project(thread.projectID)?.instructions ?? store.settings.systemPrompt
++    }
++    private var copyStatus: String? {
++        guard let selected = selection else { return nil }
++        guard let stored = store.systemPromptPresets.first(where: { $0.id == selected.id }) else {
++            return "这份指令已从库中删除；当前聊天仍使用当时保存的副本。"
++        }
++        if stored.name != selected.name || stored.content != selected.content {
++            return "指令库中的这一份已更新；当前聊天仍使用旧副本，重新选择可换成新版。"
++        }
++        return nil
++    }
++    var body: some View {
++        NavigationStack {
++            List {
++                if let thread, store.canChooseSystemPrompt(for: thread) {
++                    currentSection(thread)
++                    Section {
++                        Button { choose(nil) } label: {
++                            choiceLabel(defaultTitle, detail: thread.projectID == nil ? "使用设置里的全局默认内容" : "使用项目自己的指令", selected: selection == nil)
++                        }.buttonStyle(.plain).disabled(!canSelect)
++                        DisclosureGroup("预览默认内容") {
++                            promptPreview(defaultContent.isEmpty ? "未填写指令。" : defaultContent)
++                        }
++                    } header: { Text("默认") }
++                    Section {
++                        if store.systemPromptPresets.isEmpty {
++                            Text("指令库还是空的。先进入下方管理页，保存几份你想切换使用的指令。")
++                                .font(TypeScale.label).foregroundStyle(Ink.ink3)
++                        }
++                        ForEach(store.systemPromptPresets) { preset in
++                            Button { choose(preset.id) } label: {
++                                choiceLabel(preset.name, detail: String(preset.content.prefix(90)), selected: isSelected(preset))
++                            }.buttonStyle(.plain).disabled(!canSelect)
++                            DisclosureGroup("预览「\(preset.name)」") { promptPreview(preset.content) }
++                        }
++                    } header: { Text("我的指令") }
++                } else {
++                    ContentUnavailableView("当前对话无法切换指令", systemImage: "text.book.closed",
++                        description: Text("对话可能已删除或上锁；书架角色扮演和本书讨论使用各自的专用指令。"))
++                }
++                Section {
++                    NavigationLink { SystemPromptLibraryView() } label: {
++                        Label("管理系统指令库", systemImage: "slider.horizontal.3")
++                    }
++                }
++                if let issue { Text(issue).font(TypeScale.label).foregroundStyle(.red) }
++            }
++            .font(TypeScale.body).scrollContentBackground(.hidden).background(AppBackground())
++            .foregroundStyle(Ink.ink).tint(Ink.seal)
++            .navigationTitle("选择系统指令").navigationBarTitleDisplayMode(.inline)
++            .toolbar { ToolbarItem(placement: .topBarTrailing) { Button("完成") { dismiss() } } }
++        }
++    }
++    private func currentSection(_ thread: ChatThread) -> some View {
++        Section {
++            LabeledContent("当前使用", value: store.systemPromptTitle(for: thread))
++            if let selected = selection {
++                DisclosureGroup("查看当前内容") { promptPreview(selected.content) }
++            }
++            if let copyStatus { Text(copyStatus).font(TypeScale.label).foregroundStyle(Ink.ink3) }
++            if store.isGenerating {
++                Text("回答正在生成，完成后可切换；已经发出的请求不会中途改变。")
++                    .font(TypeScale.label).foregroundStyle(Ink.ink3)
++            }
++        } header: { Text("这条聊天 · \(thread.title)") } footer: {
++            Text("选择只作用于这条聊天，从下一次发送或重新生成起生效，历史消息不改写。项目里的资料与记忆仍保留。每次选择保存一份副本，修改指令库后需重新选择。")
++        }
++    }
++    private func isSelected(_ preset: SystemPromptPreset) -> Bool {
++        guard let selected = selection else { return false }
++        return selected.id == preset.id && selected.name == preset.name && selected.content == preset.content
++    }
++    private func choiceLabel(_ title: String, detail: String, selected: Bool) -> some View {
++        HStack(spacing: 12) {
++            VStack(alignment: .leading, spacing: 5) {
++                Text(title).font(TypeScale.body).foregroundStyle(Ink.ink)
++                Text(detail).font(TypeScale.label).foregroundStyle(Ink.ink3).lineLimit(2)
++            }.frame(maxWidth: .infinity, alignment: .leading)
++            Image(systemName: selected ? "checkmark.circle.fill" : "circle")
++                .foregroundStyle(selected ? Ink.seal : Ink.ink3)
++        }.multilineTextAlignment(.leading).padding(.vertical, 4).contentShape(Rectangle())
++    }
++    private func promptPreview(_ content: String) -> some View {
++        ScrollView {
++            Text(content).font(TypeScale.serif(15)).foregroundStyle(Ink.ink2).textSelection(.enabled)
++                .frame(maxWidth: .infinity, alignment: .leading)
++        }.frame(maxHeight: 220)
++    }
++    private func choose(_ id: UUID?) {
++        guard canSelect else { return }
++        if store.selectSystemPromptPreset(id, in: threadID) { dismiss() }
++        else { issue = store.errorMessage ?? "没有切换成功，请稍后重试。" }
++    }
++}
++
+--- a/QingJian/QingJian.xcodeproj/project.pbxproj
++++ b/QingJian/QingJian.xcodeproj/project.pbxproj
+@@ -110 +110 @@
+-		86A46D98C12482E1EF3DC46C = { isa = "XCBuildConfiguration"; buildSettings = { PRODUCT_BUNDLE_IDENTIFIER = "com.xiaolong.qingjian"; PRODUCT_NAME = "DeepSeekPocket"; INFOPLIST_FILE = "DeepSeekPocket/Info.plist"; GENERATE_INFOPLIST_FILE = "NO"; MARKETING_VERSION = "1.20.1"; CURRENT_PROJECT_VERSION = "46"; ASSETCATALOG_COMPILER_APPICON_NAME = "AppIcon"; ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = "AccentColor"; TARGETED_DEVICE_FAMILY = "1,2"; CODE_SIGN_STYLE = "Automatic"; LD_RUNPATH_SEARCH_PATHS = ( "$(inherited)", "@executable_path/Frameworks", ); SUPPORTED_PLATFORMS = "iphoneos iphonesimulator"; SUPPORTS_MACCATALYST = "NO"; SWIFT_EMIT_LOC_STRINGS = "YES"; }; name = "Release"; };
++		86A46D98C12482E1EF3DC46C = { isa = "XCBuildConfiguration"; buildSettings = { PRODUCT_BUNDLE_IDENTIFIER = "com.xiaolong.qingjian"; PRODUCT_NAME = "DeepSeekPocket"; INFOPLIST_FILE = "DeepSeekPocket/Info.plist"; GENERATE_INFOPLIST_FILE = "NO"; MARKETING_VERSION = "1.21.0"; CURRENT_PROJECT_VERSION = "47"; ASSETCATALOG_COMPILER_APPICON_NAME = "AppIcon"; ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = "AccentColor"; TARGETED_DEVICE_FAMILY = "1,2"; CODE_SIGN_STYLE = "Automatic"; LD_RUNPATH_SEARCH_PATHS = ( "$(inherited)", "@executable_path/Frameworks", ); SUPPORTED_PLATFORMS = "iphoneos iphonesimulator"; SUPPORTS_MACCATALYST = "NO"; SWIFT_EMIT_LOC_STRINGS = "YES"; }; name = "Release"; };
+@@ -159 +159 @@
+-		C131AA990408F5A8B287713E = { isa = "XCBuildConfiguration"; buildSettings = { PRODUCT_BUNDLE_IDENTIFIER = "com.xiaolong.qingjian"; PRODUCT_NAME = "DeepSeekPocket"; INFOPLIST_FILE = "DeepSeekPocket/Info.plist"; GENERATE_INFOPLIST_FILE = "NO"; MARKETING_VERSION = "1.20.1"; CURRENT_PROJECT_VERSION = "46"; ASSETCATALOG_COMPILER_APPICON_NAME = "AppIcon"; ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = "AccentColor"; TARGETED_DEVICE_FAMILY = "1,2"; CODE_SIGN_STYLE = "Automatic"; LD_RUNPATH_SEARCH_PATHS = ( "$(inherited)", "@executable_path/Frameworks", ); SUPPORTED_PLATFORMS = "iphoneos iphonesimulator"; SUPPORTS_MACCATALYST = "NO"; SWIFT_EMIT_LOC_STRINGS = "YES"; }; name = "Debug"; };
++		C131AA990408F5A8B287713E = { isa = "XCBuildConfiguration"; buildSettings = { PRODUCT_BUNDLE_IDENTIFIER = "com.xiaolong.qingjian"; PRODUCT_NAME = "DeepSeekPocket"; INFOPLIST_FILE = "DeepSeekPocket/Info.plist"; GENERATE_INFOPLIST_FILE = "NO"; MARKETING_VERSION = "1.21.0"; CURRENT_PROJECT_VERSION = "47"; ASSETCATALOG_COMPILER_APPICON_NAME = "AppIcon"; ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = "AccentColor"; TARGETED_DEVICE_FAMILY = "1,2"; CODE_SIGN_STYLE = "Automatic"; LD_RUNPATH_SEARCH_PATHS = ( "$(inherited)", "@executable_path/Frameworks", ); SUPPORTED_PLATFORMS = "iphoneos iphonesimulator"; SUPPORTS_MACCATALYST = "NO"; SWIFT_EMIT_LOC_STRINGS = "YES"; }; name = "Debug"; };

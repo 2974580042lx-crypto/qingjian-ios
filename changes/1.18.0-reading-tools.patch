@@ -1,0 +1,430 @@
+--- a/QingJian/DeepSeekPocket/Core/Books.swift
++++ b/QingJian/DeepSeekPocket/Core/Books.swift
+@@ -95,0 +96 @@
++    var note: String? = nil
+--- a/QingJian/DeepSeekPocket/Services/BookStore.swift
++++ b/QingJian/DeepSeekPocket/Services/BookStore.swift
+@@ -460,0 +461,18 @@
++    @discardableResult
++    func updateReaderMarkNote(_ note: String, markID: UUID, in id: UUID) -> Bool {
++        guard let original = self.book(id), var marks = original.readerMarks,
++              let markIndex = marks.firstIndex(where: { $0.id == markID }) else {
++            errorMessage = "这条书签已不存在，请重新打开书签列表。"
++            return false
++        }
++        let clean = note.trimmingCharacters(in: .whitespacesAndNewlines)
++        marks[markIndex].note = clean.isEmpty ? nil : clean
++        var updated = original
++        updated.readerMarks = marks
++        guard save(updated) else {
++            if let bookIndex = books.firstIndex(where: { $0.id == id }) { books[bookIndex] = original }
++            return false
++        }
++        return true
++    }
++
+--- a/QingJian/DeepSeekPocket/Views/BookshelfView.swift
++++ b/QingJian/DeepSeekPocket/Views/BookshelfView.swift
+@@ -24,0 +25,33 @@
++    @State private var search = ""
++    @AppStorage("qingjian.bookshelf.sort") private var sortPreference = ShelfSort.recentImport.rawValue
++
++    private enum ShelfSort: String, CaseIterable {
++        case recentRead, recentImport, title
++        var label: String {
++            switch self {
++            case .recentRead: return "最近阅读"
++            case .recentImport: return "最近导入"
++            case .title: return "书名"
++            }
++        }
++    }
++
++    private var query: String { search.trimmingCharacters(in: .whitespacesAndNewlines) }
++    private var sortOrder: ShelfSort { ShelfSort(rawValue: sortPreference) ?? .recentImport }
++    private var visibleBooks: [Book] {
++        books.books.filter { query.isEmpty || $0.title.localizedCaseInsensitiveContains(query) }.sorted { lhs, rhs in
++            switch sortOrder {
++            case .recentRead:
++                // Old bookmarks may predate lastReadAt; unread books stay below books opened before.
++                let left = lhs.lastReadAt ?? (lhs.bookmark == nil ? Date.distantPast : lhs.importedAt)
++                let right = rhs.lastReadAt ?? (rhs.bookmark == nil ? Date.distantPast : rhs.importedAt)
++                if left != right { return left > right }
++            case .title:
++                let order = lhs.title.localizedStandardCompare(rhs.title)
++                if order != .orderedSame { return order == .orderedAscending }
++            case .recentImport: break
++            }
++            if lhs.importedAt != rhs.importedAt { return lhs.importedAt > rhs.importedAt }
++            return lhs.id.uuidString < rhs.id.uuidString
++        }
++    }
+@@ -40 +73,2 @@
+-                if let recent = books.books.filter({ $0.bookmark != nil }).max(by: { ($0.lastReadAt ?? $0.importedAt) < ($1.lastReadAt ?? $1.importedAt) }),
++                if query.isEmpty,
++                   let recent = books.books.filter({ $0.bookmark != nil }).max(by: { ($0.lastReadAt ?? $0.importedAt) < ($1.lastReadAt ?? $1.importedAt) }),
+@@ -55 +89,31 @@
+-                ForEach(books.books) { book in
++                if !books.books.isEmpty {
++                    HStack {
++                        Text(query.isEmpty ? "全部图书 · \(visibleBooks.count)" : "搜索结果 · \(visibleBooks.count)")
++                            .font(TypeScale.label).foregroundStyle(Ink.ink3)
++                        Spacer()
++                        Menu {
++                            Picker("排序", selection: $sortPreference) {
++                                ForEach(ShelfSort.allCases, id: \.rawValue) { order in
++                                    Text(order.label).tag(order.rawValue)
++                                }
++                            }
++                        } label: {
++                            Label(sortOrder.label, systemImage: "arrow.up.arrow.down")
++                                .font(TypeScale.label).foregroundStyle(Ink.ink2)
++                        }
++                        .accessibilityLabel("书架排序")
++                        .accessibilityValue(sortOrder.label)
++                        .accessibilityIdentifier("bookshelf-sort")
++                    }
++                    .listRowBackground(Color.clear)
++                }
++                if !query.isEmpty && visibleBooks.isEmpty && !books.books.isEmpty {
++                    VStack(alignment: .leading, spacing: 8) {
++                        Text("没有找到匹配的书").font(TypeScale.body).foregroundStyle(Ink.ink)
++                        Text("试试书名中的其他关键词。").font(TypeScale.label).foregroundStyle(Ink.ink3)
++                        Button("清除搜索") { search = "" }.font(TypeScale.label)
++                    }
++                    .padding(.vertical, 12)
++                    .listRowBackground(Color.clear)
++                }
++                ForEach(visibleBooks) { book in
+@@ -74,0 +139 @@
++            .searchable(text: $search, prompt: "搜索书名")
+--- a/QingJian/DeepSeekPocket/Views/LocalNovelReader.swift
++++ b/QingJian/DeepSeekPocket/Views/LocalNovelReader.swift
+@@ -43,0 +44,2 @@
++    @State private var returnPoint: ReaderReturnPoint?
++    @State private var searchQuery = ""
+@@ -106,0 +109,6 @@
++            if returnPoint != nil && !chrome && passage == nil {
++                VStack {
++                    Spacer()
++                    returnControl.padding(.bottom, 40)
++                }.padding(.horizontal, 22)
++            }
+@@ -165,3 +173,3 @@
+-                case .contents: ReaderContentsView(bookID: bookID, selected: chapter) { c, p in navigate(c, paragraph: p); sheet = nil }
+-                case .bookmarks: ReaderBookmarksView(bookID: bookID) { c, p in navigate(c, paragraph: p); sheet = nil }
+-                case .search: ReaderSearchView(bookID: bookID) { c, p in navigate(c, paragraph: p); sheet = nil }
++                case .contents: ReaderContentsView(bookID: bookID, selected: chapter) { c, p in navigate(c, paragraph: p, rememberingOrigin: true); sheet = nil }
++                case .bookmarks: ReaderBookmarksView(bookID: bookID) { c, p in navigate(c, paragraph: p, rememberingOrigin: true); sheet = nil }
++                case .search: ReaderSearchView(bookID: bookID, query: $searchQuery) { c, p in navigate(c, paragraph: p, rememberingOrigin: true); sheet = nil }
+@@ -198,0 +207 @@
++                if returnPoint != nil { returnControl }
+@@ -230,0 +240,22 @@
++    private var returnControl: some View {
++        HStack(spacing: 0) {
++            Button {
++                guard let point = returnPoint else { return }
++                returnPoint = nil
++                navigate(point.chapter, offset: point.offset)
++                chrome = false
++            } label: {
++                Label("回到刚才", systemImage: "arrow.uturn.backward")
++                    .font(.system(size: 12, weight: .medium)).padding(.leading, 15).padding(.trailing, 10).frame(minHeight: 44)
++            }.accessibilityHint("返回查找或跳转前的阅读位置")
++            Rectangle().fill(appearance.line).frame(width: 0.5, height: 16)
++            Button { returnPoint = nil } label: {
++                Image(systemName: "xmark").font(.system(size: 10, weight: .medium)).frame(width: 44, height: 44)
++            }.accessibilityLabel("清除返回位置")
++        }
++        .buttonStyle(.plain).foregroundStyle(appearance.accent)
++        .background(appearance.surface, in: Capsule())
++        .overlay(Capsule().stroke(appearance.line, lineWidth: 0.5))
++        .shadow(color: .black.opacity(appearance.isDark ? 0.15 : 0.05), radius: 8, y: 3)
++        .fixedSize(horizontal: true, vertical: false)
++    }
+@@ -263 +294 @@
+-    private func navigate(_ value: Int, offset: Int = 0, paragraph: Int? = nil) {
++    private func navigate(_ value: Int, offset: Int = 0, paragraph: Int? = nil, rememberingOrigin: Bool = false) {
+@@ -265 +295,0 @@
+-        saveTask?.cancel(); savePosition()
+@@ -268 +298,7 @@
+-        chapter = value; currentOffset = min(max(0, target), max(0, doc.length - 1))
++        let targetOffset = min(max(0, target), max(0, doc.length - 1))
++        // Keep the first reading location while the reader follows several results.
++        if rememberingOrigin, returnPoint == nil, value != chapter || targetOffset != currentOffset {
++            returnPoint = ReaderReturnPoint(chapter: chapter, offset: currentOffset)
++        }
++        saveTask?.cancel(); savePosition()
++        chapter = value; currentOffset = targetOffset
+@@ -280 +316 @@
+-                navigate(index, offset: Int(ratio * Double(max(0, doc.length - 1))))
++                navigate(index, offset: Int(ratio * Double(max(0, doc.length - 1))), rememberingOrigin: true)
+@@ -298,0 +335,5 @@
++}
++
++private struct ReaderReturnPoint {
++    var chapter: Int
++    var offset: Int
+@@ -436,0 +478,14 @@
++    @State private var search = ""
++    @State private var editingMark: ReaderSavedMark?
++    @State private var exportURL: URL?
++    @State private var exportError: String?
++    private var book: Book? { books.book(bookID) }
++    private var allMarks: [ReaderSavedMark] { book?.readerMarks ?? [] }
++    private var query: String { search.trimmingCharacters(in: .whitespacesAndNewlines) }
++    private var visibleMarks: [ReaderSavedMark] {
++        allMarks.filter { mark in
++            query.isEmpty || mark.excerpt.localizedCaseInsensitiveContains(query)
++                || (mark.note ?? "").localizedCaseInsensitiveContains(query)
++                || (book?.chapterLabel(mark.chapter) ?? "").localizedCaseInsensitiveContains(query)
++        }.sorted { $0.createdAt > $1.createdAt }
++    }
+@@ -440,12 +495,41 @@
+-                let marks = books.book(bookID)?.readerMarks ?? []
+-                if marks.isEmpty { Text("轻点阅读菜单的书签按钮，或长按一段原文添加书签。").foregroundStyle(appearance.secondary) }
+-                ForEach(marks.sorted { $0.createdAt > $1.createdAt }) { mark in
+-                    Button { jump(mark.chapter, mark.paragraph) } label: {
+-                        VStack(alignment: .leading, spacing: 6) {
+-                            Text(books.book(bookID)?.chapterLabel(mark.chapter) ?? "").font(TypeScale.body).foregroundStyle(appearance.ink)
+-                            Text(mark.excerpt).font(TypeScale.label).foregroundStyle(appearance.secondary).lineLimit(3)
+-                            Text(mark.createdAt.formatted(date: .abbreviated, time: .shortened)).font(TypeScale.tiny).foregroundStyle(appearance.secondary)
+-                        }.multilineTextAlignment(.leading)
+-                    }.swipeActions { Button("删除", role: .destructive) { books.deleteReaderMark(mark.id, in: bookID) } }
+-                }
+-            }
++                if allMarks.isEmpty {
++                    Text("轻点阅读菜单的书签按钮，或长按一段原文添加书签。").foregroundStyle(appearance.secondary).listRowBackground(appearance.surface)
++                } else {
++                    Section {
++                        if visibleMarks.isEmpty {
++                            Text("没有匹配的书签，试试摘录、备注或章节中的其他关键词。").foregroundStyle(appearance.secondary)
++                        }
++                        ForEach(visibleMarks) { mark in
++                            VStack(alignment: .leading, spacing: 10) {
++                                Button { jump(mark.chapter, mark.paragraph) } label: {
++                                    VStack(alignment: .leading, spacing: 6) {
++                                        Text(book?.chapterLabel(mark.chapter) ?? "").font(TypeScale.body).foregroundStyle(appearance.ink)
++                                        Text(mark.excerpt).font(TypeScale.label).foregroundStyle(appearance.secondary).lineLimit(3)
++                                        if let note = mark.note, !note.isEmpty {
++                                            Label { Text(note).lineLimit(3) } icon: { Image(systemName: "square.and.pencil") }
++                                                .font(TypeScale.label).foregroundStyle(appearance.accent)
++                                        }
++                                    }.frame(maxWidth: .infinity, alignment: .leading).multilineTextAlignment(.leading)
++                                }.buttonStyle(.plain)
++                                HStack {
++                                    Text(mark.createdAt.formatted(date: .abbreviated, time: .shortened)).font(TypeScale.tiny).foregroundStyle(appearance.secondary)
++                                    Spacer(minLength: 12)
++                                    Button(mark.note?.isEmpty == false ? "编辑备注" : "写备注") { editingMark = mark }
++                                        .font(TypeScale.label).buttonStyle(.borderless).foregroundStyle(appearance.accent)
++                                }
++                            }
++                            .padding(.vertical, 4)
++                            .contextMenu { Button("编辑备注", systemImage: "square.and.pencil") { editingMark = mark } }
++                            .swipeActions { Button("删除", role: .destructive) { books.deleteReaderMark(mark.id, in: bookID) } }
++                        }
++                    } header: {
++                        Text(query.isEmpty ? "全部书签 · \(allMarks.count)" : "匹配书签 · \(visibleMarks.count)")
++                    } footer: {
++                        Text("导出全部会包含本书的 \(allMarks.count) 条书签和备注，按章节、段落排序。摘录为保存书签时保留的短摘录。")
++                    }.listRowBackground(appearance.surface)
++                }
++                if let exportError {
++                    Text(exportError).font(TypeScale.label).foregroundStyle(.red).listRowBackground(appearance.surface)
++                }
++            }
++            .searchable(text: $search, prompt: "搜索摘录、备注或章节")
+@@ -453 +537,7 @@
+-            .toolbar { Button("完成") { dismiss() } }
++            .toolbar {
++                ToolbarItem(placement: .topBarLeading) {
++                    Button { exportAllMarks() } label: { Label("导出全部", systemImage: "square.and.arrow.up") }
++                        .disabled(allMarks.isEmpty).accessibilityLabel("导出本书全部书签和备注")
++                }
++                ToolbarItem(placement: .topBarTrailing) { Button("完成") { dismiss() } }
++            }
+@@ -455,0 +546,104 @@
++            .sheet(item: $editingMark) { mark in
++                ReaderBookmarkNoteEditor(bookID: bookID, mark: mark).environment(\.readerAppearance, appearance)
++            }
++            .sheet(isPresented: Binding(get: { exportURL != nil }, set: { if !$0 { exportURL = nil } })) {
++                if let url = exportURL { ShareSheet(items: [url]) }
++            }
++    }
++    private func exportAllMarks() {
++        guard let book, !allMarks.isEmpty else { return }
++        exportError = nil
++        let marks = allMarks.sorted {
++            if $0.chapter != $1.chapter { return $0.chapter < $1.chapter }
++            if $0.paragraph != $1.paragraph { return $0.paragraph < $1.paragraph }
++            if $0.createdAt != $1.createdAt { return $0.createdAt < $1.createdAt }
++            return $0.id.uuidString < $1.id.uuidString
++        }
++        let date = DateFormatter()
++        date.locale = Locale(identifier: "en_US_POSIX")
++        date.dateFormat = "yyyy-MM-dd HH:mm:ss ZZZZZ"
++        var sections = [
++            "# 《\(markdownLiteral(book.title))》书签笔记",
++            "导出时间：\(date.string(from: Date()))\n\n共 \(marks.count) 条书签，按章节和段落排序。下列原文是保存书签时保留的短摘录，不是完整段落；章节和段落位置对应当前导入版本。"
++        ]
++        for (index, mark) in marks.enumerated() {
++            let note = mark.note?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
++            sections.append("""
++            ## \(index + 1). \(markdownLiteral(book.chapterLabel(mark.chapter)))
++
++            位置：第 \(mark.chapter + 1) 章 · 第 \(mark.paragraph + 1) 段
++
++            书签保存时间：\(date.string(from: mark.createdAt))
++
++            ### 原文短摘录
++
++            \(markdownQuote(mark.excerpt))
++
++            ### 我的备注
++
++            \(note.isEmpty ? "未填写。" : markdownQuote(note))
++            """)
++        }
++        do {
++            let directory = FileManager.default.temporaryDirectory.appendingPathComponent("Sermo-Bookmarks-\(UUID().uuidString)", isDirectory: true)
++            try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
++            let url = directory.appendingPathComponent("Sermo-书签笔记.md")
++            try (sections.joined(separator: "\n\n") + "\n").write(to: url, atomically: true, encoding: .utf8)
++            exportURL = url
++        } catch {
++            exportError = "书签笔记没能导出：\(error.localizedDescription)"
++        }
++    }
++    private func markdownLiteral(_ value: String) -> String {
++        let special = Set("\\`*_{}[]<>#+-.!|")
++        return value.map { special.contains($0) ? "\\\($0)" : String($0) }.joined()
++    }
++    private func markdownQuote(_ value: String) -> String {
++        value.components(separatedBy: .newlines).map { "> " + markdownLiteral($0) }.joined(separator: "\n")
++    }
++}
++
++@MainActor
++private struct ReaderBookmarkNoteEditor: View {
++    @Environment(\.readerAppearance) private var appearance
++    @EnvironmentObject private var books: BookStore
++    @Environment(\.dismiss) private var dismiss
++    let bookID: UUID
++    let mark: ReaderSavedMark
++    @State private var note: String
++    @State private var saveError: String?
++    init(bookID: UUID, mark: ReaderSavedMark) {
++        self.bookID = bookID; self.mark = mark
++        _note = State(initialValue: mark.note ?? "")
++    }
++    var body: some View {
++        NavigationStack {
++            Form {
++                Section("原文短摘录") {
++                    Text(books.book(bookID)?.chapterLabel(mark.chapter) ?? "").font(TypeScale.tiny).foregroundStyle(appearance.accent)
++                    Text(mark.excerpt).font(TypeScale.body).foregroundStyle(appearance.secondary)
++                }.listRowBackground(appearance.surface)
++                Section {
++                    TextEditor(text: $note).font(TypeScale.body).foregroundStyle(appearance.ink)
++                        .frame(minHeight: 180).scrollContentBackground(.hidden).accessibilityLabel("书签备注")
++                } header: { Text("我的备注") }
++                footer: { Text("可以记下理解、疑问或待核对的地方；清空后保存可移除备注。") }
++                    .listRowBackground(appearance.surface)
++                if let saveError {
++                    Text(saveError).font(TypeScale.label).foregroundStyle(.red).listRowBackground(appearance.surface)
++                }
++            }
++            .scrollContentBackground(.hidden).background(appearance.paper).navigationTitle("书签备注")
++            .navigationBarTitleDisplayMode(.inline)
++            .toolbar {
++                ToolbarItem(placement: .cancellationAction) { Button("取消") { dismiss() } }
++                ToolbarItem(placement: .confirmationAction) {
++                    Button("保存") {
++                        if books.updateReaderMarkNote(note, markID: mark.id, in: bookID) { dismiss() }
++                        else { saveError = books.errorMessage ?? "备注没能保存，请稍后再试。" }
++                    }
++                }
++            }
++        }.tint(appearance.accent).preferredColorScheme(appearance.isDark ? .dark : .light)
++            .presentationBackground(appearance.paper)
++            .interactiveDismissDisabled(note != (mark.note ?? ""))
+@@ -463,0 +658,5 @@
++}
++
++private struct ReaderSearchResults: Sendable {
++    var hits: [ReaderSearchHit] = []
++    var hasMore = false
+@@ -471,0 +671 @@
++    @Binding var query: String
+@@ -473 +672,0 @@
+-    @State private var query = ""
+@@ -475,0 +675 @@
++    @State private var hasMore = false
+@@ -481,0 +682,4 @@
++                if !searching && !results.isEmpty {
++                    Text(hasMore ? "找到超过 200 个匹配段落，显示前 200 个。" : "找到 \(results.count) 个匹配段落。")
++                        .font(TypeScale.tiny).foregroundStyle(appearance.secondary)
++                }
+@@ -486 +690 @@
+-                            Text(hit.excerpt).font(TypeScale.body).foregroundStyle(appearance.ink).lineLimit(4)
++                            Text(highlighted(hit.excerpt)).font(TypeScale.body).foregroundStyle(appearance.ink).lineLimit(4)
+@@ -490,2 +694,3 @@
+-                if results.count >= 200 { Text("显示前200处匹配，可输入更完整的关键词。").font(TypeScale.tiny).foregroundStyle(appearance.secondary) }
+-            }
++                if hasMore { Text("可以输入更完整的关键词来缩小范围；同一段内的多次命中合并为一条结果。").font(TypeScale.tiny).foregroundStyle(appearance.secondary) }
++            }
++            .listRowBackground(appearance.surface)
+@@ -497 +702 @@
+-                results = []
++                results = []; hasMore = false
+@@ -502 +707 @@
+-                let work = Task.detached(priority: .userInitiated) { () -> [ReaderSearchHit] in
++                let work = Task.detached(priority: .userInitiated) { () -> ReaderSearchResults in
+@@ -505 +710 @@
+-                        if Task.isCancelled { return [] }
++                        if Task.isCancelled { return ReaderSearchResults() }
+@@ -510 +715,4 @@
+-                            let snippet = source.substring(with: NSRange(location: start, length: min(180, source.length - start)))
++                            let proposed = NSRange(location: start, length: min(180, source.length - start))
++                            let safeRange = source.rangeOfComposedCharacterSequences(for: proposed)
++                            let snippet = (safeRange.location > 0 ? "…" : "") + source.substring(with: safeRange)
++                                + (NSMaxRange(safeRange) < source.length ? "…" : "")
+@@ -512 +720 @@
+-                            if found.count == 200 { return found }
++                            if found.count > 200 { return ReaderSearchResults(hits: Array(found.prefix(200)), hasMore: true) }
+@@ -515 +723 @@
+-                    return found
++                    return ReaderSearchResults(hits: found)
+@@ -519 +727 @@
+-                results = found; searching = false
++                results = found.hits; hasMore = found.hasMore; searching = false
+@@ -522,0 +731,21 @@
++    }
++    private func highlighted(_ excerpt: String) -> AttributedString {
++        var text = AttributedString(excerpt)
++        let term = query.trimmingCharacters(in: .whitespacesAndNewlines)
++        guard !term.isEmpty else { return text }
++        let source = excerpt as NSString
++        var cursor = 0
++        while cursor < source.length {
++            let match = source.range(of: term, options: [.caseInsensitive, .diacriticInsensitive],
++                                     range: NSRange(location: cursor, length: source.length - cursor))
++            guard match.location != NSNotFound, match.length > 0 else { break }
++            // Convert Foundation's UTF-16 offsets before indexing the Swift attributed text.
++            if let range = Range(match, in: excerpt),
++               let lower = AttributedString.Index(range.lowerBound, within: text),
++               let upper = AttributedString.Index(range.upperBound, within: text) {
++                text[lower..<upper].foregroundColor = appearance.accent
++                text[lower..<upper].inlinePresentationIntent = .stronglyEmphasized
++            }
++            cursor = NSMaxRange(match)
++        }
++        return text
+--- a/QingJian/QingJian.xcodeproj/project.pbxproj
++++ b/QingJian/QingJian.xcodeproj/project.pbxproj
+@@ -110 +110 @@
+-		86A46D98C12482E1EF3DC46C = { isa = "XCBuildConfiguration"; buildSettings = { PRODUCT_BUNDLE_IDENTIFIER = "com.xiaolong.qingjian"; PRODUCT_NAME = "DeepSeekPocket"; INFOPLIST_FILE = "DeepSeekPocket/Info.plist"; GENERATE_INFOPLIST_FILE = "NO"; MARKETING_VERSION = "1.17.0"; CURRENT_PROJECT_VERSION = "41"; ASSETCATALOG_COMPILER_APPICON_NAME = "AppIcon"; ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = "AccentColor"; TARGETED_DEVICE_FAMILY = "1,2"; CODE_SIGN_STYLE = "Automatic"; LD_RUNPATH_SEARCH_PATHS = ( "$(inherited)", "@executable_path/Frameworks", ); SUPPORTED_PLATFORMS = "iphoneos iphonesimulator"; SUPPORTS_MACCATALYST = "NO"; SWIFT_EMIT_LOC_STRINGS = "YES"; }; name = "Release"; };
++		86A46D98C12482E1EF3DC46C = { isa = "XCBuildConfiguration"; buildSettings = { PRODUCT_BUNDLE_IDENTIFIER = "com.xiaolong.qingjian"; PRODUCT_NAME = "DeepSeekPocket"; INFOPLIST_FILE = "DeepSeekPocket/Info.plist"; GENERATE_INFOPLIST_FILE = "NO"; MARKETING_VERSION = "1.18.0"; CURRENT_PROJECT_VERSION = "42"; ASSETCATALOG_COMPILER_APPICON_NAME = "AppIcon"; ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = "AccentColor"; TARGETED_DEVICE_FAMILY = "1,2"; CODE_SIGN_STYLE = "Automatic"; LD_RUNPATH_SEARCH_PATHS = ( "$(inherited)", "@executable_path/Frameworks", ); SUPPORTED_PLATFORMS = "iphoneos iphonesimulator"; SUPPORTS_MACCATALYST = "NO"; SWIFT_EMIT_LOC_STRINGS = "YES"; }; name = "Release"; };
+@@ -159 +159 @@
+-		C131AA990408F5A8B287713E = { isa = "XCBuildConfiguration"; buildSettings = { PRODUCT_BUNDLE_IDENTIFIER = "com.xiaolong.qingjian"; PRODUCT_NAME = "DeepSeekPocket"; INFOPLIST_FILE = "DeepSeekPocket/Info.plist"; GENERATE_INFOPLIST_FILE = "NO"; MARKETING_VERSION = "1.17.0"; CURRENT_PROJECT_VERSION = "41"; ASSETCATALOG_COMPILER_APPICON_NAME = "AppIcon"; ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = "AccentColor"; TARGETED_DEVICE_FAMILY = "1,2"; CODE_SIGN_STYLE = "Automatic"; LD_RUNPATH_SEARCH_PATHS = ( "$(inherited)", "@executable_path/Frameworks", ); SUPPORTED_PLATFORMS = "iphoneos iphonesimulator"; SUPPORTS_MACCATALYST = "NO"; SWIFT_EMIT_LOC_STRINGS = "YES"; }; name = "Debug"; };
++		C131AA990408F5A8B287713E = { isa = "XCBuildConfiguration"; buildSettings = { PRODUCT_BUNDLE_IDENTIFIER = "com.xiaolong.qingjian"; PRODUCT_NAME = "DeepSeekPocket"; INFOPLIST_FILE = "DeepSeekPocket/Info.plist"; GENERATE_INFOPLIST_FILE = "NO"; MARKETING_VERSION = "1.18.0"; CURRENT_PROJECT_VERSION = "42"; ASSETCATALOG_COMPILER_APPICON_NAME = "AppIcon"; ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = "AccentColor"; TARGETED_DEVICE_FAMILY = "1,2"; CODE_SIGN_STYLE = "Automatic"; LD_RUNPATH_SEARCH_PATHS = ( "$(inherited)", "@executable_path/Frameworks", ); SUPPORTED_PLATFORMS = "iphoneos iphonesimulator"; SUPPORTS_MACCATALYST = "NO"; SWIFT_EMIT_LOC_STRINGS = "YES"; }; name = "Debug"; };

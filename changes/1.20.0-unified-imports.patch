@@ -1,0 +1,1288 @@
+--- a/QingJian/DeepSeekPocket/AppStore.swift
++++ b/QingJian/DeepSeekPocket/AppStore.swift
+@@ -472,0 +473,24 @@
++    @discardableResult
++    func appendImportedText(_ text: String, to threadID: UUID) -> Bool {
++        guard canPersist, let index = threads.firstIndex(where: { $0.id == threadID }),
++              !isHidden(threads[index]) else {
++            errorMessage = "原对话已不存在、项目已上锁或当前不能保存，文件没有加入草稿。"
++            return false
++        }
++        guard !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
++            errorMessage = "文件没有可导入的文字。"
++            return false
++        }
++        let previous = threads[index].draft ?? ""
++        let combined = previous.isEmpty ? text : previous + "\n\n" + text
++        guard combined.count <= 100_000 else {
++            errorMessage = "文件和已有草稿合计超过 10 万字，请分段导入，或放入项目资料；原草稿未改动。"
++            return false
++        }
++        let old = threads
++        threads[index].draft = combined
++        draftSaveTask?.cancel()
++        if !persistNow() { threads = old; return false }
++        return true
++    }
++
+--- a/QingJian/DeepSeekPocket/Core/AppManual.swift
++++ b/QingJian/DeepSeekPocket/Core/AppManual.swift
+@@ -7 +7 @@
+-    static let revision = 8
++    static let revision = 9
+@@ -15,0 +16,6 @@
++        Section(title: "文件与PDF导入", items: [
++            Item(name: "聊天里导入", how: "输入区点文件按钮，可选PDF、TXT或Markdown。文件在本地读取，文字追加到发起导入的那条对话草稿，原草稿保留，核对后自己发送；一次选多个文件会逐项说明结果。"),
++            Item(name: "项目里导入", how: "项目 → 文件 → 导入PDF或文字文件。可多选，读取期间显示进度，结束后报告成功和失败的文件。启用资料合计超过10万字时，新资料先保存为关闭引用，打开开关后才随请求发送。"),
++            Item(name: "PDF范围与页码", how: "支持带可提取文字层的PDF；每页前保留PDF物理页序，不等同于书上印刷页码。部分页面没有文字会标注，纯扫描或密码锁定的文件会明确提示。当前导入的是提取出的文字，图表和页面版式请在原文件核对。"),
++            Item(name: "大小与编码", how: "PDF最多30MB和1000页，文字文件最多2MB，提取文字最多10万字；超过限制会提示拆分，不静默截断。支持常见UTF-8、带BOM的UTF-16以及GB18030、Big5中文文本，旧编码读取后请核对文字。"),
++        ]),
+@@ -20 +26,2 @@
+-            Item(name: "添加内容", how: "输入框左下的加号：从相册选图片、导入文字文件、粘贴文字。"),
++            Item(name: "添加内容", how: "输入区可直接打开相册、导入PDF或文字文件，也可粘贴文字；选择图片时保留当前草稿，处理完成后由你发送。"),
++            Item(name: "一键到底", how: "向上查看历史消息后，在输入区点向下箭头回到最新消息；键盘打开和夜江主题下也可使用。"),
+@@ -68 +75 @@
+-            Item(name: "界面风格", how: "「阅读与外观 → 界面风格」在纸笺和瑞士之间切换，立刻生效。纸笺是暖纸色、宋体、荧光高光；瑞士是灰白底、黑体、蓝色粗体、网格线和方角，问答前标 Q.01 / A.01，对话开头有大标题。对话和设置都不受影响。"),
++            Item(name: "界面风格", how: "「阅读与外观 → 界面风格」可选纸笺、瑞士和夜江，切换立刻生效。纸笺是暖纸色、宋体与荧光高光；瑞士是灰白底、黑体与蓝色强调；夜江是深色江水、月白文字和月光色强调，带月相与书脊样式。三套主题共用聊天搜索、收藏、项目资料和阅读功能。"),
+--- a/QingJian/DeepSeekPocket/Core/Projects.swift
++++ b/QingJian/DeepSeekPocket/Core/Projects.swift
+@@ -1,0 +2,134 @@
++import PDFKit
++import UniformTypeIdentifiers
++
++// A local text copy; the original file is not attached to requests or kept in the backup.
++struct ImportedTextDocument: Sendable {
++    let name: String
++    let text: String
++    let warnings: [String]
++}
++
++enum DocumentTextImporter {
++    static let maximumPDFBytes = 30 * 1024 * 1024
++    static let maximumTextBytes = 2 * 1024 * 1024
++    static let maximumPDFPages = 1000
++    static var allowedContentTypes: [UTType] {
++        [.pdf, .plainText, .text, UTType(filenameExtension: "md") ?? .plainText]
++    }
++
++    static func load(_ url: URL, maxCharacters: Int = ChatProject.documentCharacterLimit) async throws -> ImportedTextDocument {
++        try Task.checkCancellation()
++        let work = Task.detached(priority: .userInitiated) {
++            try read(url, maxCharacters: maxCharacters)
++        }
++        return try await withTaskCancellationHandler(operation: {
++            let document = try await work.value
++            try Task.checkCancellation()
++            return document
++        }, onCancel: { work.cancel() })
++    }
++
++    private static func read(_ url: URL, maxCharacters: Int) throws -> ImportedTextDocument {
++        guard maxCharacters > 0 else { throw ImportFailure("可导入字数不足，请先缩短当前内容。") }
++        let scoped = url.startAccessingSecurityScopedResource()
++        defer { if scoped { url.stopAccessingSecurityScopedResource() } }
++        try Task.checkCancellation()
++        let ext = url.pathExtension.lowercased()
++        let isPDF = ext == "pdf"
++        let textExtensions: Set<String> = ["txt", "text", "md", "markdown", "csv", "tsv", "log", "json", "yaml", "yml", "xml", "html", "htm", "tex", "swift", "py", "js", "ts", "css", "sql"]
++        guard isPDF || ext.isEmpty || textExtensions.contains(ext) else {
++            throw ImportFailure("目前支持PDF和TXT、Markdown等纯文本资料，请把此格式先导出为PDF或TXT。")
++        }
++        let limit = isPDF ? maximumPDFBytes : maximumTextBytes
++        var coordinatedError: NSError?
++        var result: Result<Data, Error>?
++        // File-provider URLs may still need to download. Coordinate off the main thread.
++        NSFileCoordinator(filePresenter: nil).coordinate(readingItemAt: url, options: .withoutChanges, error: &coordinatedError) { local in
++            result = Result {
++                let info = try local.resourceValues(forKeys: [.fileSizeKey, .isDirectoryKey])
++                guard info.isDirectory != true else { throw ImportFailure("请选择文件，不能导入文件夹。") }
++                guard (info.fileSize ?? 0) <= limit else { throw oversized(isPDF) }
++                let data = try Data(contentsOf: local, options: .mappedIfSafe)
++                guard data.count <= limit else { throw oversized(isPDF) }
++                return data
++            }
++        }
++        if let coordinatedError { throw ImportFailure("文件未能读取，请确认云盘文件已下载：\(coordinatedError.localizedDescription)") }
++        guard let result else { throw ImportFailure("没有读到文件内容，请从「文件」App下载后重试。") }
++        let data = try result.get()
++        try Task.checkCancellation()
++        guard !data.isEmpty else { throw ImportFailure("这个文件是空的。") }
++        let hasPDFHeader = data.prefix(1024).range(of: Data("%PDF-".utf8)) != nil
++        if isPDF && !hasPDFHeader { throw ImportFailure("这个文件没有有效的PDF文件头，请确认已下载完整，且不是改了扩展名的其他文件。") }
++        if !isPDF && hasPDFHeader { throw ImportFailure("文件内容实际是PDF，请使用.pdf扩展名后再导入。") }
++        let originalName = url.deletingPathExtension().lastPathComponent.trimmingCharacters(in: .whitespacesAndNewlines)
++        let name = String((originalName.isEmpty ? "导入的资料" : originalName).prefix(200))
++        var warnings: [String] = originalName.count > 200 ? ["资料名称超过200字，已缩短名称；正文未截断。"] : []
++        if isPDF {
++            let extracted = try readPDF(data, maxCharacters: maxCharacters)
++            warnings += extracted.warnings
++            return ImportedTextDocument(name: name, text: extracted.text, warnings: warnings)
++        }
++        guard !data.starts(with: [0x50, 0x4B, 0x03, 0x04]), !data.starts(with: Array("{\\rtf".utf8)),
++              let decoded = BookText.decode(data) else {
++            throw ImportFailure("无法按文字读取此文件。支持PDF、TXT、Markdown及常见UTF-8、UTF-16、GB18030、Big5文字；请将其他文档先导出为PDF或TXT。")
++        }
++        let text = decoded.replacingOccurrences(of: "\r\n", with: "\n").replacingOccurrences(of: "\r", with: "\n")
++        guard !text.unicodeScalars.contains(where: { CharacterSet.controlCharacters.contains($0) && $0.value != 9 && $0.value != 10 }) else {
++            throw ImportFailure("文件中包含无法作为正文读取的内容，请导出为UTF-8的TXT或Markdown后重试。")
++        }
++        guard !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { throw ImportFailure("文件没有可导入的文字。") }
++        guard text.count <= maxCharacters else { throw tooLong(maxCharacters) }
++        let prefix = [UInt8](data.prefix(3))
++        if String(data: data, encoding: .utf8) == nil,
++           !prefix.starts(with: [0xFF, 0xFE]), !prefix.starts(with: [0xFE, 0xFF]) {
++            warnings.append("已按常见中文旧编码读取，请打开资料核对文字。")
++        }
++        return ImportedTextDocument(name: name, text: text, warnings: warnings)
++    }
++
++    private static func readPDF(_ data: Data, maxCharacters: Int) throws -> (text: String, warnings: [String]) {
++        guard let pdf = PDFDocument(data: data) else { throw ImportFailure("无法打开这个PDF，文件可能未下载完整或已经损坏。") }
++        guard !pdf.isLocked else { throw ImportFailure("这个PDF需要密码。请先解锁并另存一份可打开的PDF，再导入。") }
++        guard pdf.allowsCopying else { throw ImportFailure("这个PDF限制文字复制，无法提取正文；请使用允许提取文字的版本。") }
++        guard pdf.pageCount > 0 else { throw ImportFailure("这个PDF没有页面。") }
++        guard pdf.pageCount <= maximumPDFPages else { throw ImportFailure("PDF超过1000页，请先按所需章节拆分后导入。") }
++        let heading = "【PDF文字资料】\n以下页码为PDF文件中的物理页序，从1开始，不等同于书中印刷页码。文字提取可能改变多栏、表格及脚注的阅读顺序，请按页回到原文件核对。"
++        var parts = [heading]
++        var characterCount = heading.count
++        var emptyPages: [Int] = []
++        var textPages = 0
++        for index in 0..<pdf.pageCount {
++            try Task.checkCancellation()
++            guard let page = pdf.page(at: index) else { throw ImportFailure("PDF第\(index + 1)页未能读取，请重新导出PDF后重试。") }
++            let pageText = (page.string ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
++            let content: String
++            if pageText.isEmpty {
++                emptyPages.append(index + 1)
++                content = "[本页没有可提取文字，可能是扫描页、图片或空白页。]"
++            } else {
++                textPages += 1
++                content = pageText
++            }
++            let section = "【PDF第\(index + 1)页】\n\(content)"
++            characterCount += section.count + 2
++            guard characterCount <= maxCharacters else { throw tooLong(maxCharacters) }
++            parts.append(section)
++        }
++        guard textPages > 0 else { throw ImportFailure("这个PDF没有可提取的文字，可能是扫描件。请先做文字识别（OCR），再导入带文字层的PDF或TXT。") }
++        let warnings = emptyPages.isEmpty ? [] : ["共\(pdf.pageCount)页，其中\(emptyPages.count)页没有提取到文字，正文已按页标注；这份资料不是完整逐页转写。"]
++        return (parts.joined(separator: "\n\n"), warnings)
++    }
++
++    private static func oversized(_ isPDF: Bool) -> ImportFailure {
++        ImportFailure(isPDF ? "PDF超过30 MB，请压缩或拆分后导入。" : "文字文件超过2 MB，请按所需章节拆分后导入。")
++    }
++    private static func tooLong(_ limit: Int) -> ImportFailure {
++        ImportFailure("提取内容超过可导入的\(limit.formatted())字，请拆分或缩短后重试；内容没有被截断。")
++    }
++    private struct ImportFailure: LocalizedError {
++        let message: String
++        init(_ message: String) { self.message = message }
++        var errorDescription: String? { message }
++    }
++}
+--- a/QingJian/DeepSeekPocket/Views/AppTheme.swift
++++ b/QingJian/DeepSeekPocket/Views/AppTheme.swift
+@@ -23,0 +24,3 @@
++// 夜江: night-river blue-black, moon-white text and one pale gold moon. The same in
++// light and dark mode (the app is held in dark mode while it is chosen). Colours were
++// set in oklch: ground L .17 C .02 H 232, moon L .88 C .075 H 88.
+@@ -26,6 +29,28 @@
+-    static var paper: Color { swiss ? Color.adaptive(light: 0xF2F2EF, dark: 0x111214) : Color.adaptive(light: 0xFAF9F5, dark: 0x171716) }
+-    static var sheet: Color { swiss ? Color.adaptive(light: 0xE7E7E3, dark: 0x0A0A0B) : Color.adaptive(light: 0xF2F0E9, dark: 0x121211) }
+-    static var raised: Color { swiss ? Color.adaptive(light: 0xFFFFFF, dark: 0x1D1E21) : Color.adaptive(light: 0xEFEDE5, dark: 0x292927) }
+-    static var ink: Color { swiss ? Color.adaptive(light: 0x111111, dark: 0xEDEDE9) : Color.adaptive(light: 0x1F1E1D, dark: 0xECEAE3) }
+-    static var ink2: Color { swiss ? Color.adaptive(light: 0x3B3B3B, dark: 0xC6C6C1) : Color.adaptive(light: 0x4F4D48, dark: 0xC2BFB6) }
+-    static var ink3: Color { swiss ? Color.adaptive(light: 0x5E5E5E, dark: 0x9B9B96) : Color.adaptive(light: 0x7A7872, dark: 0x9A978F) }
++    private static var night: Bool { InterfaceStyle.isNight }
++    private static func fixed(_ hex: UInt32, alpha: CGFloat = 1) -> Color {
++        Color.adaptive(light: hex, dark: hex, lightAlpha: alpha, darkAlpha: alpha)
++    }
++    static var paper: Color {
++        if night { return fixed(0x051117) }
++        return swiss ? Color.adaptive(light: 0xF2F2EF, dark: 0x111214) : Color.adaptive(light: 0xFAF9F5, dark: 0x171716)
++    }
++    static var sheet: Color {
++        if night { return fixed(0x071419) }
++        return swiss ? Color.adaptive(light: 0xE7E7E3, dark: 0x0A0A0B) : Color.adaptive(light: 0xF2F0E9, dark: 0x121211)
++    }
++    static var raised: Color {
++        if night { return fixed(0x0F1D24) }
++        return swiss ? Color.adaptive(light: 0xFFFFFF, dark: 0x1D1E21) : Color.adaptive(light: 0xEFEDE5, dark: 0x292927)
++    }
++    static var ink: Color {
++        if night { return fixed(0xDBEBEF) }
++        return swiss ? Color.adaptive(light: 0x111111, dark: 0xEDEDE9) : Color.adaptive(light: 0x1F1E1D, dark: 0xECEAE3)
++    }
++    static var ink2: Color {
++        if night { return fixed(0xB4C3C9) }
++        return swiss ? Color.adaptive(light: 0x3B3B3B, dark: 0xC6C6C1) : Color.adaptive(light: 0x4F4D48, dark: 0xC2BFB6)
++    }
++    static var ink3: Color {
++        if night { return fixed(0x92A1A8) }
++        return swiss ? Color.adaptive(light: 0x5E5E5E, dark: 0x9B9B96) : Color.adaptive(light: 0x7A7872, dark: 0x9A978F)
++    }
+@@ -33 +58,2 @@
+-        swiss ? Color.adaptive(light: 0x111111, dark: 0xEDEDE9, lightAlpha: 0.16, darkAlpha: 0.18)
++        if night { return fixed(0xDBEBEF, alpha: 0.13) }
++        return swiss ? Color.adaptive(light: 0x111111, dark: 0xEDEDE9, lightAlpha: 0.16, darkAlpha: 0.18)
+@@ -36,2 +62,5 @@
+-    static var seal: Color { swiss ? Color.adaptive(light: 0x2B3DE0, dark: 0x6B79FF) : Color.adaptive(light: 0xC96442, dark: 0xD97757) }
+-    static var onSeal: Color { Color.adaptive(light: 0xFFFFFF, dark: 0xFFFFFF) }
++    static var seal: Color {
++        if night { return fixed(0xECD59F) }
++        return swiss ? Color.adaptive(light: 0x2B3DE0, dark: 0x6B79FF) : Color.adaptive(light: 0xC96442, dark: 0xD97757)
++    }
++    static var onSeal: Color { night ? fixed(0x051117) : Color.adaptive(light: 0xFFFFFF, dark: 0xFFFFFF) }
+@@ -39 +68,2 @@
+-    // sidebar's selected row in the Swiss look, which has no highlighter in answers.
++    // sidebar's selected row in the Swiss look, which has no highlighter in answers;
++    // moonlight on the water in 夜江.
+@@ -41 +71,2 @@
+-        swiss ? Color.adaptive(light: 0x2B3DE0, dark: 0x6B79FF, lightAlpha: 0.14, darkAlpha: 0.28)
++        if night { return fixed(0xECD59F, alpha: 0.26) }
++        return swiss ? Color.adaptive(light: 0x2B3DE0, dark: 0x6B79FF, lightAlpha: 0.14, darkAlpha: 0.28)
+@@ -196,3 +227,9 @@
+-        // A disc on paper, a small square in the Swiss look.
+-        RoundedRectangle(cornerRadius: InterfaceStyle.isSwiss ? 0 : size / 2, style: .continuous)
+-            .fill(Ink.seal).frame(width: size, height: size)
++        // A disc on paper, a small square in the Swiss look, the moon in 夜江.
++        Group {
++            if InterfaceStyle.isNight {
++                MoonDisc(size: size, glow: pulsing && !dim)
++            } else {
++                RoundedRectangle(cornerRadius: InterfaceStyle.isSwiss ? 0 : size / 2, style: .continuous)
++                    .fill(Ink.seal).frame(width: size, height: size)
++            }
++        }
+--- a/QingJian/DeepSeekPocket/Views/BookshelfView.swift
++++ b/QingJian/DeepSeekPocket/Views/BookshelfView.swift
+@@ -73 +73 @@
+-                if query.isEmpty,
++                if !InterfaceStyle.isNight, query.isEmpty,
+@@ -118,0 +119,8 @@
++                if InterfaceStyle.isNight {
++                    if !visibleBooks.isEmpty {
++                        NightShelf(books: visibleBooks, readingID: books.readingBookID) { path.append($0) }
++                            .listRowBackground(Color.clear)
++                            .listRowInsets(EdgeInsets())
++                            .listRowSeparator(.hidden)
++                    }
++                } else {
+@@ -135,0 +144 @@
++                }
+@@ -1090,0 +1100,144 @@
++
++// MARK: - 夜江 bookshelf
++
++/// Spines standing on a water line, each mirrored faintly in the river below, and
++/// the moon over them. Tap a spine to lift it; the panel underneath shows that book.
++@MainActor
++struct NightShelf: View {
++    let books: [Book]
++    let readingID: UUID?
++    let open: (UUID) -> Void
++    @State private var picked: UUID?
++
++    private var selected: Book? { books.first { $0.id == picked } ?? books.first }
++
++    var body: some View {
++        VStack(alignment: .leading, spacing: 0) {
++            HStack(alignment: .top) {
++                Text("\(books.count) 册 · 点一本书脊").font(TypeScale.serif(13)).foregroundStyle(Ink.ink3)
++                Spacer()
++                MoonDisc(size: 30)
++            }
++            .padding(.horizontal, 24).padding(.top, 8)
++
++            ScrollView(.horizontal, showsIndicators: false) {
++                VStack(alignment: .leading, spacing: 0) {
++                    spineRow(reflection: false).frame(height: 252, alignment: .bottom)
++                    Rectangle().fill(Ink.ink.opacity(0.35)).frame(height: 1)
++                    spineRow(reflection: true)
++                        .scaleEffect(x: 1, y: -1)
++                        .frame(height: 96, alignment: .top)
++                        .clipped()
++                        .opacity(0.3).blur(radius: 1.2)
++                        .mask(LinearGradient(colors: [.black, .clear], startPoint: .top, endPoint: .bottom))
++                        .allowsHitTesting(false)
++                        .accessibilityHidden(true)
++                }
++                .padding(.horizontal, 24)
++                .frame(minWidth: 0)
++            }
++            .overlay(alignment: .bottomTrailing) {
++                // The moon's broken reflection on the water.
++                VStack(spacing: 6) {
++                    Capsule().fill(Ink.seal).frame(width: 30, height: 1.5)
++                    Capsule().fill(Ink.seal).frame(width: 20, height: 1.5)
++                    Capsule().fill(Ink.seal).frame(width: 10, height: 1.5)
++                }
++                .opacity(0.55).padding(.trailing, 30).padding(.bottom, 64)
++                .allowsHitTesting(false).accessibilityHidden(true)
++            }
++
++            if let book = selected { panel(book).padding(.horizontal, 24).padding(.top, 8).padding(.bottom, 24) }
++        }
++        .padding(.vertical, 8)
++    }
++
++    private func spineRow(reflection: Bool) -> some View {
++        HStack(alignment: .bottom, spacing: 10) {
++            ForEach(books) { book in
++                let lifted = !reflection && book.id == selected?.id
++                Button { withAnimation(.snappy(duration: 0.25)) { picked = book.id } } label: {
++                    Spine(book: book)
++                }
++                .buttonStyle(.plain)
++                .offset(y: lifted ? -12 : 0)
++                .disabled(reflection)
++                .accessibilityLabel(book.title)
++                .accessibilityAddTraits(lifted ? .isSelected : [])
++            }
++        }
++    }
++
++    @ViewBuilder private func panel(_ book: Book) -> some View {
++        VStack(alignment: .leading, spacing: 0) {
++            Text(BookStatusText.short(book, reading: readingID == book.id))
++                .font(TypeScale.serif(12)).tracking(1.5).foregroundStyle(Ink.ink3).lineLimit(1)
++            Text(book.title).font(TypeScale.heavy(26, relativeTo: .title)).foregroundStyle(Ink.ink)
++                .lineLimit(2).padding(.top, 4)
++            GeometryReader { proxy in
++                ZStack(alignment: .leading) {
++                    Rectangle().fill(Ink.line)
++                    Rectangle().fill(Ink.seal).frame(width: proxy.size.width * Self.progress(book))
++                }
++            }
++            .frame(height: 2).padding(.top, 14)
++            if let mark = book.bookmark {
++                Text("读到 · " + book.chapterLabel(mark.chapter)).font(TypeScale.serif(12)).foregroundStyle(Ink.ink3)
++                    .lineLimit(1).padding(.top, 6)
++            }
++            Button { open(book.id) } label: {
++                Text("进入书籍").font(TypeScale.serif(16).weight(.semibold)).foregroundStyle(Ink.onSeal)
++                    .frame(maxWidth: .infinity).frame(height: 48)
++                    .background(Ink.seal, in: Capsule())
++                    .contentShape(Capsule())
++            }
++            .buttonStyle(.plain).padding(.top, 20)
++            .accessibilityIdentifier("night-shelf-open")
++        }
++    }
++
++    /// Reading position when there is one, otherwise how much of the book Sermo has read.
++    static func progress(_ book: Book) -> Double {
++        if let mark = book.bookmark, !book.chapterTitles.isEmpty {
++            return min(1, Double(mark.chapter + 1) / Double(book.chapterTitles.count))
++        }
++        guard !book.segments.isEmpty else { return 0 }
++        return min(1, Double(book.readCount) / Double(book.segments.count))
++    }
++}
++
++/// One spine: a dark cloth colour chosen from the title, a pale title slip set vertically.
++private struct Spine: View {
++    let book: Book
++    private static let cloths: [UInt32] = [0x22323C, 0x1C2C2A, 0x252B3A, 0x2E3236, 0x2A2633, 0x1F2E35]
++    private var cloth: Color {
++        let seed = book.title.unicodeScalars.reduce(0) { ($0 &* 31 &+ Int($1.value)) & 0xFFFF }
++        let hex = Self.cloths[seed % Self.cloths.count]
++        return Color(red: Double((hex >> 16) & 255) / 255, green: Double((hex >> 8) & 255) / 255, blue: Double(hex & 255) / 255)
++    }
++    // Longer books stand taller: 180 pt for a novella up to 240 pt for a long novel.
++    private var height: CGFloat {
++        let wan = Double(book.characterCount) / 10000
++        return CGFloat(180 + min(60, max(0, log2(max(1, wan)) * 9)))
++    }
++    private var width: CGFloat { book.characterCount > 400_000 ? 58 : (book.characterCount > 150_000 ? 52 : 46) }
++    private var letters: [String] { Array(book.title.prefix(7)).map(String.init) }
++
++    var body: some View {
++        ZStack(alignment: .top) {
++            UnevenRoundedRectangle(topLeadingRadius: 2, topTrailingRadius: 2, style: .continuous)
++                .fill(cloth)
++                .overlay(alignment: .trailing) { Rectangle().fill(Color.black.opacity(0.18)).frame(width: 3) }
++            VStack(spacing: 2) {
++                ForEach(Array(letters.enumerated()), id: \.offset) { _, letter in
++                    Text(letter).font(TypeScale.serif(15).weight(.semibold))
++                }
++            }
++            .foregroundStyle(Color(red: 0.02, green: 0.07, blue: 0.09))
++            .padding(.vertical, 10).frame(width: 28)
++            .background(Color(red: 0.86, green: 0.92, blue: 0.94))
++            .padding(.top, 16)
++        }
++        .frame(width: width, height: height)
++    }
++}
+--- a/QingJian/DeepSeekPocket/Views/ContentView.swift
++++ b/QingJian/DeepSeekPocket/Views/ContentView.swift
+@@ -95,0 +96 @@
++        .preferredColorScheme(InterfaceStyle.isNight ? .dark : nil)
+@@ -137,0 +139,79 @@
++}
++
++// Present from the real visible controller. The composer lives in a separate
++// UIHostingController, so attaching a photosPicker to the outer SwiftUI page
++// makes its presentation depend on another host and on menu dismissal timing.
++@MainActor
++private enum ChatPhotoPicker {
++    private static var current: Coordinator?
++
++    @discardableResult
++    static func present(limit: Int, onError: @escaping (String) -> Void,
++                        picked: @escaping ([PHPickerResult]) -> Void) -> Bool {
++        guard current == nil else { onError("相册已打开，请先完成当前选择。"); return false }
++        let scenes = UIApplication.shared.connectedScenes.compactMap { $0 as? UIWindowScene }
++            .filter { $0.activationState == .foregroundActive }
++        let window = scenes.flatMap(\.windows).first(where: \.isKeyWindow)
++        var visible = window?.rootViewController
++        while let presented = visible?.presentedViewController { visible = presented }
++        guard let presenter = visible, presenter.viewIfLoaded?.window != nil,
++              !presenter.isBeingPresented, !presenter.isBeingDismissed,
++              !(presenter is UIAlertController), !(presenter is UIDocumentPickerViewController),
++              !(presenter is PHPickerViewController) else {
++            onError("当前界面正在切换，请关闭其他弹窗后再选择图片。")
++            return false
++        }
++        var config = PHPickerConfiguration(photoLibrary: .shared())
++        config.filter = .images
++        config.selectionLimit = max(1, min(4, limit))
++        config.selection = .ordered
++        config.preferredAssetRepresentationMode = .current
++        let picker = PHPickerViewController(configuration: config)
++        let coordinator = Coordinator(picked: picked)
++        picker.delegate = coordinator
++        picker.modalPresentationStyle = .pageSheet
++        current = coordinator
++        presenter.view.endEditing(true)
++        presenter.present(picker, animated: true) { picker.presentationController?.delegate = coordinator }
++        return true
++    }
++
++    static func loadData(_ provider: NSItemProvider) async throws -> Data {
++        guard let type = provider.registeredTypeIdentifiers.first(where: { UTType($0)?.conforms(to: .image) == true }) else {
++            throw ChatError.server("这项内容没有可读取的图片格式。")
++        }
++        return try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<Data, Error>) in
++            _ = provider.loadFileRepresentation(forTypeIdentifier: type) { url, error in
++                if let error { continuation.resume(throwing: error); return }
++                guard let url else { continuation.resume(throwing: ChatError.server("图片未能下载，请稍后重试。")); return }
++                do {
++                    // The provider's temporary URL is only valid inside this callback.
++                    let size = try url.resourceValues(forKeys: [.fileSizeKey]).fileSize ?? 0
++                    guard size <= 40 * 1024 * 1024 else { throw ChatError.server("图片超过 40 MB，请选择压缩后的照片或截图。") }
++                    let data = try Data(contentsOf: url)
++                    guard data.count <= 40 * 1024 * 1024 else { throw ChatError.server("图片超过 40 MB。") }
++                    continuation.resume(returning: data)
++                } catch { continuation.resume(throwing: error) }
++            }
++        }
++    }
++
++    @MainActor private final class Coordinator: NSObject, PHPickerViewControllerDelegate, UIAdaptivePresentationControllerDelegate {
++        let picked: ([PHPickerResult]) -> Void
++        private var finished = false
++        init(picked: @escaping ([PHPickerResult]) -> Void) { self.picked = picked }
++        func picker(_ picker: PHPickerViewController, didFinishPicking results: [PHPickerResult]) {
++            guard !finished else { return }
++            finished = true
++            picker.dismiss(animated: true) {
++                ChatPhotoPicker.current = nil
++                self.picked(results)
++            }
++        }
++        func presentationControllerDidDismiss(_ presentationController: UIPresentationController) {
++            guard !finished else { return }
++            finished = true
++            ChatPhotoPicker.current = nil
++            picked([])
++        }
++    }
+@@ -161,5 +241,22 @@
+-    @State private var importingText = false
+-    @State private var pickingPhotos = false
+-    @State private var photoSelection: [PhotosPickerItem] = []
+-    @State private var pendingImages: [PendingImage] = []
+-    @State private var loadingPhotos = false
++    @State private var choosingFiles = false
++    @State private var choosingPhotos = false
++    @State private var fileImportTask: Task<Void, Never>?
++    @State private var fileImportThreadID: UUID?
++    @State private var fileImportProgress = ""
++    @State private var photoLoadThreadID: UUID?
++    @State private var photoLoadSessionID: UUID?
++    @State private var photoLoadTask: Task<Void, Never>?
++    @State private var imagesByThread: [UUID: [PendingImage]] = [:]
++    @State private var attachmentReport: String?
++    private var loadingPhotos: Bool { photoLoadThreadID == store.activeThreadID && photoLoadThreadID != nil }
++    private var attachmentBusy: Bool { choosingFiles || choosingPhotos || fileImportThreadID != nil || photoLoadThreadID != nil }
++    private var pendingImages: [PendingImage] {
++        get {
++            guard let thread = store.activeThread, !store.isHidden(thread) else { return [] }
++            return imagesByThread[thread.id] ?? []
++        }
++        nonmutating set {
++            guard let id = store.activeThreadID else { return }
++            imagesByThread[id] = newValue
++        }
++    }
+@@ -200,0 +298 @@
++    private var night: Bool { style == .night }
+@@ -280,9 +377,0 @@
+-            .overlay(alignment: .bottomTrailing) {
+-                if !isComposerFocused && !nearBottom && store.activeThread?.messages.isEmpty == false {
+-                    GlassCircle(symbol: "arrow.down", label: "回到最新消息") {
+-                        clearMessageNavigation()
+-                        followsOutput = true
+-                        withAnimation(.easeOut(duration: 0.2)) { scrollPosition.scrollTo(edge: .bottom) }
+-                    }.padding(.trailing, 22).padding(.bottom, 12)
+-                }
+-            }
+@@ -321,0 +411 @@
++                else if night { MoonDisc(size: 22, glow: store.isGenerating).accessibilityLabel("Sermo") }
+@@ -421,31 +511,3 @@
+-        .photosPicker(isPresented: $pickingPhotos, selection: $photoSelection, maxSelectionCount: 4, matching: .images)
+-        .onChange(of: photoSelection) { _, items in
+-            guard !items.isEmpty else { return }
+-            photoSelection = []
+-            loadingPhotos = true
+-            Task {
+-                for item in items {
+-                    guard pendingImages.count < 4 else { break }
+-                    do {
+-                        guard let raw = try await item.loadTransferable(type: Data.self) else { continue }
+-                        let data = try await Task.detached { try ImageStore.prepared(raw) }.value
+-                        if let preview = UIImage(data: data) {
+-                            pendingImages.append(PendingImage(data: data, preview: preview))
+-                        }
+-                    } catch { store.errorMessage = "有一张图片没能读取，请换一张试试。" }
+-                }
+-                loadingPhotos = false
+-            }
+-        }
+-        .fileImporter(isPresented: $importingText, allowedContentTypes: [.plainText, .text]) { result in
+-            do {
+-                let url = try result.get()
+-                let scoped = url.startAccessingSecurityScopedResource()
+-                defer { if scoped { url.stopAccessingSecurityScopedResource() } }
+-                let size = try url.resourceValues(forKeys: [.fileSizeKey]).fileSize ?? 0
+-                guard size <= 1024 * 1024 else { throw ChatError.server("请选择小于 1 MB 的文字文件。") }
+-                let text = try String(contentsOf: url, encoding: .utf8)
+-                store.setDraft(store.activeDraft.isEmpty ? text : store.activeDraft + "\n\n" + text)
+-                focusComposer(true)
+-            } catch { store.errorMessage = error.localizedDescription }
+-        }
++        .alert("附件处理结果", isPresented: Binding(get: { attachmentReport != nil }, set: { if !$0 { attachmentReport = nil } })) {
++            Button("知道了") { attachmentReport = nil }
++        } message: { Text(attachmentReport ?? "") }
+@@ -726,0 +789,154 @@
++    private func jumpToLatest() {
++        clearMessageNavigation()
++        followsOutput = true
++        withAnimation(.easeOut(duration: 0.2)) { scrollPosition.scrollTo(edge: .bottom) }
++    }
++
++    private var attachmentControls: some View {
++        HStack(spacing: 10) {
++            Button(action: choosePhotos) {
++                Label("图片", systemImage: "photo").font(TypeScale.label).frame(minHeight: 44)
++            }
++            .accessibilityLabel("从相册选择图片").accessibilityIdentifier("chat-add-photos")
++            .disabled(attachmentBusy || !store.canPersist || pendingImages.count >= 4)
++            Button(action: chooseDocuments) {
++                Label("文件", systemImage: "doc.badge.plus").font(TypeScale.label).frame(minHeight: 44)
++            }
++            .accessibilityLabel("导入 PDF 或文字文件").accessibilityIdentifier("chat-add-document")
++            .disabled(attachmentBusy || !store.canPersist)
++            Button {
++                guard let id = store.activeThreadID else { return }
++                guard let text = UIPasteboard.general.string, !text.isEmpty else {
++                    attachmentReport = "剪贴板里没有文字。"
++                    return
++                }
++                if store.appendImportedText(text, to: id) { focusComposer(true) }
++            } label: {
++                Image(systemName: "doc.on.clipboard").frame(width: 44, height: 44)
++            }
++            .accessibilityLabel("粘贴文字").disabled(!store.canPersist)
++            Spacer(minLength: 0)
++            if store.canChooseProject { projectPill }
++        }
++        .buttonStyle(.plain).foregroundStyle(Ink.ink2)
++    }
++
++    private func choosePhotos() {
++        guard !attachmentBusy, store.canPersist, let thread = store.activeThread, !store.isHidden(thread) else { return }
++        let origin = thread.id
++        let remaining = 4 - (imagesByThread[origin]?.count ?? 0)
++        guard remaining > 0 else { attachmentReport = "一次最多添加 4 张图片。"; return }
++        focusComposer(false)
++        choosingPhotos = true
++        let shown = ChatPhotoPicker.present(limit: remaining, onError: { issue in
++            choosingPhotos = false; attachmentReport = issue
++        }) { results in
++            choosingPhotos = false
++            guard !results.isEmpty else { return }
++            let session = UUID()
++            photoLoadSessionID = session
++            photoLoadThreadID = origin
++            photoLoadTask = Task { @MainActor in
++                defer {
++                    if photoLoadSessionID == session {
++                        photoLoadThreadID = nil; photoLoadSessionID = nil; photoLoadTask = nil
++                    }
++                }
++                var added = 0, failures = 0
++                for result in results {
++                    guard !Task.isCancelled, photoLoadSessionID == session else { return }
++                    guard let current = store.threads.first(where: { $0.id == origin }), !store.isHidden(current) else {
++                        attachmentReport = "原对话已删除或上锁，图片没有加入其他对话。"
++                        return
++                    }
++                    guard (imagesByThread[origin]?.count ?? 0) < 4 else { break }
++                    do {
++                        let raw = try await ChatPhotoPicker.loadData(result.itemProvider)
++                        try Task.checkCancellation()
++                        guard photoLoadSessionID == session else { return }
++                        let prepared = try await Task.detached(priority: .userInitiated) { try ImageStore.prepared(raw) }.value
++                        try Task.checkCancellation()
++                        guard photoLoadSessionID == session else { return }
++                        guard let current = store.threads.first(where: { $0.id == origin }), !store.isHidden(current) else {
++                            attachmentReport = "原对话已删除或上锁，图片没有加入其他对话。"
++                            return
++                        }
++                        guard let preview = UIImage(data: prepared) else { failures += 1; continue }
++                        imagesByThread[origin, default: []].append(PendingImage(data: prepared, preview: preview))
++                        added += 1
++                    } catch is CancellationError { return }
++                    catch { failures += 1 }
++                }
++                guard !Task.isCancelled, photoLoadSessionID == session else { return }
++                if failures > 0 {
++                    attachmentReport = "已添加 \(added) 张图片，\(failures) 张未能读取。请确认云端照片已下载，或换一张普通照片/截图。"
++                } else if origin != store.activeThreadID {
++                    attachmentReport = "\(added) 张图片已加入原来对话的待发送区，切回即可查看。"
++                }
++            }
++        }
++        if !shown { choosingPhotos = false }
++    }
++
++    private func cancelPhotoImport() {
++        photoLoadTask?.cancel()
++        // Providers may finish a cloud download after cancellation. A new session
++        // can start immediately; the old task cannot append images or clear it.
++        photoLoadSessionID = nil
++        photoLoadThreadID = nil
++        photoLoadTask = nil
++    }
++
++    private func chooseDocuments() {
++        guard !attachmentBusy, store.canPersist, let thread = store.activeThread, !store.isHidden(thread) else { return }
++        let origin = thread.id
++        focusComposer(false)
++        choosingFiles = true
++        let shown = DocumentPicker.presentMany(DocumentTextImporter.allowedContentTypes, asCopy: true,
++            onCancel: { choosingFiles = false },
++            onError: { issue in choosingFiles = false; attachmentReport = issue }) { urls in
++                choosingFiles = false
++                importDocuments(urls, into: origin)
++            }
++        if !shown { choosingFiles = false }
++    }
++
++    private func importDocuments(_ urls: [URL], into origin: UUID) {
++        guard !urls.isEmpty else { return }
++        fileImportThreadID = origin
++        fileImportTask = Task { @MainActor in
++            defer { fileImportThreadID = nil; fileImportTask = nil; fileImportProgress = "" }
++            var successes = 0
++            var details: [String] = []
++            for (index, url) in urls.enumerated() {
++                if Task.isCancelled { details.append("已取消剩余文件；已经导入的内容保留。"); break }
++                guard let current = store.threads.first(where: { $0.id == origin }), !store.isHidden(current) else {
++                    details.append("原对话已删除或上锁，剩余内容没有加入其他对话。")
++                    break
++                }
++                fileImportProgress = "正在读取 \(index + 1)/\(urls.count)：\(url.lastPathComponent)"
++                do {
++                    let imported = try await DocumentTextImporter.load(url)
++                    try Task.checkCancellation()
++                    let addition = "【文件：\(imported.name)】\n\(imported.text)"
++                    if store.appendImportedText(addition, to: origin) {
++                        successes += 1
++                        details.append(contentsOf: imported.warnings.map { "\(imported.name)：\($0)" })
++                    } else {
++                        details.append("\(imported.name)：\(store.errorMessage ?? "未能保存到草稿，请稍后再试。")")
++                        store.errorMessage = nil
++                    }
++                } catch is CancellationError {
++                    details.append("已取消剩余文件；已经导入的内容保留。")
++                    break
++                } catch {
++                    details.append("\(url.lastPathComponent)：\(error.localizedDescription)")
++                }
++            }
++            let location = origin == store.activeThreadID ? "当前对话" : "原来对话"
++            var report = "已将 \(successes)/\(urls.count) 份文件加入\(location)的草稿，由你检查后发送。"
++            if !details.isEmpty { report += "\n\n" + details.joined(separator: "\n\n") }
++            attachmentReport = report
++        }
++    }
++
+@@ -728,0 +945,16 @@
++            // The transcript host extends beneath the composer. Keep this control
++            // in the foreground composer host so it is visible and tappable with a keyboard.
++            if store.activeThread?.messages.isEmpty == false {
++                HStack {
++                    Spacer()
++                    Button(action: jumpToLatest) {
++                        Label("回到最新", systemImage: "arrow.down")
++                            .font(TypeScale.label).foregroundStyle(Ink.ink)
++                            .padding(.horizontal, 14).frame(minHeight: 44)
++                            .background(Ink.raised, in: Capsule())
++                            .overlay(Capsule().stroke(Ink.line, lineWidth: 0.8))
++                    }
++                    .buttonStyle(.plain).accessibilityLabel("一键回到最新消息")
++                    .accessibilityIdentifier("chat-jump-to-latest")
++                }
++            }
+@@ -741,0 +974,18 @@
++                attachmentControls
++                if photoLoadThreadID != nil {
++                    HStack(spacing: 8) {
++                        ProgressView()
++                        Text(photoLoadThreadID == store.activeThreadID ? "正在读取图片…" : "正在为原对话读取图片…")
++                            .font(TypeScale.tiny).foregroundStyle(Ink.ink3)
++                        Spacer(minLength: 4)
++                        Button("取消", action: cancelPhotoImport).font(TypeScale.label)
++                    }
++                }
++                if fileImportThreadID != nil {
++                    HStack(spacing: 8) {
++                        ProgressView()
++                        Text(fileImportProgress).font(TypeScale.tiny).foregroundStyle(Ink.ink3).lineLimit(2)
++                        Spacer(minLength: 4)
++                        Button("取消") { fileImportTask?.cancel() }.font(TypeScale.label)
++                    }
++                }
+@@ -778,16 +1027,0 @@
+-                    Menu {
+-                        Button("从相册选图片", systemImage: "photo") { focusComposer(false); pickingPhotos = true }
+-                        Button("导入文字文件", systemImage: "doc.text") { importingText = true }
+-                        Button("粘贴文字", systemImage: "doc.on.clipboard") {
+-                            if let text = UIPasteboard.general.string { store.setDraft(store.activeDraft + text) }
+-                        }
+-                    } label: {
+-                        Image(systemName: "plus").font(.system(size: 16, weight: swiss ? .medium : .regular)).foregroundStyle(Ink.ink)
+-                            .frame(width: 38, height: 38)
+-                            .overlay(RoundedRectangle(cornerRadius: swiss ? 0 : 19, style: .continuous)
+-                                .stroke(swiss ? Ink.ink : Ink.line, lineWidth: swiss ? 1 : 0.8))
+-                            .contentShape(Rectangle())
+-                    }
+-                    .accessibilityLabel("更多输入操作")
+-                    // Before the first message a page can still pick its project here.
+-                    if store.canChooseProject { projectPill }
+@@ -860,0 +1095 @@
++                            .shadow(color: night ? Ink.seal.opacity(0.35) : .clear, radius: night ? 12 : 0)
+@@ -864 +1099,2 @@
+-                    .disabled(!store.isGenerating && (!store.canChat || !hasInput || !store.canPersist))
++                    .disabled(!store.isGenerating && (!store.canChat || !hasInput || !store.canPersist || loadingPhotos
++                        || (fileImportThreadID != nil && fileImportThreadID == store.activeThreadID)))
+@@ -1130 +1366,17 @@
+-            if message.role == .user {
++            if message.role == .user && style == .night {
++                // 夜江: a water line between exchanges, then your words a step quieter
++                // than the answer, under a small 「你」 in moonlight.
++                if round > 1 { WaveRule().padding(.bottom, 8) }
++                VStack(alignment: .leading, spacing: 6) {
++                    Text("你").font(TypeScale.serif(12)).tracking(2.4).foregroundStyle(Ink.seal)
++                        .accessibilityHidden(true)
++                    discussionVoiceLabel
++                    if let names = message.images, !names.isEmpty { AttachmentRow(names: names) }
++                    Text(message.content).readingStyle(adjustment: -2).lineSpacing(6).textSelection(.enabled)
++                        .foregroundStyle(Ink.ink2)
++                    Text(MessageTime.label(message.createdAt)).font(TypeScale.serif(11)).monospacedDigit().foregroundStyle(Ink.ink3)
++                }
++                .frame(maxWidth: .infinity, alignment: .leading)
++                .padding(.trailing, 28)
++                .accessibilityElement(children: .combine)
++            } else if message.role == .user {
+@@ -1248 +1500 @@
+-            let bubble = aiBubble && style == .paper
++            let bubble = aiBubble && style != .swiss
+@@ -1320,0 +1573,46 @@
++        if InterfaceStyle.isNight { nightPanel } else { listPanel(swiss: swiss) }
++    }
++
++    // 夜江: the replies float as glass capsules on the water.
++    private var nightPanel: some View {
++        VStack(alignment: .leading, spacing: 8) {
++            if let batch = message.replySuggestions {
++                FlowRows(spacing: 8) {
++                    ForEach(Array(batch.replies.prefix(3).enumerated()), id: \.offset) { index, reply in
++                        Button { use(reply) } label: {
++                            Text(reply).font(TypeScale.serif(15)).foregroundStyle(Ink.ink)
++                                .multilineTextAlignment(.leading).lineSpacing(3)
++                                .padding(.horizontal, 16).padding(.vertical, 10)
++                                .frame(minHeight: 44)
++                                .clearGlass(radius: 22)
++                                .contentShape(Capsule())
++                        }
++                        .buttonStyle(.plain).disabled(store.isGenerating)
++                        .accessibilityLabel("使用回复建议 \(index + 1)：\(reply)")
++                        .accessibilityIdentifier("reply-suggestion-\(index)")
++                    }
++                }
++                if let usage = batch.usage {
++                    Text("建议 \(usage.totalTokens.formatted()) Tokens · " + suggestionCost(batch, usage))
++                        .font(TypeScale.serif(10)).monospacedDigit().foregroundStyle(Ink.ink3)
++                }
++            } else if store.isSuggesting(threadID: threadID, messageID: message.id) {
++                HStack(spacing: 8) {
++                    PulseDot(size: 7)
++                    Text("正在想几种回复…").font(TypeScale.caption).foregroundStyle(Ink.ink3)
++                }.padding(.vertical, 8).accessibilityIdentifier("reply-suggestions-loading")
++            } else {
++                if let error = store.suggestionError(threadID: threadID, messageID: message.id) {
++                    Text(error).font(TypeScale.tiny).foregroundStyle(Ink.ink3)
++                }
++                Button("生成回复建议") { store.generateReplySuggestions(threadID: threadID, messageID: message.id) }
++                    .font(TypeScale.caption).foregroundStyle(Ink.ink2).buttonStyle(.plain).disabled(store.isGenerating)
++                    .padding(.vertical, 8)
++            }
++        }
++        .padding(.top, 12)
++        .accessibilityElement(children: .contain)
++        .accessibilityIdentifier("reply-suggestions-panel")
++    }
++
++    private func listPanel(swiss: Bool) -> some View {
+--- a/QingJian/DeepSeekPocket/Views/DocumentPicker.swift
++++ b/QingJian/DeepSeekPocket/Views/DocumentPicker.swift
+@@ -14,2 +14,7 @@
+-    static func present(_ types: [UTType], asCopy: Bool = false, pick: @escaping (URL) -> Void) {
+-        show(types, asCopy: asCopy, multiple: false) { urls in if let url = urls.first { pick(url) } }
++    @discardableResult
++    static func present(_ types: [UTType], asCopy: Bool = false,
++                        onCancel: (() -> Void)? = nil, onError: ((String) -> Void)? = nil,
++                        pick: @escaping (URL) -> Void) -> Bool {
++        show(types, asCopy: asCopy, multiple: false, onCancel: onCancel, onError: onError) { urls in
++            if let url = urls.first { pick(url) }
++        }
+@@ -20,2 +25,5 @@
+-    static func presentMany(_ types: [UTType], asCopy: Bool = false, pick: @escaping ([URL]) -> Void) {
+-        show(types, asCopy: asCopy, multiple: true, pick: pick)
++    @discardableResult
++    static func presentMany(_ types: [UTType], asCopy: Bool = false,
++                            onCancel: (() -> Void)? = nil, onError: ((String) -> Void)? = nil,
++                            pick: @escaping ([URL]) -> Void) -> Bool {
++        show(types, asCopy: asCopy, multiple: true, onCancel: onCancel, onError: onError, pick: pick)
+@@ -24,3 +32,10 @@
+-    private static func show(_ types: [UTType], asCopy: Bool, multiple: Bool, pick: @escaping ([URL]) -> Void) {
+-        guard let top = topViewController() else { return }
+-        let coordinator = Coordinator(pick: pick)
++    private static func show(_ types: [UTType], asCopy: Bool, multiple: Bool,
++                             onCancel: (() -> Void)?, onError: ((String) -> Void)?,
++                             pick: @escaping ([URL]) -> Void) -> Bool {
++        guard current == nil else { onError?("文件选择器已经打开，请先完成或取消当前选择。"); return false }
++        guard let top = topViewController(), top.viewIfLoaded?.window != nil,
++              !top.isBeingPresented, !top.isBeingDismissed else {
++            onError?("当前页面还在切换，暂时无法打开文件选择器，请稍后再试。")
++            return false
++        }
++        let coordinator = Coordinator(pick: pick, cancel: onCancel)
+@@ -30,0 +46 @@
++        top.view.endEditing(true)
+@@ -31,0 +48,2 @@
++        picker.presentationController?.delegate = coordinator
++        return true
+@@ -35 +53,2 @@
+-        let window = UIApplication.shared.connectedScenes.compactMap { $0 as? UIWindowScene }
++        let window = UIApplication.shared.connectedScenes.filter { $0.activationState == .foregroundActive }
++            .compactMap { $0 as? UIWindowScene }
+@@ -42 +61 @@
+-    @MainActor private final class Coordinator: NSObject, UIDocumentPickerDelegate {
++    @MainActor private final class Coordinator: NSObject, UIDocumentPickerDelegate, UIAdaptivePresentationControllerDelegate {
+@@ -44 +63,3 @@
+-        init(pick: @escaping ([URL]) -> Void) { self.pick = pick }
++        let cancel: (() -> Void)?
++        private var completed = false
++        init(pick: @escaping ([URL]) -> Void, cancel: (() -> Void)?) { self.pick = pick; self.cancel = cancel }
+@@ -46,2 +67 @@
+-            if !urls.isEmpty { pick(urls) }
+-            DocumentPicker.current = nil
++            finish(controller, urls: urls)
+@@ -50 +70,17 @@
+-            DocumentPicker.current = nil
++            finish(controller, urls: [])
++        }
++        func presentationControllerDidDismiss(_ presentationController: UIPresentationController) {
++            finish(nil, urls: [])
++        }
++        private func finish(_ controller: UIViewController?, urls: [URL]) {
++            guard !completed else { return }
++            completed = true
++            let deliver = { [self] in
++                if DocumentPicker.current === self { DocumentPicker.current = nil }
++                if urls.isEmpty { cancel?() } else { pick(urls) }
++            }
++            if let controller, controller.presentingViewController != nil {
++                controller.dismiss(animated: true, completion: deliver)
++            } else {
++                deliver()
++            }
+--- a/QingJian/DeepSeekPocket/Views/HighlightColorSettings.swift
++++ b/QingJian/DeepSeekPocket/Views/HighlightColorSettings.swift
+@@ -8,0 +9,2 @@
++        // 夜江 draws emphasis as moonlight on the water, whatever colour is picked here.
++        if InterfaceStyle.isNight { return Ink.mark }
+@@ -63 +65 @@
+-            Text("即时保存，应用到回答中的粗体重点（每条回答最多两处，其余保持粗体）和侧栏选中标记。深色模式自动降低高光浓度。瑞士风格不画高光，粗体改为蓝色。")
++            Text("即时保存，应用到回答中的粗体重点（每条回答最多两处，其余保持粗体）和侧栏选中标记。深色模式自动降低高光浓度。瑞士风格不画高光，粗体改为蓝色；夜江固定用月光色。")
+--- a/QingJian/DeepSeekPocket/Views/HistoryView.swift
++++ b/QingJian/DeepSeekPocket/Views/HistoryView.swift
+@@ -35,0 +36 @@
++        let night = InterfaceStyle.isNight
+@@ -37,3 +38,8 @@
+-            HStack {
+-                Text("Sermo").font(TypeScale.heavy(30, relativeTo: .largeTitle)).foregroundStyle(Ink.ink)
+-                    .accessibilityAddTraits(.isHeader).accessibilityIdentifier("history-title")
++            HStack(alignment: night ? .top : .center) {
++                VStack(alignment: .leading, spacing: 6) {
++                    Text("Sermo").font(TypeScale.heavy(30, relativeTo: .largeTitle)).foregroundStyle(Ink.ink)
++                        .accessibilityAddTraits(.isHeader).accessibilityIdentifier("history-title")
++                    if night {
++                        Text("千江有水千江月").font(TypeScale.serif(13)).tracking(3).foregroundStyle(Ink.ink3)
++                    }
++                }
+@@ -67,0 +74,11 @@
++                        if night && !recent.isEmpty {
++                            HStack(spacing: 8) {
++                                MoonPhaseIcon(phase: 0.15, size: 13)
++                                MoonPhaseIcon(phase: 0.5, size: 13)
++                                MoonPhaseIcon(phase: 1, size: 13)
++                                Text("月越圆，这局戏聊得越深").font(TypeScale.serif(12)).foregroundStyle(Ink.ink3)
++                            }
++                            .padding(.top, 10)
++                            .accessibilityElement(children: .ignore)
++                            .accessibilityLabel("对话前的月相表示聊了多久")
++                        }
+@@ -126 +143 @@
+-                .foregroundStyle(Ink.onSolid)
++                .foregroundStyle(InterfaceStyle.isNight ? Ink.onSeal : Ink.onSolid)
+@@ -128 +145 @@
+-                .background(Ink.solid, in: InkCapsule())
++                .background(InterfaceStyle.isNight ? Ink.seal : Ink.solid, in: InkCapsule())
+@@ -195,0 +213 @@
++        let night = InterfaceStyle.isNight
+@@ -198,3 +216,11 @@
+-                Image(systemName: thread.isPinned == true ? "pin" : "bubble.left")
+-                    .font(.system(size: 16)).foregroundStyle(Ink.ink2).frame(width: 24)
+-                    .accessibilityHidden(true)
++                Group {
++                    // 夜江: each talk is a river with its own moon; the longer the talk, the fuller.
++                    if night && thread.isPinned != true {
++                        MoonPhaseIcon(phase: MoonPhaseIcon.phase(for: thread))
++                    } else {
++                        Image(systemName: thread.isPinned == true ? "pin" : "bubble.left")
++                            .font(.system(size: 16)).foregroundStyle(Ink.ink2)
++                    }
++                }
++                .frame(width: 24)
++                .accessibilityHidden(true)
+@@ -201,0 +228 @@
++                    .foregroundStyle(night && active ? Ink.seal : Ink.ink)
+@@ -203 +230 @@
+-                        if active { Rectangle().fill(HighlightStyle.color(highlightHex, scheme: colorScheme)).frame(height: 9).padding(.horizontal, -2) }
++                        if active && !night { Rectangle().fill(HighlightStyle.color(highlightHex, scheme: colorScheme)).frame(height: 9).padding(.horizontal, -2) }
+--- a/QingJian/DeepSeekPocket/Views/InterfaceStyle.swift
++++ b/QingJian/DeepSeekPocket/Views/InterfaceStyle.swift
+@@ -6,0 +7,3 @@
++/// 夜江 (千江有水千江月): night river, moonlight the only colour, Songti, liquid glass.
++///   Always dark. It shares the paper look's layout; only colours, the moon mark,
++///   the sidebar's moon phases, reply capsules and the bookshelf's spines differ.
+@@ -10 +13 @@
+-    case paper, swiss
++    case paper, swiss, night
+@@ -18,0 +22 @@
++        case .night: return "夜江"
+@@ -24,0 +29 @@
++        case .night: return "千江有水千江月：夜色江水、宋体、月光高光，始终是深色"
+@@ -30,0 +36 @@
++    static var isNight: Bool { current == .night }
+@@ -48 +54,2 @@
+-            let flagged: InterfaceStyle = arguments.contains("--preview-swiss") ? .swiss : .paper
++            let flagged: InterfaceStyle = arguments.contains("--preview-swiss") ? .swiss
++                : (arguments.contains("--preview-night") ? .night : .paper)
+@@ -73 +80 @@
+-        Text((InterfaceStyle(rawValue: stored) ?? .paper).detail + "。切换后整个 App 立刻换样式，对话和设置都不受影响。瑞士风格固定使用系统黑体，不显示荧光高光。")
++        Text((InterfaceStyle(rawValue: stored) ?? .paper).detail + "。切换后整个 App 立刻换样式，对话和设置都不受影响。瑞士风格固定使用系统黑体，不显示荧光高光；夜江不跟随系统浅色模式，高光固定为月光色。")
+@@ -148,0 +156,118 @@
++
++// MARK: - 夜江 pieces shared by several screens
++
++/// Sermo's mark in the 夜江 look: a pale gold moon with a soft halo.
++/// `glow` brightens it while an answer is on its way ("月出").
++struct MoonDisc: View {
++    var size: CGFloat = 20
++    var glow = false
++    var body: some View {
++        Circle()
++            .fill(RadialGradient(colors: [Color(red: 1, green: 0.965, blue: 0.867), Ink.seal,
++                                          Color(red: 0.80, green: 0.68, blue: 0.45)],
++                                 center: UnitPoint(x: 0.38, y: 0.36), startRadius: 0, endRadius: size * 0.62))
++            .frame(width: size, height: size)
++            .shadow(color: Ink.seal.opacity(glow ? 0.75 : 0.35), radius: glow ? size * 0.9 : size * 0.55)
++            .shadow(color: Ink.seal.opacity(glow ? 0.35 : 0.16), radius: glow ? size * 2.6 : size * 1.6)
++            .accessibilityHidden(true)
++    }
++}
++
++/// The lit part of a waxing moon: 0 is a new moon, 1 a full moon, lit on the right.
++struct MoonLitShape: Shape {
++    var phase: Double
++    func path(in rect: CGRect) -> Path {
++        let r = min(rect.width, rect.height) / 2
++        let c = CGPoint(x: rect.midX, y: rect.midY)
++        let p = CGFloat(min(1, max(0, phase)))
++        var path = Path()
++        guard p > 0.02 else { return path }
++        // Right half of the disc, top to bottom.
++        path.move(to: CGPoint(x: c.x, y: c.y - r))
++        path.addArc(center: c, radius: r, startAngle: .degrees(-90), endAngle: .degrees(90), clockwise: false)
++        // Back up along the terminator: an ellipse whose width shrinks to zero at half moon.
++        let rx = abs(1 - 2 * p) * r
++        let steps = 24
++        for step in 1...steps {
++            let t = CGFloat(step) / CGFloat(steps)
++            let angle = CGFloat.pi / 2 - t * CGFloat.pi       // 90° → -90°, bottom to top
++            let x = p < 0.5 ? c.x + rx * cos(angle) : c.x - rx * cos(angle)
++            path.addLine(to: CGPoint(x: x, y: c.y + r * sin(angle)))
++        }
++        path.closeSubpath()
++        return path
++    }
++}
++
++/// A conversation's moon phase in the 夜江 sidebar: the longer the talk, the fuller the moon.
++struct MoonPhaseIcon: View {
++    var phase: Double
++    var size: CGFloat = 18
++    var body: some View {
++        ZStack {
++            Circle().stroke(Ink.line, lineWidth: 1)
++            MoonLitShape(phase: phase).fill(Ink.seal)
++        }
++        .frame(width: size, height: size)
++        .accessibilityHidden(true)
++    }
++
++    /// One full moon at about thirty of your messages; a sliver as soon as a talk starts.
++    static func phase(for thread: ChatThread) -> Double {
++        let turns = thread.messages.reduce(0) { $0 + ($1.role == .user ? 1 : 0) }
++        guard turns > 0 else { return 0.06 }
++        return min(1, 0.1 + Double(turns) / 30)
++    }
++}
++
++/// A faint water line between exchanges in the 夜江 look.
++struct WaveRule: View {
++    var body: some View {
++        WaveShape().stroke(Ink.line, lineWidth: 1).frame(height: 8).accessibilityHidden(true)
++    }
++}
++
++struct WaveShape: Shape {
++    func path(in rect: CGRect) -> Path {
++        var path = Path()
++        let mid = rect.midY, w = rect.width
++        path.move(to: CGPoint(x: rect.minX, y: mid))
++        let segments = 4
++        for index in 0..<segments {
++            let x0 = rect.minX + w * Double(index) / Double(segments)
++            let x1 = rect.minX + w * Double(index + 1) / Double(segments)
++            let lift: Double = index % 2 == 0 ? -3 : 3
++            path.addCurve(to: CGPoint(x: x1, y: mid),
++                          control1: CGPoint(x: x0 + (x1 - x0) / 3, y: mid + lift),
++                          control2: CGPoint(x: x0 + (x1 - x0) * 2 / 3, y: mid - lift))
++        }
++        return path
++    }
++}
++
++/// Lays children out in rows, wrapping to the next row when one is full (reply capsules).
++struct FlowRows: Layout {
++    var spacing: CGFloat = 8
++    func sizeThatFits(proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) -> CGSize {
++        let width = proposal.width ?? .infinity
++        var x: CGFloat = 0, y: CGFloat = 0, rowHeight: CGFloat = 0, widest: CGFloat = 0
++        for subview in subviews {
++            let size = subview.sizeThatFits(ProposedViewSize(width: width, height: nil))
++            if x > 0 && x + size.width > width { y += rowHeight + spacing; x = 0; rowHeight = 0 }
++            x += size.width + spacing
++            rowHeight = max(rowHeight, size.height)
++            widest = max(widest, x - spacing)
++        }
++        return CGSize(width: width.isFinite ? width : widest, height: y + rowHeight)
++    }
++    func placeSubviews(in bounds: CGRect, proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) {
++        var x = bounds.minX, y = bounds.minY, rowHeight: CGFloat = 0
++        for subview in subviews {
++            let size = subview.sizeThatFits(ProposedViewSize(width: bounds.width, height: nil))
++            if x > bounds.minX && x + size.width > bounds.maxX { y += rowHeight + spacing; x = bounds.minX; rowHeight = 0 }
++            subview.place(at: CGPoint(x: x, y: y), proposal: ProposedViewSize(width: min(size.width, bounds.width), height: size.height))
++            x += size.width + spacing
++            rowHeight = max(rowHeight, size.height)
++        }
++    }
++}
+--- a/QingJian/DeepSeekPocket/Views/LocalNovelReader.swift
++++ b/QingJian/DeepSeekPocket/Views/LocalNovelReader.swift
+@@ -59 +59 @@
+-        ReaderAppearance.resolve(palette, dark: colorScheme == .dark, swiss: InterfaceStyle.isSwiss)
++        ReaderAppearance.resolve(palette, dark: colorScheme == .dark, swiss: InterfaceStyle.isSwiss, night: InterfaceStyle.isNight)
+@@ -139 +139 @@
+-        .preferredColorScheme(palette == "follow" ? nil : (appearance.isDark ? .dark : .light))
++        .preferredColorScheme(palette == "follow" ? (InterfaceStyle.isNight ? .dark : nil) : (appearance.isDark ? .dark : .light))
+@@ -415 +415 @@
+-        let sample = ReaderAppearance.resolve(key, dark: appearance.isDark, swiss: InterfaceStyle.isSwiss)
++        let sample = ReaderAppearance.resolve(key, dark: appearance.isDark, swiss: InterfaceStyle.isSwiss, night: InterfaceStyle.isNight)
+@@ -788 +788 @@
+-    static func resolve(_ choice: String, dark: Bool, swiss: Bool) -> ReaderAppearance {
++    static func resolve(_ choice: String, dark: Bool, swiss: Bool, night: Bool = false) -> ReaderAppearance {
+@@ -794,0 +795 @@
++            if night { return .init(paperHex: 0x051117, inkHex: 0xDBEBEF, surfaceHex: 0x0F1D24, accentHex: 0xECD59F, isDark: true) }
+--- a/QingJian/DeepSeekPocket/Views/ProjectsView.swift
++++ b/QingJian/DeepSeekPocket/Views/ProjectsView.swift
+@@ -405,0 +406,4 @@
++    @State private var choosingFiles = false
++    @State private var importTask: Task<Void, Never>?
++    @State private var importProgress = ""
++    @State private var importReport: String?
+@@ -416,2 +420 @@
+-        project == nil || !store.canPersist || (project?.documents.count ?? 0) >= 50
+-            || (project?.includedCharacters ?? 0) >= ChatProject.documentCharacterLimit
++        project == nil || !store.canPersist || (project?.documents.count ?? 0) >= 50 || importing || choosingFiles
+@@ -460 +463 @@
+-                Button { importing = true } label: { Label("导入文字文件", systemImage: "doc.badge.plus") }
++                Button { chooseFiles() } label: { Label(choosingFiles ? "正在打开文件…" : "导入 PDF / 文字文件", systemImage: "doc.badge.plus") }
+@@ -468 +471 @@
+-                    Text("启用资料已达到 10 万字上限。导入新资料前，请先关闭部分资料的引用开关。")
++                    Text("启用资料已达到10万字，新资料仍可导入，引用开关会先关闭。可稍后选择需要一起提问的资料。")
+@@ -470 +473,13 @@
+-                    Text("支持 UTF-8 文字和 Markdown，每份最多 10 万字；导入文件需小于 1 MB。")
++                    Text("支持带文字层的PDF、TXT和Markdown。PDF最多30 MB、1000页；文字文件最多2 MB，每份提取内容最多10万字。PDF保留文件物理页码；扫描件请先做文字识别。")
++                }
++            }
++            if importing {
++                Section {
++                    HStack(spacing: 12) { ProgressView(); Text(importProgress).font(TypeScale.label).lineLimit(2) }
++                    Button("取消剩余导入", role: .cancel) { importTask?.cancel() }
++                } footer: { Text("文件逐份读取并保存；取消时已导入的资料会保留。") }
++            }
++            if let importReport {
++                Section("导入结果") {
++                    Text(importReport).font(TypeScale.label).textSelection(.enabled)
++                    Button("收起结果") { self.importReport = nil }
+@@ -485,16 +500,2 @@
+-        .fileImporter(isPresented: $importing, allowedContentTypes: [.plainText, .text, UTType(filenameExtension: "md") ?? .plainText],
+-                      allowsMultipleSelection: true) { result in
+-            do {
+-                var added: [ProjectDocument] = []
+-                for url in try result.get() {
+-                    let scoped = url.startAccessingSecurityScopedResource()
+-                    defer { if scoped { url.stopAccessingSecurityScopedResource() } }
+-                    let size = try url.resourceValues(forKeys: [.fileSizeKey]).fileSize ?? 0
+-                    guard size <= 1024 * 1024 else { throw ChatError.server("请选择小于 1 MB 的文字文件。") }
+-                    let text = try String(contentsOf: url, encoding: .utf8)
+-                    guard text.count <= ChatProject.documentCharacterLimit else { throw ChatError.server("这份资料超过 10 万字，请拆开再导入。") }
+-                    added.append(ProjectDocument(name: url.deletingPathExtension().lastPathComponent, text: text))
+-                }
+-                updateDocuments { $0.append(contentsOf: added) }
+-            } catch { store.errorMessage = error.localizedDescription }
+-        }
++        .onDisappear { importTask?.cancel() }
++        .onChange(of: store.isLocked(projectID)) { _, locked in if locked { importTask?.cancel() } }
+@@ -501,0 +503,62 @@
++    }
++
++    private func chooseFiles() {
++        guard !cannotAdd else { return }
++        importReport = nil; choosingFiles = true
++        let opened = DocumentPicker.presentMany(DocumentTextImporter.allowedContentTypes, asCopy: true,
++            onCancel: { choosingFiles = false; importReport = "已取消选择文件。" },
++            onError: { message in choosingFiles = false; importReport = message }) { urls in
++                choosingFiles = false
++                beginImport(urls)
++            }
++        if !opened { choosingFiles = false }
++    }
++
++    private func beginImport(_ urls: [URL]) {
++        guard !urls.isEmpty, !importing else { return }
++        importing = true; importReport = nil
++        importTask = Task { @MainActor in
++            var imported = 0
++            var lines: [String] = []
++            defer {
++                importing = false; importTask = nil; importProgress = ""
++                importReport = "已导入 \(imported) / \(urls.count) 份资料。\n\n" + lines.joined(separator: "\n\n")
++            }
++            for (index, url) in urls.enumerated() {
++                if Task.isCancelled {
++                    lines.append("已取消，余下\(urls.count - index)份未导入；此前成功的资料已保留。")
++                    break
++                }
++                importProgress = "\(index + 1) / \(urls.count) · \(url.lastPathComponent)"
++                do {
++                    guard project != nil, store.canPersist else { throw ChatError.server("项目已上锁、被删除或暂时不能保存，请重新打开后导入。") }
++                    guard (project?.documents.count ?? 0) < 50 else { throw ChatError.server("项目已达到50份资料上限，这份文件没有导入。") }
++                    let content = try await DocumentTextImporter.load(url)
++                    try Task.checkCancellation()
++                    let included = try saveImported(content)
++                    imported += 1
++                    var result = "✓ \(url.lastPathComponent) · \(content.text.count.formatted())字"
++                    if !included { result += "\n已保存，引用开关先关闭：启用资料合计会超过10万字。" }
++                    if !content.warnings.isEmpty { result += "\n" + content.warnings.joined(separator: "\n") }
++                    lines.append(result)
++                } catch is CancellationError {
++                    lines.append("已取消，当前及余下\(urls.count - index)份未导入；此前成功的资料已保留。")
++                    break
++                } catch {
++                    lines.append("未导入 \(url.lastPathComponent)：\(error.localizedDescription)")
++                }
++            }
++        }
++    }
++
++    // Resolve the current project after each await, preserving new memory and concurrent edits.
++    private func saveImported(_ imported: ImportedTextDocument) throws -> Bool {
++        guard !store.isLocked(projectID), store.canPersist, var latest = store.project(projectID) else {
++            throw ChatError.server("项目暂时无法保存，请重新打开后导入。")
++        }
++        guard latest.documents.count < 50 else { throw ChatError.server("项目已达到50份资料上限，这份文件没有导入。") }
++        var document = ProjectDocument(name: imported.name, text: imported.text)
++        document.isIncluded = latest.includedCharacters + document.text.count <= ChatProject.documentCharacterLimit
++        latest.documents.append(document)
++        guard store.updateProject(latest) else { throw ChatError.server(store.errorMessage ?? "资料没有保存成功，请稍后重试。") }
++        return document.isIncluded
+@@ -532,3 +595,5 @@
+-        updateDocuments { documents in
+-            documents.append(ProjectDocument(name: "粘贴的资料 \(documents.count + 1)", text: text))
+-        }
++        do {
++            let imported = ImportedTextDocument(name: "粘贴的资料 \((project?.documents.count ?? 0) + 1)", text: text, warnings: [])
++            let included = try saveImported(imported)
++            importReport = included ? "已粘贴并保存资料。" : "已粘贴并保存资料；启用合计会超过10万字，引用开关先关闭。"
++        } catch { store.errorMessage = error.localizedDescription }
+--- a/QingJian/QingJian.xcodeproj/project.pbxproj
++++ b/QingJian/QingJian.xcodeproj/project.pbxproj
+@@ -110 +110 @@
+-		86A46D98C12482E1EF3DC46C = { isa = "XCBuildConfiguration"; buildSettings = { PRODUCT_BUNDLE_IDENTIFIER = "com.xiaolong.qingjian"; PRODUCT_NAME = "DeepSeekPocket"; INFOPLIST_FILE = "DeepSeekPocket/Info.plist"; GENERATE_INFOPLIST_FILE = "NO"; MARKETING_VERSION = "1.19.1"; CURRENT_PROJECT_VERSION = "44"; ASSETCATALOG_COMPILER_APPICON_NAME = "AppIcon"; ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = "AccentColor"; TARGETED_DEVICE_FAMILY = "1,2"; CODE_SIGN_STYLE = "Automatic"; LD_RUNPATH_SEARCH_PATHS = ( "$(inherited)", "@executable_path/Frameworks", ); SUPPORTED_PLATFORMS = "iphoneos iphonesimulator"; SUPPORTS_MACCATALYST = "NO"; SWIFT_EMIT_LOC_STRINGS = "YES"; }; name = "Release"; };
++		86A46D98C12482E1EF3DC46C = { isa = "XCBuildConfiguration"; buildSettings = { PRODUCT_BUNDLE_IDENTIFIER = "com.xiaolong.qingjian"; PRODUCT_NAME = "DeepSeekPocket"; INFOPLIST_FILE = "DeepSeekPocket/Info.plist"; GENERATE_INFOPLIST_FILE = "NO"; MARKETING_VERSION = "1.20.0"; CURRENT_PROJECT_VERSION = "45"; ASSETCATALOG_COMPILER_APPICON_NAME = "AppIcon"; ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = "AccentColor"; TARGETED_DEVICE_FAMILY = "1,2"; CODE_SIGN_STYLE = "Automatic"; LD_RUNPATH_SEARCH_PATHS = ( "$(inherited)", "@executable_path/Frameworks", ); SUPPORTED_PLATFORMS = "iphoneos iphonesimulator"; SUPPORTS_MACCATALYST = "NO"; SWIFT_EMIT_LOC_STRINGS = "YES"; }; name = "Release"; };
+@@ -159 +159 @@
+-		C131AA990408F5A8B287713E = { isa = "XCBuildConfiguration"; buildSettings = { PRODUCT_BUNDLE_IDENTIFIER = "com.xiaolong.qingjian"; PRODUCT_NAME = "DeepSeekPocket"; INFOPLIST_FILE = "DeepSeekPocket/Info.plist"; GENERATE_INFOPLIST_FILE = "NO"; MARKETING_VERSION = "1.19.1"; CURRENT_PROJECT_VERSION = "44"; ASSETCATALOG_COMPILER_APPICON_NAME = "AppIcon"; ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = "AccentColor"; TARGETED_DEVICE_FAMILY = "1,2"; CODE_SIGN_STYLE = "Automatic"; LD_RUNPATH_SEARCH_PATHS = ( "$(inherited)", "@executable_path/Frameworks", ); SUPPORTED_PLATFORMS = "iphoneos iphonesimulator"; SUPPORTS_MACCATALYST = "NO"; SWIFT_EMIT_LOC_STRINGS = "YES"; }; name = "Debug"; };
++		C131AA990408F5A8B287713E = { isa = "XCBuildConfiguration"; buildSettings = { PRODUCT_BUNDLE_IDENTIFIER = "com.xiaolong.qingjian"; PRODUCT_NAME = "DeepSeekPocket"; INFOPLIST_FILE = "DeepSeekPocket/Info.plist"; GENERATE_INFOPLIST_FILE = "NO"; MARKETING_VERSION = "1.20.0"; CURRENT_PROJECT_VERSION = "45"; ASSETCATALOG_COMPILER_APPICON_NAME = "AppIcon"; ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = "AccentColor"; TARGETED_DEVICE_FAMILY = "1,2"; CODE_SIGN_STYLE = "Automatic"; LD_RUNPATH_SEARCH_PATHS = ( "$(inherited)", "@executable_path/Frameworks", ); SUPPORTED_PLATFORMS = "iphoneos iphonesimulator"; SUPPORTS_MACCATALYST = "NO"; SWIFT_EMIT_LOC_STRINGS = "YES"; }; name = "Debug"; };
