@@ -1,4 +1,6 @@
-Sermo 1.24.0 / build 50：DeepSeek 回答配 OpenAI 语音（等待 Release 编译，未真机验证）
+Sermo 1.24.0 / build 50：DeepSeek 回答配 OpenAI 语音（Release 编译已通过，未真机验证）
+
+构建：https://github.com/2974580042lx-crypto/qingjian-ios/actions/runs/40902427567
 
 - 沿用 1.23.0 小说创作和全部既有聊天功能；每条完成的回答下可按小喇叭生成、播放或停止 OpenAI 语音。
 - 设置中可配置 OpenAI API Key、选择内置声音、试听及开关 DeepSeek 回答完成后的自动朗读；默认不自动朗读。
