@@ -7,14 +7,12 @@
     "build": "36",
     "tests_run": false
   },
-  "version": "1.24.0",
-  "build": "50",
+  "version": "1.25.0",
+  "build": "51",
   "base_commit": "54fca01d6f0f1f3785220ba492a442573fdaf965",
-  "overlay_sha256": "a82dbb960864cf9768c8b2da3cdcceafaca6d70ed3be68e1140b683342b4d4bd",
+  "overlay_sha256": "961b2b5ea0ecaf7154eef9241d5546e4bd712e8ce5bd5fc4293aabf51e850dbb",
   "tests_run": false,
-  "validation": "GitHub Actions Release compilation succeeded; no unit/UI, live API, or device checks run",
+  "validation": "Not compiled yet; push to main to run the GitHub Actions Release build",
   "sha256": "cb5332b71990c74ff38670cbb7d6213d55b49ecafa6255cd75869f573b2ff460",
-  "source_layout": "Verified immutable baseline plus cumulative overlay through 1.24.0",
-  "compiled_commit": "cf9728c17832992881ccdb099d411d605a280482",
-  "build_run_url": "https://github.com/2974580042lx-crypto/qingjian-ios/actions/runs/40902427567"
+  "source_layout": "Verified immutable baseline plus cumulative overlay through 1.25.0"
 }
