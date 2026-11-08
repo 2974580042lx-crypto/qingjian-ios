@@ -1,0 +1,945 @@
+diff -ruN pa/QingJian/DeepSeekPocket/Core/AppManual.swift pb/QingJian/DeepSeekPocket/Core/AppManual.swift
+--- a/QingJian/DeepSeekPocket/Core/AppManual.swift	2026-11-08 21:39:41.851827721 +0800
++++ b/QingJian/DeepSeekPocket/Core/AppManual.swift	2026-11-08 21:39:41.860810605 +0800
+@@ -4,7 +4,7 @@
+ // "Sermo 说明书" project (as its document) and the feature overview in Settings.
+ // Update it with every feature, and bump `revision` so the project refreshes.
+ enum AppManual {
+-    static let revision = 19
++    static let revision = 20
+     static let projectID = UUID(uuidString: "5E2B0D6A-3C1F-4A7E-9B21-5E5E2B0D6A01")!
+     static let projectName = "Sermo 说明书"
+     static let documentName = "Sermo 使用说明"
+@@ -20,7 +20,7 @@
+             Item(name: "大小与编码", how: "PDF最多30MB和1000页，文字文件最多2MB，提取文字最多10万字；超过限制会提示拆分，不静默截断。支持常见UTF-8、带BOM的UTF-16以及GB18030、Big5中文文本，旧编码读取后请核对文字。"),
+         ]),
+         Section(title: "聊天", items: [
+-            Item(name: "GPT 声音朗读", how: "在设置 → GPT 声音中领取并绑定 API 额度，保存 OpenAI API Key，选择声音。已完成回答下面点小喇叭可朗读，再点可停止；也可以打开 DeepSeek 回复后自动朗读。每次生成语音都会把回答文字发送给 OpenAI 并计入 API 用量，语音为 AI 生成，可能与文字略有不同。"),
++            Item(name: "GPT 声音朗读", how: "在设置 →「ChatGPT 订阅与声音」→ GPT 声音中领取并绑定 API 额度，保存 OpenAI API Key，选择声音。已完成回答下面点小喇叭可朗读，再点可停止；也可以打开 DeepSeek 回复后自动朗读。每次生成语音都会把回答文字发送给 OpenAI 并计入 API 用量，语音为 AI 生成，可能与文字略有不同。"),
+             Item(name: "切换系统指令", how: "点输入框左下角「+」，再点「指令 · 当前名称」，选择自己保存的另一份指令。下一次发送或重新生成起生效，历史消息不改写；每个聊天各自保存选择时的副本，其他聊天不受影响。"),
+             Item(name: "保留旧答案", how: "普通聊天重新生成，或修改问题后重新发送，会保留旧版本。右上角菜单 → 旧答案，可预览并切回之前的整条对话路径，再接着聊。切版本不调用模型；侧栏仍合并显示为一个对话，删除整条对话会连同其版本一起删除。"),
+             Item(name: "新建对话", how: "对话页右上角的笔形按钮，或侧栏底部「新建会话」。新对话会落在上次选的项目里。"),
+@@ -34,7 +34,7 @@
+             Item(name: "选择部分文字", how: "长按回答 → 选择文字，在弹出页里自由选择并复制。"),
+             Item(name: "日常对话的心声", how: "长按一条已完成的回答 → 他在想什么。按当前对话人设和语气，单独生成一段第一人称心声补写，可停止或重写，结果保存在这条回答下。它是根据对话生成的演绎，与思考过程分开，不会发回聊天；额外生成计入所用服务的用量。"),
+             Item(name: "思考过程", how: "回答上方的思考行，点开看完整时间线，可切换原文、中文、双语。"),
+-            Item(name: "猜你想说", how: "回答完后，输入框里会以灰字显示一条猜你想说的回复：直接点发送就按原样发出；点一下灰字放进输入框，改完再发；输入框上方点「换一条」看其他几条。开始打字后灰字消失。在设置「回复建议」里开关；瑞士风格仍在回答下方列出。"),
++            Item(name: "猜你想说", how: "回答完后，输入框里会以灰字显示一条猜你想说的回复：直接点发送就按原样发出；点一下灰字放进输入框，改完再发；输入框上方点「换一条」看其他几条。开始打字后灰字消失。在设置 →「聊天与指令」→ 回复建议里开关；瑞士风格仍在回答下方列出。"),
+             Item(name: "排版", how: "回答里的列表、标题、引用、分隔线和表格会自动排好；表格太宽时可以左右滑动。"),
+             Item(name: "重点", how: "回答里的重点只把字稍微加粗，不再画荧光笔。瑞士风格的重点是蓝色。"),
+             Item(name: "搜索本对话", how: "对话标题旁的菜单 → 搜索本对话，按关键词查找当前对话里的消息。结果显示说话人、时间和摘要，点一下回到对应消息，较早的消息也可定位。"),
+@@ -59,8 +59,8 @@
+         Section(title: "工具", items: [
+             Item(name: "工具是什么", how: "让模型自己决定去查云盘或代码仓库。只在项目「⋯」里打开了对应开关的 DeepSeek 项目里生效，其他对话（包括角色扮演）请求里不带任何工具。"),
+             Item(name: "联网工具", how: "在项目里打开「联网工具」后，模型自己判断要不要搜索、搜什么，可以连续搜几次，也能直接读取你发的链接。搜到的来源显示在回答下方。适合论文、查资料类项目；角色扮演项目不要打开。"),
+-            Item(name: "谷歌云盘", how: "先在设置「谷歌云盘」里用 Google 登录，再在项目里打开「谷歌云盘工具」。可以搜索、列出、读取谷歌文档、表格、幻灯片和文本文件，也能新建、改写文本文件、建文件夹、改名移动、移到回收站。PDF 和图片暂不能读。测试状态的登录约 7 天要重新登录一次。"),
+-            Item(name: "GitHub", how: "在设置「GitHub」里粘贴细粒度令牌（Contents、Pull requests 读写，Actions 只读），再在项目里打开「GitHub 工具」。可以看代码、搜索、在 sermo/ 开头的分支上提交、开 PR、看 GitHub Actions 的编译结果和报错；不会碰默认分支，合并由你在 GitHub 上决定。"),
++            Item(name: "谷歌云盘", how: "先在设置 →「授权与连接」→ 谷歌云盘里用 Google 登录，再在项目里打开「谷歌云盘工具」。可以搜索、列出、读取谷歌文档、表格、幻灯片和文本文件，也能新建、改写文本文件、建文件夹、改名移动、移到回收站。PDF 和图片暂不能读。测试状态的登录约 7 天要重新登录一次。"),
++            Item(name: "GitHub", how: "在设置 →「授权与连接」→ GitHub 里粘贴细粒度令牌（Contents、Pull requests 读写，Actions 只读），再在项目里打开「GitHub 工具」。可以看代码、搜索、在 sermo/ 开头的分支上提交、开 PR、看 GitHub Actions 的编译结果和报错；不会碰默认分支，合并由你在 GitHub 上决定。"),
+             Item(name: "写入前确认", how: "任何新建、修改、移动、移到回收站、提交、开 PR 都会先弹出确认页，写清要做什么；点「允许」才执行，关掉就算拒绝。没有永久删除。"),
+             Item(name: "工具记录", how: "每次调用工具，回答上方会留一行记录：做了什么、成功或失败、是否被你拒绝。登录过期时这里会出现登录按钮。"),
+         ]),
+@@ -70,18 +70,18 @@
+         ]),
+         Section(title: "设置", items: [
+             Item(name: "高峰时段", how: "DeepSeek 北京时间工作日 9–12 点、14–18 点是高峰价，其余时间和周末减半。每条回答和猜你回复的价格后面会标（高峰）或（空闲）。侧栏余额下方、输入框模型菜单顶部和书页里都会写现在是哪个时段、到几点结束。"),
+-            Item(name: "用量日历", how: "设置最上方按天显示token和估算花费；打开明细可选本月、近30天或全部，查看逐日token、请求次数和估算费用，并导出CSV。未归类token可能包含搜索、旧记录或订阅请求，不能直接当成某一种服务；估算不代替服务商账单。"),
++            Item(name: "用量日历", how: "设置 →「用量与备份」最上方按天显示token和估算花费；打开明细可选本月、近30天或全部，查看逐日token、请求次数和估算费用，并导出CSV。未归类token可能包含搜索、旧记录或订阅请求，不能直接当成某一种服务；估算不代替服务商账单。"),
+             Item(name: "查找功能", how: "设置 → 功能一览，输入功能名、入口或说明中的关键词，本地搜索全部功能；普通聊天、项目、工具和设置排在前面。也可以在侧栏打开「Sermo说明书」项目用聊天提问。"),
+-            Item(name: "安装版本", how: "设置底部显示实际安装的版本号和build，可复制版本信息，反馈问题时一起附上。"),
++            Item(name: "安装版本", how: "设置 →「关于 Sermo」显示实际安装的版本号和build，可复制版本信息，反馈问题时一起附上。"),
+             Item(name: "DeepSeek Key", how: "「连接 DeepSeek」里粘贴 API Key，可测试连接和查看余额；点右上角保存后才写入钥匙串。"),
+             Item(name: "ChatGPT 订阅", how: "用 ChatGPT 账号登录，用套餐额度回答，不按次扣钱；在项目的「服务」里选它。"),
+             Item(name: "回答方式", how: "默认模型、深度思考、思考程度、每次输出上限、携带的历史消息条数。"),
+-            Item(name: "系统指令库", how: "设置 → 系统指令库，可自己命名、新建、编辑和删除多份指令，也可把原默认指令另存为一份；每份最多2万字，最多100份，不会自动加入学习模板。修改库内指令后，需要在相应聊天里重新选择才能使用新版。指令库随聊天备份保存和合并导入。"),
++            Item(name: "系统指令库", how: "设置 →「聊天与指令」→ 系统指令库，可自己命名、新建、编辑和删除多份指令，也可把原默认指令另存为一份；每份最多2万字，最多100份，不会自动加入学习模板。修改库内指令后，需要在相应聊天里重新选择才能使用新版。指令库随聊天备份保存和合并导入。"),
+             Item(name: "全局默认与项目", how: "原系统提示词作为全局默认保留。未选择自定义指令时，普通聊天用全局默认，项目聊天跟随项目；选择自定义指令会替代该聊天的说话规则，项目资料与记忆仍保留。书架故事和本书讨论使用专门指令，不参与这个切换。"),
+-            Item(name: "界面风格", how: "「阅读与外观 → 界面风格」可选纸笺、瑞士和夜江，切换立刻生效。纸笺是暖纸色、重点加粗与液态玻璃按钮；你的消息在右侧气泡里；「白天与夜晚」可选跟随系统、始终浅色或始终深色（夜江始终深色）；瑞士是灰白底、黑体与蓝色强调；夜江是深色江水、月白文字和月光色强调，带月相与书脊样式。三套主题共用聊天搜索、收藏、项目资料和阅读功能。"),
+-            Item(name: "阅读与外观", how: "界面风格、侧栏触感、字体（内置宋体、系统字体、导入自己的字体；瑞士风格固定用黑体）、AI 回答气泡、正文字号。"),
+-            Item(name: "导入字体", how: "「阅读与外观 → 字体」选「自定义字体」，在文件里勾选 .ttf 或 .otf 后点「打开」，可分别导入常规和粗体。「系统字体」是 iPhone 自带的苹方配 SF。全局生效，可随时恢复默认。字体不进备份。"),
+-            Item(name: "备份", how: "「记录与备份」可手动导出、导入；自动备份不用设置，每天第一次打开时存进「文件 → 我的 iPhone → Sermo → 自动备份」，保留最近 7 份；还可另选一个文件夹（勾选后点「打开」）额外存一份。备份不含 API Key、登录凭证和字体。"),
++            Item(name: "界面风格", how: "「设置 → 个性化 → 界面风格」可选纸笺、瑞士和夜江，切换立刻生效。纸笺是暖纸色、重点加粗与液态玻璃按钮；你的消息在右侧气泡里；「白天与夜晚」可选跟随系统、始终浅色或始终深色（夜江始终深色）；瑞士是灰白底、黑体与蓝色强调；夜江是深色江水、月白文字和月光色强调，带月相与书脊样式。三套主题共用聊天搜索、收藏、项目资料和阅读功能。"),
++            Item(name: "个性化", how: "「设置 → 个性化」一页管所有外观：界面风格与白天夜晚、字体与字号、正文稍粗、行距、正文颜色、强调色、背景、你的气泡颜色、左右留白、AI 回答气泡、触感反馈。最上面的预览卡片会实时变化；最下面可一键恢复默认。颜色只用于纸笺风格。"),
++            Item(name: "导入字体", how: "「设置 → 个性化 → 字体」选「自定义字体」，在文件里勾选 .ttf 或 .otf 后点「打开」，可分别导入常规和粗体。「系统字体」是 iPhone 自带的苹方配 SF。全局生效，可随时恢复默认。字体不进备份。"),
++            Item(name: "备份", how: "设置 →「用量与备份」可手动导出、导入；自动备份不用设置，每天第一次打开时存进「文件 → 我的 iPhone → Sermo → 自动备份」，保留最近 7 份；还可另选一个文件夹（勾选后点「打开」）额外存一份。备份不含 API Key、登录凭证和字体。"),
+         ]),
+         Section(title: "本地小说阅读器 · 1.14", items: [
+             Item(name: "全屏阅读", how: "书架点书先进入详情，点阅读原文才进入全屏小说阅读器。轻点中间呼出菜单，阅读和全文搜索完全在本地完成。"),
+diff -ruN pa/QingJian/DeepSeekPocket/Views/AppTheme.swift pb/QingJian/DeepSeekPocket/Views/AppTheme.swift
+--- a/QingJian/DeepSeekPocket/Views/AppTheme.swift	2026-11-08 21:39:41.858516494 +0800
++++ b/QingJian/DeepSeekPocket/Views/AppTheme.swift	2026-11-08 21:39:41.868004206 +0800
+@@ -32,12 +32,12 @@
+     }
+     static var paper: Color {
+         if night { return fixed(0x051117) }
+-        return swiss ? Color.adaptive(light: 0xF2F2EF, dark: 0x111214) : Color.adaptive(light: 0xFAF9F5, dark: 0x171716)
++        return swiss ? Color.adaptive(light: 0xF2F2EF, dark: 0x111214) : Personal.paper
+     }
+     static var sheet: Color {
+         if night { return fixed(0x071419) }
+         // One step from the page in the same hue: the sidebar had read as a separate, yellow sheet.
+-        return swiss ? Color.adaptive(light: 0xE7E7E3, dark: 0x0A0A0B) : Color.adaptive(light: 0xF3F2EE, dark: 0x111110)
++        return swiss ? Color.adaptive(light: 0xE7E7E3, dark: 0x0A0A0B) : Personal.sheet
+     }
+     static var raised: Color {
+         if night { return fixed(0x0F1D24) }
+@@ -45,7 +45,7 @@
+     }
+     static var ink: Color {
+         if night { return fixed(0xDBEBEF) }
+-        return swiss ? Color.adaptive(light: 0x111111, dark: 0xEDEDE9) : Color.adaptive(light: 0x2A2926, dark: 0xE8E6DF)
++        return swiss ? Color.adaptive(light: 0x111111, dark: 0xEDEDE9) : Personal.ink
+     }
+     static var ink2: Color {
+         if night { return fixed(0xB4C3C9) }
+@@ -62,7 +62,7 @@
+     }
+     static var seal: Color {
+         if night { return fixed(0xECD59F) }
+-        return swiss ? Color.adaptive(light: 0x2B3DE0, dark: 0x6B79FF) : Color.adaptive(light: 0xC96442, dark: 0xD97757)
++        return swiss ? Color.adaptive(light: 0x2B3DE0, dark: 0x6B79FF) : Personal.accent
+     }
+     static var onSeal: Color { night ? fixed(0x051117) : Color.adaptive(light: 0xFFFFFF, dark: 0xFFFFFF) }
+     // Highlighter stroke behind emphasised words (纸笺); a pale blue wash for the
+@@ -251,13 +251,15 @@
+     var adjustment: Double = 0
+     var heavy = false
+     func body(content: Content) -> some View {
+-        content.font(font)
++        // 「正文稍粗」 for a named font: the nearest heavier face of its family.
++        content.font(font).fontWeight(!heavy && Personal.mediumBody && !FontLibrary.usesSystemFace ? .medium : nil)
+     }
+     private var font: Font {
+         let points = size + adjustment
+         _ = (choice, revision)
+         if FontLibrary.usesSystemFace {
+-            return .system(size: TypeScale.scaled(points, .body), weight: heavy ? .semibold : .regular)
++            return .system(size: TypeScale.scaled(points, .body),
++                           weight: heavy ? .semibold : (Personal.mediumBody ? .medium : .regular))
+         }
+         if heavy {
+             return TypeScale.hasHeavy ? .custom(TypeScale.heavyName, size: points, relativeTo: .body)
+@@ -388,3 +390,108 @@
+         .accessibilityHidden(true)
+     }
+ }
++
++/// 个性化: the few things you can tune yourself, each changing the look as a set so it
++/// cannot drift out of tune. They apply to the 纸笺 look; 瑞士 and 夜江 keep their own.
++/// A value is a preset name, or "#RRGGBB" for a colour picked by hand (used in light
++/// mode; dark mode keeps a matching default so text stays readable).
++enum Personal {
++    static let textKey = "sermo.personal.text"
++    static let accentKey = "sermo.personal.accent"
++    static let paperKey = "sermo.personal.paper"
++    static let bubbleKey = "sermo.personal.bubble"
++    static let spacingKey = "sermo.personal.spacing"
++    static let marginKey = "sermo.personal.margin"
++    static let mediumKey = "sermo.personal.medium"
++    static let allKeys = [textKey, accentKey, paperKey, bubbleKey, spacingKey, marginKey, mediumKey]
++
++    struct Preset: Identifiable { let id: String; let title: String; let light: UInt32; let dark: UInt32 }
++    static let textPresets = [
++        Preset(id: "black", title: "近黑", light: 0x1A1918, dark: 0xEEECE6),
++        Preset(id: "warm", title: "暖深灰", light: 0x2A2926, dark: 0xE8E6DF),
++        Preset(id: "brown", title: "深棕", light: 0x3A2A21, dark: 0xE8D9CB),
++    ]
++    static let accentPresets = [
++        Preset(id: "clay", title: "陶土", light: 0xC96442, dark: 0xD97757),
++        Preset(id: "indigo", title: "靛蓝", light: 0x3F5BA9, dark: 0x8EA6E6),
++        Preset(id: "green", title: "墨绿", light: 0x2F6E57, dark: 0x7CC2A6),
++        Preset(id: "plum", title: "梅紫", light: 0x7A4A8C, dark: 0xC3A2D6),
++        Preset(id: "graphite", title: "石墨", light: 0x3A3936, dark: 0xD8D6CF),
++    ]
++    static let paperPresets = [
++        Preset(id: "ivory", title: "米白", light: 0xFAF9F5, dark: 0x171716),
++        Preset(id: "white", title: "纯白", light: 0xFFFFFF, dark: 0x0C0C0C),
++        Preset(id: "grey", title: "浅灰", light: 0xF3F3F1, dark: 0x1C1C1E),
++    ]
++    private static let sheetFor: [String: (UInt32, UInt32)] = [
++        "ivory": (0xF3F2EE, 0x111110), "white": (0xF4F4F4, 0x050505), "grey": (0xEAEAE7, 0x141416),
++    ]
++
++    private static func stored(_ key: String) -> String {
++        _ = StyleAppearance.shared.revision
++        return UserDefaults.standard.string(forKey: key) ?? ""
++    }
++    static func value(_ key: String) -> String { stored(key) }
++    @MainActor static func set(_ value: String, for key: String) {
++        UserDefaults.standard.set(value, forKey: key)
++        StyleAppearance.shared.bump()
++        InkAppearance.apply()
++    }
++    @MainActor static func resetAll() {
++        for key in allKeys { UserDefaults.standard.removeObject(forKey: key) }
++        StyleAppearance.shared.bump()
++        InkAppearance.apply()
++    }
++    static func hex(_ value: String) -> UInt32? {
++        guard value.hasPrefix("#"), value.count == 7 else { return nil }
++        return UInt32(value.dropFirst(), radix: 16)
++    }
++    private static func pick(_ key: String, _ presets: [Preset], fallback: String, darkForCustom: UInt32) -> Color {
++        let raw = stored(key)
++        if let custom = hex(raw) { return Color.adaptive(light: custom, dark: darkForCustom) }
++        let preset = presets.first { $0.id == raw } ?? presets.first { $0.id == fallback }!
++        return Color.adaptive(light: preset.light, dark: preset.dark)
++    }
++
++    // Near-black by default: 1.28's softer grey made strokes read thinner than the Claude app.
++    static var ink: Color { pick(textKey, textPresets, fallback: "black", darkForCustom: 0xEEECE6) }
++    static var accent: Color { pick(accentKey, accentPresets, fallback: "clay", darkForCustom: 0xD97757) }
++    static var paper: Color { pick(paperKey, paperPresets, fallback: "ivory", darkForCustom: 0x171716) }
++    static var sheet: Color {
++        let raw = stored(paperKey)
++        let pair = sheetFor[raw] ?? sheetFor["ivory"]!
++        return Color.adaptive(light: pair.0, dark: pair.1)
++    }
++    /// Your message bubble: soft grey, a wash of the accent, or a picked colour.
++    static var bubble: Color {
++        let raw = stored(bubbleKey)
++        if InterfaceStyle.isSwiss || InterfaceStyle.isNight { return Ink.raised }
++        if raw == "accent" { return accent.opacity(0.14) }
++        if let custom = hex(raw) { return Color.adaptive(light: custom, dark: 0x292927) }
++        return Ink.raised
++    }
++    @MainActor static func setMediumBody(_ on: Bool) {
++        UserDefaults.standard.set(on, forKey: mediumKey)
++        StyleAppearance.shared.bump()
++    }
++    static var mediumBody: Bool { _ = StyleAppearance.shared.revision; return UserDefaults.standard.bool(forKey: mediumKey) }
++    /// Line spacing inside a paragraph and the gap between paragraphs.
++    static var lineSpacing: CGFloat {
++        switch stored(spacingKey) { case "compact": return 5; case "loose": return 11; default: return 8 }
++    }
++    static var paragraphGap: CGFloat {
++        switch stored(spacingKey) { case "compact": return 16; case "loose": return 28; default: return 22 }
++    }
++    /// Left and right margin of the chat text.
++    static var margin: CGFloat {
++        switch stored(marginKey) { case "narrow": return 12; case "wide": return 26; default: return 18 }
++    }
++    /// "#RRGGBB" for a colour, read in light mode.
++    static func hexString(_ color: Color) -> String {
++        let resolved = UIColor(color).resolvedColor(with: UITraitCollection(userInterfaceStyle: .light))
++        var r: CGFloat = 0, g: CGFloat = 0, b: CGFloat = 0, a: CGFloat = 0
++        resolved.getRed(&r, green: &g, blue: &b, alpha: &a)
++        func byte(_ v: CGFloat) -> Int { Int((min(max(v, 0), 1) * 255).rounded()) }
++        return String(format: "#%02X%02X%02X", byte(r), byte(g), byte(b))
++    }
++}
+diff -ruN pa/QingJian/DeepSeekPocket/Views/ContentView.swift pb/QingJian/DeepSeekPocket/Views/ContentView.swift
+--- a/QingJian/DeepSeekPocket/Views/ContentView.swift	2026-11-08 21:39:41.858582142 +0800
++++ b/QingJian/DeepSeekPocket/Views/ContentView.swift	2026-11-08 21:39:41.868061599 +0800
+@@ -429,7 +429,7 @@
+                 }
+                 .scrollTargetLayout()
+                 .animation(reduceMotion ? nil : .easeOut(duration: 0.28), value: store.activeThread?.messages.count)
+-                .padding(.horizontal, swiss ? 20 : 18).padding(.top, 10).padding(.bottom, 22)
++                .padding(.horizontal, swiss ? 20 : Personal.margin).padding(.top, 10).padding(.bottom, 22)
+             }
+             .accessibilityIdentifier("chat-scroll")
+             // The system's top edge effect drew a solid paper band behind the buttons, so
+@@ -1638,10 +1638,10 @@
+                     VStack(alignment: .trailing, spacing: 6) {
+                         discussionVoiceLabel
+                         if let names = message.images, !names.isEmpty { AttachmentRow(names: names) }
+-                        Text(message.content).readingStyle().lineSpacing(6).chineseReading()
++                        Text(message.content).readingStyle().lineSpacing(max(Personal.lineSpacing - 2, 3)).chineseReading()
+                             .foregroundStyle(Ink.ink).textSelection(.enabled)
+                             .padding(.horizontal, 16).padding(.vertical, 11)
+-                            .background(Ink.raised, in: RoundedRectangle(cornerRadius: 20, style: .continuous))
++                            .background(Personal.bubble, in: RoundedRectangle(cornerRadius: 20, style: .continuous))
+                     }
+                 }
+                 .frame(maxWidth: .infinity, alignment: .trailing)
+@@ -1987,7 +1987,7 @@
+     private var blocks: [MarkdownBlock] { MarkdownBlock.parse(content) }
+     var body: some View {
+         // Paragraphs a clear step apart (about one line), so each reads as its own block.
+-        VStack(alignment: .leading, spacing: style == .swiss ? 16 : 22) {
++        VStack(alignment: .leading, spacing: style == .swiss ? 16 : Personal.paragraphGap) {
+             ForEach(Array(blocks.enumerated()), id: \.offset) { _, block in
+                 switch block {
+                 case .paragraph(let text, let marks):
+@@ -2117,9 +2117,9 @@
+                 .foregroundStyle(Ink.ink)
+         } else {
+             // Emphasis is a touch heavier text now, no highlighter stroke behind it.
+-            // About 1.6× line height, a little letter spacing and Chinese punctuation:
+-            // the page had read as one dense block next to the Claude app.
+-            Text(markdown: parsed, emphasisWeight: .semibold).readingStyle().lineSpacing(8).chineseReading()
++            // Line height and paragraph gap from 个性化 (about 1.6× by default) and
++            // Chinese punctuation; no extra letter spacing.
++            Text(markdown: parsed, emphasisWeight: .semibold).readingStyle().lineSpacing(Personal.lineSpacing).chineseReading()
+                 .foregroundStyle(Ink.ink)
+         }
+     }
+diff -ruN pa/QingJian/DeepSeekPocket/Views/InterfaceStyle.swift pb/QingJian/DeepSeekPocket/Views/InterfaceStyle.swift
+--- a/QingJian/DeepSeekPocket/Views/InterfaceStyle.swift	2026-11-08 21:39:41.858669276 +0800
++++ b/QingJian/DeepSeekPocket/Views/InterfaceStyle.swift	2026-11-08 21:39:41.868144745 +0800
+@@ -1,7 +1,7 @@
+ import SwiftUI
+ import Observation
+ 
+-/// The whole look of the app, chosen in Settings → 阅读与外观 → 界面风格.
++/// The whole look of the app, chosen in Settings → 个性化 → 界面风格.
+ /// 纸笺: warm paper, Songti, highlighter strokes, liquid glass.
+ /// 瑞士: grey-white sheet, black sans, blue bold emphasis, ruled grid, square edges.
+ /// 夜江 (千江有水千江月): night river, moonlight the only colour, Songti, liquid glass.
+@@ -61,6 +61,10 @@
+         let value = InterfaceStyle.stored
+         if value != style { style = value }
+     }
++    /// Bumped whenever a 个性化 setting changes; colours and spacing read it, so every
++    /// screen redraws at once.
++    private(set) var revision = 0
++    func bump() { revision += 1 }
+ }
+ 
+ /// Light or dark for 纸笺 and 瑞士: with the system by default, or held on one side.
+@@ -301,3 +305,192 @@
+         }
+     }
+ }
++
++// MARK: 个性化
++
++/// Everything about how Sermo looks, in one page, with a live sample on top.
++@MainActor
++struct PersonalizationView: View {
++    @AppStorage("qingjian.reading.size") private var readingSize = 17.0
++    @AppStorage("qingjian.reading.aiBubble") private var aiBubble = false
++    @AppStorage("qingjian.haptics") private var hapticsEnabled = true
++    @State private var confirmReset = false
++    private var appliesHere: Bool { !InterfaceStyle.isSwiss && !InterfaceStyle.isNight }
++
++    var body: some View {
++        Form {
++            Section { PersonalPreview() }
++                .listRowBackground(Color.clear).listRowInsets(EdgeInsets())
++            Section {
++                InterfaceStylePicker()
++            } header: { Text("界面") }
++            Section {
++                FontSettingsRows()
++                VStack(alignment: .leading, spacing: 8) {
++                    HStack { Text("正文字号"); Spacer(); Text("\(Int(readingSize))").foregroundStyle(Ink.ink3).monospacedDigit() }
++                    Slider(value: $readingSize, in: 15...23, step: 1)
++                }
++                Toggle("正文稍粗", isOn: Binding(get: { Personal.mediumBody }, set: { Personal.setMediumBody($0) }))
++                choice("行距", key: Personal.spacingKey, fallback: "standard",
++                       options: [("compact", "紧凑"), ("standard", "标准"), ("loose", "宽松")])
++            } header: { Text("文字") } footer: {
++                Text("「正文稍粗」把回答和你的消息从常规换成中等字重。行距会连同段距一起变。")
++            }
++            Section {
++                SwatchRow(title: "正文颜色", key: Personal.textKey, presets: Personal.textPresets, fallback: "black")
++                SwatchRow(title: "强调色", key: Personal.accentKey, presets: Personal.accentPresets, fallback: "clay")
++                SwatchRow(title: "背景", key: Personal.paperKey, presets: Personal.paperPresets, fallback: "ivory", allowsCustom: false)
++                BubbleSwatchRow()
++            } header: { Text("颜色") } footer: {
++                Text(appliesHere
++                     ? "强调色用在发送键、思考小花、「换一条」和链接上。自选的颜色用于浅色模式，深色模式自动换成相配的深色。"
++                     : "颜色只用于「纸笺」风格；瑞士和夜江保持自己的配色。")
++            }
++            Section {
++                choice("左右留白", key: Personal.marginKey, fallback: "standard",
++                       options: [("narrow", "窄"), ("standard", "标准"), ("wide", "宽")])
++                Toggle("AI 回答使用气泡", isOn: $aiBubble)
++                Toggle("触感反馈", isOn: $hapticsEnabled)
++            } header: { Text("布局与手感") }
++            Section {
++                Button("恢复默认", role: .destructive) { confirmReset = true }
++            } footer: {
++                Text("恢复本页的颜色、字重、行距和留白，字号回到 17；字体、界面风格和白天夜晚设置不变。")
++            }
++        }
++        .font(TypeScale.body)
++        .scrollContentBackground(.hidden)
++        .background(AppBackground())
++        .foregroundStyle(Ink.ink)
++        .tint(Ink.seal)
++        .navigationTitle("个性化")
++        .navigationBarTitleDisplayMode(.inline)
++        .confirmationDialog("恢复个性化默认设置？", isPresented: $confirmReset, titleVisibility: .visible) {
++            Button("恢复默认", role: .destructive) { Personal.resetAll(); readingSize = 17 }
++        }
++    }
++
++    private func choice(_ title: String, key: String, fallback: String, options: [(String, String)]) -> some View {
++        Picker(title, selection: Binding(get: {
++            let raw = Personal.value(key)
++            return options.contains { $0.0 == raw } ? raw : fallback
++        }, set: { Personal.set($0, for: key) })) {
++            ForEach(options, id: \.0) { option in Text(option.1).tag(option.0) }
++        }
++    }
++}
++
++/// A row of colour dots plus, where allowed, the system colour picker for any colour.
++@MainActor
++struct SwatchRow: View {
++    let title: String
++    let key: String
++    let presets: [Personal.Preset]
++    let fallback: String
++    var allowsCustom = true
++
++    private var raw: String { Personal.value(key) }
++    private var selectedID: String { Personal.hex(raw) != nil ? "custom" : (presets.contains { $0.id == raw } ? raw : fallback) }
++    private var currentTitle: String {
++        selectedID == "custom" ? "自选" : (presets.first { $0.id == selectedID }?.title ?? "")
++    }
++    var body: some View {
++        VStack(alignment: .leading, spacing: 10) {
++            HStack { Text(title); Spacer(); Text(currentTitle).foregroundStyle(Ink.ink3) }
++            HStack(spacing: 12) {
++                ForEach(presets) { preset in
++                    Button { Personal.set(preset.id, for: key) } label: {
++                        Swatch(color: Color.adaptive(light: preset.light, dark: preset.dark), selected: selectedID == preset.id)
++                    }
++                    .buttonStyle(.pressFeedback)
++                    .accessibilityLabel("\(title)：\(preset.title)")
++                    .accessibilityAddTraits(selectedID == preset.id ? .isSelected : [])
++                }
++                if allowsCustom {
++                    ColorPicker("", selection: Binding(get: {
++                        Personal.hex(raw).map { Color.adaptive(light: $0, dark: $0) }
++                            ?? Color.adaptive(light: presets.first { $0.id == selectedID }?.light ?? 0, dark: 0)
++                    }, set: { Personal.set(Personal.hexString($0), for: key) }), supportsOpacity: false)
++                    .labelsHidden()
++                    .accessibilityLabel("自选\(title)")
++                }
++            }
++        }
++        .padding(.vertical, 4)
++    }
++}
++
++/// Your bubble: soft grey, a wash of the accent, or any colour.
++@MainActor
++struct BubbleSwatchRow: View {
++    private var raw: String { Personal.value(Personal.bubbleKey) }
++    private var selected: String { Personal.hex(raw) != nil ? "custom" : (raw == "accent" ? "accent" : "grey") }
++    var body: some View {
++        VStack(alignment: .leading, spacing: 10) {
++            HStack {
++                Text("你的气泡"); Spacer()
++                Text(selected == "custom" ? "自选" : (selected == "accent" ? "强调色淡底" : "浅灰")).foregroundStyle(Ink.ink3)
++            }
++            HStack(spacing: 12) {
++                Button { Personal.set("grey", for: Personal.bubbleKey) } label: {
++                    Swatch(color: Ink.raised, selected: selected == "grey")
++                }.buttonStyle(.pressFeedback).accessibilityLabel("你的气泡：浅灰")
++                Button { Personal.set("accent", for: Personal.bubbleKey) } label: {
++                    Swatch(color: Ink.seal.opacity(0.14), selected: selected == "accent")
++                }.buttonStyle(.pressFeedback).accessibilityLabel("你的气泡：强调色淡底")
++                ColorPicker("", selection: Binding(get: {
++                    Personal.hex(raw).map { Color.adaptive(light: $0, dark: $0) } ?? Color.adaptive(light: 0xEFEDE5, dark: 0x292927)
++                }, set: { Personal.set(Personal.hexString($0), for: Personal.bubbleKey) }), supportsOpacity: false)
++                .labelsHidden().accessibilityLabel("自选气泡颜色")
++            }
++        }
++        .padding(.vertical, 4)
++    }
++}
++
++private struct Swatch: View {
++    let color: Color
++    let selected: Bool
++    var body: some View {
++        Circle().fill(color).frame(width: 30, height: 30)
++            .overlay(Circle().stroke(Ink.line, lineWidth: 1))
++            .padding(3)
++            .overlay(Circle().stroke(selected ? Ink.ink : Color.clear, lineWidth: 2))
++            .frame(width: 44, height: 44)
++            .contentShape(Circle())
++    }
++}
++
++/// The sample at the top of 个性化: your bubble, a short answer with a bold phrase, the
++/// thinking mark and a send key, so every change shows at once.
++@MainActor
++private struct PersonalPreview: View {
++    @AppStorage("qingjian.reading.size") private var readingSize = 17.0
++    var body: some View {
++        VStack(alignment: .leading, spacing: Personal.paragraphGap * 0.6) {
++            HStack {
++                Spacer(minLength: 40)
++                Text("帮我想想周末去哪儿玩？").readingStyle().foregroundStyle(Ink.ink)
++                    .padding(.horizontal, 16).padding(.vertical, 11)
++                    .background(Personal.bubble, in: RoundedRectangle(cornerRadius: 20, style: .continuous))
++            }
++            HStack(spacing: 8) {
++                ThinkingMark(live: false, size: 16)
++                Text("已思考 2 秒").font(TypeScale.caption).foregroundStyle(Ink.ink2)
++            }
++            MarkdownParagraph(text: "天气好的话，可以去**城郊的湖边**走走，带上相机和一点吃的，慢慢逛一下午。")
++            HStack {
++                Spacer()
++                Image(systemName: "arrow.up").font(.system(size: 15, weight: .semibold)).foregroundStyle(.white)
++                    .frame(width: 34, height: 34).background(Ink.seal, in: Circle())
++                    .accessibilityHidden(true)
++            }
++        }
++        .padding(.horizontal, Personal.margin).padding(.vertical, 18)
++        .background(Ink.paper, in: RoundedRectangle(cornerRadius: 22, style: .continuous))
++        .overlay(RoundedRectangle(cornerRadius: 22, style: .continuous).stroke(Ink.line, lineWidth: 1))
++        .padding(.vertical, 6)
++        .accessibilityElement(children: .combine)
++        .accessibilityLabel("个性化预览")
++    }
++}
+diff -ruN pa/QingJian/DeepSeekPocket/Views/SettingsView.swift pb/QingJian/DeepSeekPocket/Views/SettingsView.swift
+--- a/QingJian/DeepSeekPocket/Views/SettingsView.swift	2026-11-08 21:39:41.858790088 +0800
++++ b/QingJian/DeepSeekPocket/Views/SettingsView.swift	2026-11-08 21:39:41.868263808 +0800
+@@ -23,10 +23,6 @@
+     @State private var saved = false
+     @State private var loadedSettings = false
+     @State private var showProfile = ProcessInfo.processInfo.arguments.contains("--preview-profile")
+-    @AppStorage("qingjian.reading.serif") private var serif = true
+-    @AppStorage("qingjian.reading.size") private var readingSize = 17.0
+-    @AppStorage("qingjian.reading.aiBubble") private var aiBubble = false
+-    @AppStorage("qingjian.haptics") private var hapticsEnabled = true
+     var body: some View {
+         NavigationStack {
+             Form {
+@@ -44,173 +40,36 @@
+                     }.buttonStyle(.plain)
+                 }.listRowBackground(Color.clear)
+                 Section {
+-                    NavigationLink { FeatureOverviewView() } label: { Label("功能一览", systemImage: "list.bullet.rectangle") }
+-                        .accessibilityIdentifier("feature-overview")
+-                }
+-                Section {
+-                    UsageCalendarView(ledger: store.usage)
+-                } header: { Text("用量") } footer: {
+-                    Text("按天记录所有请求：回答、猜你回复、思考翻译和项目记忆。删除对话不会改变这里的记录。花费是按 DeepSeek 官方价目的估算，实际扣费以开放平台为准；ChatGPT 订阅只计 token，不算花费。")
++                    NavigationLink { PersonalizationView() } label: { Label("个性化", systemImage: "paintpalette") }
++                        .accessibilityIdentifier("settings-personalization")
++                    NavigationLink { chatPage } label: { Label("聊天与指令", systemImage: "text.bubble") }
+                 }
+                 Section {
+-                    VStack(alignment: .leading, spacing: 8) {
+-                        Text("API Key").font(TypeScale.caption).foregroundStyle(Ink.ink3)
+-                        HStack {
+-                            Group {
+-                                if showKey { TextField("粘贴 DeepSeek API Key", text: $draftKey) }
+-                                else { SecureField("粘贴 DeepSeek API Key", text: $draftKey) }
+-                            }.textInputAutocapitalization(.never).autocorrectionDisabled()
+-                            Button { showKey.toggle() } label: { Image(systemName: showKey ? "eye.slash" : "eye") }
+-                                .buttonStyle(.borderless).accessibilityLabel(showKey ? "隐藏密钥" : "显示密钥")
+-                        }
+-                    }
+-                    Button(action: testConnection) {
++                    NavigationLink { deepSeekPage } label: {
+                         HStack {
+-                            Label(checkingConnection ? "正在验证…" : "检查密钥与余额", systemImage: "network")
++                            Label("DeepSeek", systemImage: "key")
+                             Spacer()
+-                            if checkingConnection { ProgressView() }
+-                        }
+-                    }
+-                    .disabled(checkingConnection || draftKey.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+-                    if let balance = checkedBalance {
+-                        VStack(alignment: .leading, spacing: 6) {
+-                            Label(balance.isAvailable ? "密钥有效，账户余额可用" : "密钥有效，账户暂无可用余额",
+-                                  systemImage: balance.isAvailable ? "checkmark.circle.fill" : "exclamationmark.triangle.fill")
+-                                .foregroundStyle(Ink.ink2)
+-                            if !balance.summary.isEmpty {
+-                                Text("账户余额：\(balance.summary)").font(.caption).foregroundStyle(.secondary)
+-                            }
+-                            if !balance.isAvailable {
+-                                Text("请到 DeepSeek 开放平台查看 API 余额。")
+-                                    .font(.caption).foregroundStyle(.secondary)
+-                            }
++                            Text(draftKey.isEmpty ? "未填写" : "已填写 Key").font(TypeScale.caption).foregroundStyle(Ink.ink3)
+                         }
+                     }
+-                    if let error = connectionError {
+-                        Label(error, systemImage: "exclamationmark.circle")
+-                            .font(TypeScale.note).foregroundStyle(Ink.ink)
+-                    }
+-                    Link("打开 DeepSeek 开放平台", destination: URL(string: "https://platform.deepseek.com/")!)
+-                } header: { Text("连接 DeepSeek") } footer: {
+-                    Text("测试连接只检查密钥和账户余额，不发送聊天内容。点右上角保存后，Key 才会保存在这台手机的钥匙串里，不随聊天备份导出。聊天时，消息及选定的历史上下文会传给 DeepSeek。")
+-                }
+-                SubscriptionSettingsSection(connection: store.subscription, model: $draftSettings.subscriptionModelID,
+-                                            requestInProgress: store.isGenerating)
+-                OpenAISpeechSettings(speech: store.speech)
+-                Section {
++                    NavigationLink { chatGPTPage } label: { Label("ChatGPT 订阅与声音", systemImage: "person.crop.circle.badge.checkmark") }
+                     Picker("默认服务", selection: Binding(get: { draftSettings.selectedProvider }, set: { draftSettings.provider = $0 })) {
+                         ForEach(AIProvider.allCases) { Text($0.title).tag($0) }
+                     }
+-                } footer: {
++                } header: { Text("模型与服务") } footer: {
+                     Text("不在项目里的对话用这里选的服务。项目各用各的，在项目「⋯ → 服务」里改。")
+                 }
+-                GoogleDriveSection(drive: store.drive)
+-                GitHubSection(github: store.github)
+-                Section("回答方式") {
+-                    Picker("模型", selection: $draftSettings.model) {
+-                        ForEach(DeepSeekModel.allCases) { model in Text(model.title).tag(model) }
+-                    }
+-                    Toggle("深度思考", isOn: $draftSettings.thinkingEnabled)
+-                    if draftSettings.thinkingEnabled {
+-                        Picker("思考程度", selection: $draftSettings.effort) {
+-                            ForEach(ThinkingEffort.allCases) { effort in Text(effort.title).tag(effort) }
+-                        }
+-                    }
+-                    DisclosureGroup("高级设置") {
+-                    Picker("每次输出上限", selection: $draftSettings.maxOutputTokens) {
+-                        ForEach([4096, 8192, 16384, 32768, 65536], id: \.self) { value in Text("\(value) tokens").tag(value) }
+-                    }
+-                    Picker("携带的历史消息", selection: $draftSettings.contextMessageLimit) {
+-                        ForEach([10, 20, 40, 80, 100, 200, 400], id: \.self) { value in Text("最近 \(value) 条").tag(value) }
+-                    }
+-                    }
+-                }
+-                Section("聊天连通性") {
+-                    ChatConnectionTestView(key: draftKey)
+-                }
+                 Section {
+-                    Toggle("猜你回复", isOn: Binding(get: { draftSettings.shouldSuggestReplies },
+-                        set: { draftSettings.replySuggestionsEnabled = $0 }))
+-                } header: { Text("回复建议") } footer: {
+-                    Text("回答完成后，生成 1～3 条回复草稿。点选后可在输入框修改，再自己发送。使用 V4 Pro 关闭思考的额外短请求，已保存建议的用量计入花费；只参考当前对话。")
++                    NavigationLink { connectionsPage } label: { Label("授权与连接", systemImage: "link") }
++                    NavigationLink { dataPage } label: { Label("用量与备份", systemImage: "chart.bar") }
+                 }
+                 Section {
+-                    NavigationLink {
+-                        SystemPromptLibraryView(defaultContent: draftSettings.systemPrompt)
+-                    } label: {
+-                        Label("系统指令库 · \(store.systemPromptPresets.count)", systemImage: "text.book.closed")
+-                    }
+-                    Text("在库里保存多份指令，在聊天输入框的「+」→「指令」里选择。指令库内的修改会单独保存。")
+-                        .font(TypeScale.caption).foregroundStyle(Ink.ink3)
+-                } header: { Text("系统指令库") }
+-                Section {
+-                    Button {
+-                        withAnimation(.snappy(duration: 0.25)) { promptExpanded.toggle() }
+-                    } label: {
+-                        HStack(alignment: .top, spacing: 10) {
+-                            VStack(alignment: .leading, spacing: 4) {
+-                                if !promptExpanded {
+-                                    Text(draftSettings.systemPrompt.isEmpty ? "（空）" : draftSettings.systemPrompt)
+-                                        .font(TypeScale.serif(15)).foregroundStyle(Ink.ink2).lineLimit(2)
+-                                        .multilineTextAlignment(.leading)
+-                                }
+-                                Text(promptExpanded ? "收起" : "\(draftSettings.systemPrompt.count) 字 · 点开编辑")
+-                                    .font(TypeScale.caption).foregroundStyle(Ink.ink3)
+-                            }
+-                            Spacer(minLength: 0)
+-                            Image(systemName: "chevron.down").font(.system(size: 12, weight: .semibold))
+-                                .foregroundStyle(Ink.ink3).rotationEffect(.degrees(promptExpanded ? 180 : 0))
+-                                .padding(.top, 4)
+-                        }
+-                        .contentShape(Rectangle())
+-                    }
+-                    .buttonStyle(.plain)
+-                    .accessibilityLabel(promptExpanded ? "收起全局默认指令" : "展开全局默认指令")
+-                    if promptExpanded {
+-                        TextEditor(text: $draftSettings.systemPrompt).frame(minHeight: 150).font(TypeScale.serif(15)).scrollContentBackground(.hidden)
+-                            .accessibilityIdentifier("system-prompt-editor")
+-                    }
+-                } header: { Text("全局默认指令") } footer: {
+-                    Text("未选自定义指令、也不在项目里的聊天使用这里的内容；修改后点本页右上角保存。每个聊天可在输入框「+」→「指令」里选择自己的指令，项目默认使用项目指令。思考原文与译文不占用普通聊天上下文。")
+-                }
+-                Section("阅读与外观") {
+-                    InterfaceStylePicker()
+-                    Toggle("侧栏触感反馈", isOn: $hapticsEnabled)
+-                    FontSettingsRows()
+-                    Toggle("AI 回答使用气泡", isOn: $aiBubble)
+-                    VStack(alignment: .leading, spacing: 10) {
+-                        HStack { Text("正文字号"); Spacer(); Text("\(Int(readingSize))").foregroundStyle(.secondary) }
+-                        Slider(value: $readingSize, in: 15...23, step: 1)
+-                        Text("字体预览 Aa 123")
+-                            .readingStyle().padding(.vertical, 10)
++                    NavigationLink { FeatureOverviewView() } label: { Label("功能一览", systemImage: "list.bullet.rectangle") }
++                        .accessibilityIdentifier("feature-overview")
++                    NavigationLink { aboutPage } label: {
++                        HStack { Label("关于 Sermo", systemImage: "info.circle"); Spacer(); Text(installedVersion).font(TypeScale.caption).foregroundStyle(Ink.ink3) }
+                     }
+                 }
+-                Section {
+-                    Button {
+-                        backupURL = store.exportBackup()
+-                        showShare = backupURL != nil
+-                    } label: { Label("导出聊天备份", systemImage: "square.and.arrow.up") }
+-                    Button { showImporter = true } label: { Label("导入聊天备份", systemImage: "square.and.arrow.down") }
+-                        .disabled(store.isGenerating || !store.canPersist)
+-                } header: { Text("记录与备份") } footer: {
+-                    Text("导入会添加新的对话，已有编号的对话会跳过，不覆盖当前设置。备份包含对话正文与思考内容，请保存在自己的位置。")
+-                }
+-                AutoBackupSection()
+-                Section {
+-                    LabeledContent("累计用量", value: "\(store.usage.total.tokens.formatted()) tokens")
+-                    LabeledContent("累计估算花费", value: Pricing.label(store.usage.total.cost))
+-                    Link("查看官方模型价格", destination: URL(string: "https://api-docs.deepseek.com/zh-cn/quick_start/pricing/")!)
+-                    Text("花费按 2026 年 10 月的官方人民币价目估算，区分高峰与空闲时段和缓存命中；法定节假日无法识别，旧版本保存的回答不计入。中断时可能没有返回用量，实际扣费以 DeepSeek 开放平台为准。")
+-                        .font(.caption).foregroundStyle(.secondary)
+-                } header: { Text("价目") }
+-                Section {
+-                    LabeledContent("Sermo", value: installedVersion)
+-                    Button {
+-                        UIPasteboard.general.string = "Sermo · \(installedVersion)"
+-                    } label: { Label("复制版本信息", systemImage: "doc.on.doc") }
+-                    Text("文字与图片聊天、项目（可选 DeepSeek 或 ChatGPT 订阅，ChatGPT 项目可自动整理记忆）、猜你回复、消息编辑、思考过程与翻译、用量日历与备份。图片 Flash 和 ChatGPT 能读，保存在这台手机上，不随聊天备份导出。")
+-                        .font(.caption).foregroundStyle(.secondary)
+-                }
+             }
+             .font(TypeScale.body)
+             .scrollContentBackground(.hidden)
+@@ -243,15 +102,6 @@
+             .onChange(of: draftSettings) { _, _ in saved = false }
+             .onDisappear { resetConnectionCheck() }
+             .sheet(isPresented: $showProfile) { ProfileEditor() }
+-            .sheet(isPresented: $showShare) {
+-                if let url = backupURL { ShareSheet(items: [url]) }
+-            }
+-            .fileImporter(isPresented: $showImporter, allowedContentTypes: [.json]) { result in
+-                switch result {
+-                case .success(let url): store.importBackup(url)
+-                case .failure(let error): store.errorMessage = "无法打开文件：\(error.localizedDescription)"
+-                }
+-            }
+             .alert("暂时没有完成", isPresented: Binding(get: { store.errorMessage != nil }, set: { if !$0 { store.errorMessage = nil } })) {
+                 Button("知道了") { store.errorMessage = nil }
+             } message: { Text(store.errorMessage ?? "") }
+@@ -261,6 +111,212 @@
+         }
+     }
+ 
++    // MARK: Sub-pages. Each keeps the same look; pages with edits to save carry 保存.
++
++    private func page<Content: View>(_ title: String, saves: Bool = false, @ViewBuilder _ content: () -> Content) -> some View {
++        Form { content() }
++            .font(TypeScale.body)
++            .scrollContentBackground(.hidden)
++            .background(AppBackground())
++            .listRowSeparatorTint(Ink.line)
++            .foregroundStyle(Ink.ink)
++            .tint(Ink.ink)
++            .navigationTitle(title)
++            .navigationBarTitleDisplayMode(.inline)
++            .toolbar {
++                if saves {
++                    ToolbarItem(placement: .topBarTrailing) {
++                        Button(saved ? "已保存" : "保存") { if store.saveSettings(draftSettings, key: draftKey) { saved = true } }
++                            .fontWeight(.semibold)
++                    }
++                }
++            }
++    }
++
++    private var deepSeekPage: some View {
++        page("DeepSeek", saves: true) {
++                    Section {
++                        VStack(alignment: .leading, spacing: 8) {
++                            Text("API Key").font(TypeScale.caption).foregroundStyle(Ink.ink3)
++                            HStack {
++                                Group {
++                                    if showKey { TextField("粘贴 DeepSeek API Key", text: $draftKey) }
++                                    else { SecureField("粘贴 DeepSeek API Key", text: $draftKey) }
++                                }.textInputAutocapitalization(.never).autocorrectionDisabled()
++                                Button { showKey.toggle() } label: { Image(systemName: showKey ? "eye.slash" : "eye") }
++                                    .buttonStyle(.borderless).accessibilityLabel(showKey ? "隐藏密钥" : "显示密钥")
++                            }
++                        }
++                        Button(action: testConnection) {
++                            HStack {
++                                Label(checkingConnection ? "正在验证…" : "检查密钥与余额", systemImage: "network")
++                                Spacer()
++                                if checkingConnection { ProgressView() }
++                            }
++                        }
++                        .disabled(checkingConnection || draftKey.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
++                        if let balance = checkedBalance {
++                            VStack(alignment: .leading, spacing: 6) {
++                                Label(balance.isAvailable ? "密钥有效，账户余额可用" : "密钥有效，账户暂无可用余额",
++                                      systemImage: balance.isAvailable ? "checkmark.circle.fill" : "exclamationmark.triangle.fill")
++                                    .foregroundStyle(Ink.ink2)
++                                if !balance.summary.isEmpty {
++                                    Text("账户余额：\(balance.summary)").font(.caption).foregroundStyle(.secondary)
++                                }
++                                if !balance.isAvailable {
++                                    Text("请到 DeepSeek 开放平台查看 API 余额。")
++                                        .font(.caption).foregroundStyle(.secondary)
++                                }
++                            }
++                        }
++                        if let error = connectionError {
++                            Label(error, systemImage: "exclamationmark.circle")
++                                .font(TypeScale.note).foregroundStyle(Ink.ink)
++                        }
++                        Link("打开 DeepSeek 开放平台", destination: URL(string: "https://platform.deepseek.com/")!)
++                    } header: { Text("连接 DeepSeek") } footer: {
++                        Text("测试连接只检查密钥和账户余额，不发送聊天内容。点右上角保存后，Key 才会保存在这台手机的钥匙串里，不随聊天备份导出。聊天时，消息及选定的历史上下文会传给 DeepSeek。")
++                    }
++                    Section("回答方式") {
++                        Picker("模型", selection: $draftSettings.model) {
++                            ForEach(DeepSeekModel.allCases) { model in Text(model.title).tag(model) }
++                        }
++                        Toggle("深度思考", isOn: $draftSettings.thinkingEnabled)
++                        if draftSettings.thinkingEnabled {
++                            Picker("思考程度", selection: $draftSettings.effort) {
++                                ForEach(ThinkingEffort.allCases) { effort in Text(effort.title).tag(effort) }
++                            }
++                        }
++                        DisclosureGroup("高级设置") {
++                        Picker("每次输出上限", selection: $draftSettings.maxOutputTokens) {
++                            ForEach([4096, 8192, 16384, 32768, 65536], id: \.self) { value in Text("\(value) tokens").tag(value) }
++                        }
++                        Picker("携带的历史消息", selection: $draftSettings.contextMessageLimit) {
++                            ForEach([10, 20, 40, 80, 100, 200, 400], id: \.self) { value in Text("最近 \(value) 条").tag(value) }
++                        }
++                        }
++                    }
++                    Section("聊天连通性") {
++                        ChatConnectionTestView(key: draftKey)
++                    }
++                    Section {
++                        LabeledContent("累计用量", value: "\(store.usage.total.tokens.formatted()) tokens")
++                        LabeledContent("累计估算花费", value: Pricing.label(store.usage.total.cost))
++                        Link("查看官方模型价格", destination: URL(string: "https://api-docs.deepseek.com/zh-cn/quick_start/pricing/")!)
++                        Text("花费按 2026 年 10 月的官方人民币价目估算，区分高峰与空闲时段和缓存命中；法定节假日无法识别，旧版本保存的回答不计入。中断时可能没有返回用量，实际扣费以 DeepSeek 开放平台为准。")
++                            .font(.caption).foregroundStyle(.secondary)
++                    } header: { Text("价目") }
++        }
++    }
++
++    private var chatGPTPage: some View {
++        page("ChatGPT 订阅与声音", saves: true) {
++                    SubscriptionSettingsSection(connection: store.subscription, model: $draftSettings.subscriptionModelID,
++                                                requestInProgress: store.isGenerating)
++                    OpenAISpeechSettings(speech: store.speech)
++        }
++    }
++
++    private var chatPage: some View {
++        page("聊天与指令", saves: true) {
++                    Section {
++                        Toggle("猜你回复", isOn: Binding(get: { draftSettings.shouldSuggestReplies },
++                            set: { draftSettings.replySuggestionsEnabled = $0 }))
++                    } header: { Text("回复建议") } footer: {
++                        Text("回答完成后，生成 1～3 条回复草稿。点选后可在输入框修改，再自己发送。使用 V4 Pro 关闭思考的额外短请求，已保存建议的用量计入花费；只参考当前对话。")
++                    }
++                    Section {
++                        NavigationLink {
++                            SystemPromptLibraryView(defaultContent: draftSettings.systemPrompt)
++                        } label: {
++                            Label("系统指令库 · \(store.systemPromptPresets.count)", systemImage: "text.book.closed")
++                        }
++                        Text("在库里保存多份指令，在聊天输入框的「+」→「指令」里选择。指令库内的修改会单独保存。")
++                            .font(TypeScale.caption).foregroundStyle(Ink.ink3)
++                    } header: { Text("系统指令库") }
++                    Section {
++                        Button {
++                            withAnimation(.snappy(duration: 0.25)) { promptExpanded.toggle() }
++                        } label: {
++                            HStack(alignment: .top, spacing: 10) {
++                                VStack(alignment: .leading, spacing: 4) {
++                                    if !promptExpanded {
++                                        Text(draftSettings.systemPrompt.isEmpty ? "（空）" : draftSettings.systemPrompt)
++                                            .font(TypeScale.serif(15)).foregroundStyle(Ink.ink2).lineLimit(2)
++                                            .multilineTextAlignment(.leading)
++                                    }
++                                    Text(promptExpanded ? "收起" : "\(draftSettings.systemPrompt.count) 字 · 点开编辑")
++                                        .font(TypeScale.caption).foregroundStyle(Ink.ink3)
++                                }
++                                Spacer(minLength: 0)
++                                Image(systemName: "chevron.down").font(.system(size: 12, weight: .semibold))
++                                    .foregroundStyle(Ink.ink3).rotationEffect(.degrees(promptExpanded ? 180 : 0))
++                                    .padding(.top, 4)
++                            }
++                            .contentShape(Rectangle())
++                        }
++                        .buttonStyle(.plain)
++                        .accessibilityLabel(promptExpanded ? "收起全局默认指令" : "展开全局默认指令")
++                        if promptExpanded {
++                            TextEditor(text: $draftSettings.systemPrompt).frame(minHeight: 150).font(TypeScale.serif(15)).scrollContentBackground(.hidden)
++                                .accessibilityIdentifier("system-prompt-editor")
++                        }
++                    } header: { Text("全局默认指令") } footer: {
++                        Text("未选自定义指令、也不在项目里的聊天使用这里的内容；修改后点本页右上角保存。每个聊天可在输入框「+」→「指令」里选择自己的指令，项目默认使用项目指令。思考原文与译文不占用普通聊天上下文。")
++                    }
++        }
++    }
++
++    private var connectionsPage: some View {
++        page("授权与连接") {
++                    GoogleDriveSection(drive: store.drive)
++                    GitHubSection(github: store.github)
++        }
++    }
++
++    private var dataPage: some View {
++        page("用量与备份") {
++                    Section {
++                        UsageCalendarView(ledger: store.usage)
++                    } header: { Text("用量") } footer: {
++                        Text("按天记录所有请求：回答、猜你回复、思考翻译和项目记忆。删除对话不会改变这里的记录。花费是按 DeepSeek 官方价目的估算，实际扣费以开放平台为准；ChatGPT 订阅只计 token，不算花费。")
++                    }
++                    Section {
++                        Button {
++                            backupURL = store.exportBackup()
++                            showShare = backupURL != nil
++                        } label: { Label("导出聊天备份", systemImage: "square.and.arrow.up") }
++                        Button { showImporter = true } label: { Label("导入聊天备份", systemImage: "square.and.arrow.down") }
++                            .disabled(store.isGenerating || !store.canPersist)
++                    } header: { Text("记录与备份") } footer: {
++                        Text("导入会添加新的对话，已有编号的对话会跳过，不覆盖当前设置。备份包含对话正文与思考内容，请保存在自己的位置。")
++                    }
++                AutoBackupSection()
++        }
++        .sheet(isPresented: $showShare) {
++            if let url = backupURL { ShareSheet(items: [url]) }
++        }
++        .fileImporter(isPresented: $showImporter, allowedContentTypes: [.json]) { result in
++            switch result {
++            case .success(let url): store.importBackup(url)
++            case .failure(let error): store.errorMessage = "无法打开文件：\(error.localizedDescription)"
++            }
++        }
++    }
++
++    private var aboutPage: some View {
++        page("关于 Sermo") {
++                    Section {
++                        LabeledContent("Sermo", value: installedVersion)
++                        Button {
++                            UIPasteboard.general.string = "Sermo · \(installedVersion)"
++                        } label: { Label("复制版本信息", systemImage: "doc.on.doc") }
++                        Text("文字与图片聊天、项目（可选 DeepSeek 或 ChatGPT 订阅，ChatGPT 项目可自动整理记忆）、猜你回复、消息编辑、思考过程与翻译、用量日历与备份。图片 Flash 和 ChatGPT 能读，保存在这台手机上，不随聊天备份导出。")
++                            .font(.caption).foregroundStyle(.secondary)
++                    }
++        }
++    }
++
+     private var installedVersion: String {
+         let version = Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "未知版本"
+         let build = Bundle.main.object(forInfoDictionaryKey: "CFBundleVersion") as? String ?? "未知"
+diff -ruN pa/QingJian/QingJian.xcodeproj/project.pbxproj pb/QingJian/QingJian.xcodeproj/project.pbxproj
+--- a/QingJian/QingJian.xcodeproj/project.pbxproj	2026-11-08 21:39:41.858902724 +0800
++++ b/QingJian/QingJian.xcodeproj/project.pbxproj	2026-11-08 21:39:41.868446232 +0800
+@@ -110,7 +110,7 @@
+ 		82FA67131BBD396F86E2116A = { isa = "PBXBuildFile"; fileRef = "FD74A26728B90EEDF0289739"; };
+ 		83A2F5A6AC45B5491E1C720F = { isa = "PBXBuildFile"; fileRef = "7904190125DA8DD29BF99CDB"; };
+ 		845ECD744C27640FC0E6C3BE = { isa = "PBXFileReference"; lastKnownFileType = "sourcecode.swift"; path = "DeepSeekPocket/Core/GitHubTools.swift"; sourceTree = "SOURCE_ROOT"; };
+-		86A46D98C12482E1EF3DC46C = { isa = "XCBuildConfiguration"; buildSettings = { PRODUCT_BUNDLE_IDENTIFIER = "com.xiaolong.qingjian"; PRODUCT_NAME = "DeepSeekPocket"; INFOPLIST_FILE = "DeepSeekPocket/Info.plist"; GENERATE_INFOPLIST_FILE = "NO"; MARKETING_VERSION = "1.31.0"; CURRENT_PROJECT_VERSION = "57"; ASSETCATALOG_COMPILER_APPICON_NAME = "AppIcon"; ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = "AccentColor"; TARGETED_DEVICE_FAMILY = "1,2"; CODE_SIGN_STYLE = "Automatic"; LD_RUNPATH_SEARCH_PATHS = ( "$(inherited)", "@executable_path/Frameworks", ); SUPPORTED_PLATFORMS = "iphoneos iphonesimulator"; SUPPORTS_MACCATALYST = "NO"; SWIFT_EMIT_LOC_STRINGS = "YES"; }; name = "Release"; };
++		86A46D98C12482E1EF3DC46C = { isa = "XCBuildConfiguration"; buildSettings = { PRODUCT_BUNDLE_IDENTIFIER = "com.xiaolong.qingjian"; PRODUCT_NAME = "DeepSeekPocket"; INFOPLIST_FILE = "DeepSeekPocket/Info.plist"; GENERATE_INFOPLIST_FILE = "NO"; MARKETING_VERSION = "1.32.0"; CURRENT_PROJECT_VERSION = "58"; ASSETCATALOG_COMPILER_APPICON_NAME = "AppIcon"; ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = "AccentColor"; TARGETED_DEVICE_FAMILY = "1,2"; CODE_SIGN_STYLE = "Automatic"; LD_RUNPATH_SEARCH_PATHS = ( "$(inherited)", "@executable_path/Frameworks", ); SUPPORTED_PLATFORMS = "iphoneos iphonesimulator"; SUPPORTS_MACCATALYST = "NO"; SWIFT_EMIT_LOC_STRINGS = "YES"; }; name = "Release"; };
+ 		8B37FFF4CB7BE1135BD14ACD = { isa = "PBXFileReference"; lastKnownFileType = "sourcecode.swift"; path = "DeepSeekPocket/Core/WebSearch.swift"; sourceTree = "SOURCE_ROOT"; };
+ 		8BDCEEA2EB43FC91018F696F = { isa = "PBXBuildFile"; fileRef = "FF1F92A5772CD6C2220F3CD7"; };
+ 		8C6280633D259F66427E2288 = { isa = "PBXFileReference"; lastKnownFileType = "sourcecode.swift"; path = "DeepSeekPocket/Views/ReasoningView.swift"; sourceTree = "SOURCE_ROOT"; };
+@@ -160,7 +160,7 @@
+ 		BD12731D7BC9B843D8523E65 = { isa = "PBXFileReference"; lastKnownFileType = "folder.assetcatalog"; path = "DeepSeekPocket/Assets.xcassets"; sourceTree = "SOURCE_ROOT"; };
+ 		BF41F4472847DA8EE81FF145 = { isa = "PBXBuildFile"; fileRef = "42CC3A23349A29CD3B9B13B7"; };
+ 		C0C355164654B03A78373B5A = { isa = "PBXBuildFile"; fileRef = "39F9C2B4BC13DE9D1B7A0828"; };
+-		C131AA990408F5A8B287713E = { isa = "XCBuildConfiguration"; buildSettings = { PRODUCT_BUNDLE_IDENTIFIER = "com.xiaolong.qingjian"; PRODUCT_NAME = "DeepSeekPocket"; INFOPLIST_FILE = "DeepSeekPocket/Info.plist"; GENERATE_INFOPLIST_FILE = "NO"; MARKETING_VERSION = "1.31.0"; CURRENT_PROJECT_VERSION = "57"; ASSETCATALOG_COMPILER_APPICON_NAME = "AppIcon"; ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = "AccentColor"; TARGETED_DEVICE_FAMILY = "1,2"; CODE_SIGN_STYLE = "Automatic"; LD_RUNPATH_SEARCH_PATHS = ( "$(inherited)", "@executable_path/Frameworks", ); SUPPORTED_PLATFORMS = "iphoneos iphonesimulator"; SUPPORTS_MACCATALYST = "NO"; SWIFT_EMIT_LOC_STRINGS = "YES"; }; name = "Debug"; };
++		C131AA990408F5A8B287713E = { isa = "XCBuildConfiguration"; buildSettings = { PRODUCT_BUNDLE_IDENTIFIER = "com.xiaolong.qingjian"; PRODUCT_NAME = "DeepSeekPocket"; INFOPLIST_FILE = "DeepSeekPocket/Info.plist"; GENERATE_INFOPLIST_FILE = "NO"; MARKETING_VERSION = "1.32.0"; CURRENT_PROJECT_VERSION = "58"; ASSETCATALOG_COMPILER_APPICON_NAME = "AppIcon"; ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = "AccentColor"; TARGETED_DEVICE_FAMILY = "1,2"; CODE_SIGN_STYLE = "Automatic"; LD_RUNPATH_SEARCH_PATHS = ( "$(inherited)", "@executable_path/Frameworks", ); SUPPORTED_PLATFORMS = "iphoneos iphonesimulator"; SUPPORTS_MACCATALYST = "NO"; SWIFT_EMIT_LOC_STRINGS = "YES"; }; name = "Debug"; };
+ 		C4BF254EBAFEB4755D037451 = { isa = "PBXFileReference"; lastKnownFileType = "sourcecode.swift"; path = "DeepSeekPocket/Views/StreamActivityView.swift"; sourceTree = "SOURCE_ROOT"; };
+ 		C7B5A2A8067AD2778E7DFC27 = { isa = "PBXFileReference"; lastKnownFileType = "sourcecode.swift"; path = "DeepSeekPocket/Views/HighlightColorSettings.swift"; sourceTree = "SOURCE_ROOT"; };
+ 		C7D59EFCCEB862427B91F038 = { isa = "PBXBuildFile"; fileRef = "5A6EB7F92D195E7AEE28EEB7"; };
