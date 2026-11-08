@@ -8,7 +8,7 @@
   "version": "1.32.0",
   "build": "58",
   "base_commit": "54fca01d6f0f1f3785220ba492a442573fdaf965",
-  "overlay_sha256": "db8d15a5031dce2e07713296c483722e25efe028e73bdac06db5f8b2c8cedc42",
+  "overlay_sha256": "6489e917e9b15455613660e98b89c9d9869e5d9953996d0552f49d1bd6b04e8f",
   "tests_run": false,
   "validation": "Not compiled yet; push to main to run the GitHub Actions Release build",
   "sha256": "cb5332b71990c74ff38670cbb7d6213d55b49ecafa6255cd75869f573b2ff460",

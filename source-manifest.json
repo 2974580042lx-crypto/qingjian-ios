@@ -68,7 +68,7 @@
   "QingJian/DeepSeekPocket/Services/SubscriptionHTTP.swift": "4271df378491bdac394114e679b01228b5761e75f729290c42bae1477ff83fae",
   "QingJian/DeepSeekPocket/Services/SubscriptionLoopback.swift": "74c168f654264759cee8bbe6c0c78e55d286d61d942487758d21aae5ae40f807",
   "QingJian/DeepSeekPocket/Services/SubscriptionStore.swift": "4ab4cc8e924edc051d842f61376db9cf153e7a70513a17d7674e6bfd37b87634",
-  "QingJian/DeepSeekPocket/Views/AppTheme.swift": "5c477c95794407425b20eb413d8ee14fd60a8f738a3775612efb05736b009e7e",
+  "QingJian/DeepSeekPocket/Views/AppTheme.swift": "12712b0a612b56c9ff1321cb6c132a90b84eb036de3ad793a15e7c367352740b",
   "QingJian/DeepSeekPocket/Views/BookDiscussionViews.swift": "3769658e0ad8f240a74405e1cb1d5d3e13cbf8eab2a46ecde184090379cd56b9",
   "QingJian/DeepSeekPocket/Views/BookshelfView.swift": "244f3eb673aa31b28805b4c54b9bb3bb1236e96c2f8202df16dbe3de5bf6a516",
   "QingJian/DeepSeekPocket/Views/ChatConnectionTestView.swift": "a8d9cbf5c47710318cfeb191f73524adba88504f0e2c9379be251bf5cdc05bef",
