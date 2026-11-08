@@ -1,0 +1,1156 @@
+diff -ruN a/QingJian/DeepSeekPocket/AppStore.swift b/QingJian/DeepSeekPocket/AppStore.swift
+--- a/QingJian/DeepSeekPocket/AppStore.swift	2026-11-08 17:10:30.347121906 +0800
++++ b/QingJian/DeepSeekPocket/AppStore.swift	2026-11-08 17:10:30.357213652 +0800
+@@ -1233,27 +1233,28 @@
+     func clearBackupFolder() {
+         BackupFolder.forget()
+         backupFolderName = nil
+-        lastAutoBackup = nil
+         backupIssue = nil
+     }
+-    // Once a day when the app comes to the front, or right away with force.
++    // Once a day when the app comes to the front, or right away with force. Always into
++    // the app's own folder; into the picked folder too when there is one.
+     func autoBackupIfNeeded(force: Bool = false) {
+-        guard !isPreview, canPersist, !backupRunning, backupFolderName != nil else { return }
++        guard !isPreview, canPersist, !backupRunning else { return }
+         if !force, let last = lastAutoBackup, Calendar.current.isDateInToday(last) { return }
+         let data: Data
+         do { data = try snapshot.encoded() }
+         catch { backupIssue = "自动备份没有完成：\(error.localizedDescription)"; return }
+         backupRunning = true
+         Task {
+-            let outcome = await Task.detached(priority: .utility) { () -> Result<Date, Error> in
+-                do { try BackupFolder.write(data); return .success(Date()) } catch { return .failure(error) }
++            let outcome = await Task.detached(priority: .utility) { () -> Result<(Date, String?), Error> in
++                do { let extraIssue = try BackupFolder.write(data); return .success((Date(), extraIssue)) }
++                catch { return .failure(error) }
+             }.value
+             self.backupRunning = false
+             switch outcome {
+-            case .success(let date):
++            case .success(let (date, extraIssue)):
+                 BackupFolder.lastBackup = date
+                 self.lastAutoBackup = date
+-                self.backupIssue = nil
++                self.backupIssue = extraIssue.map { "已存进 App 文件夹，但额外文件夹没有存上：\($0)" }
+             case .failure(let error):
+                 self.backupIssue = "自动备份没有完成：\(error.localizedDescription)"
+             }
+diff -ruN a/QingJian/DeepSeekPocket/Core/AppManual.swift b/QingJian/DeepSeekPocket/Core/AppManual.swift
+--- a/QingJian/DeepSeekPocket/Core/AppManual.swift	2026-11-08 17:10:30.347321896 +0800
++++ b/QingJian/DeepSeekPocket/Core/AppManual.swift	2026-11-08 17:10:30.357397455 +0800
+@@ -4,7 +4,7 @@
+ // "Sermo 说明书" project (as its document) and the feature overview in Settings.
+ // Update it with every feature, and bump `revision` so the project refreshes.
+ enum AppManual {
+-    static let revision = 14
++    static let revision = 15
+     static let projectID = UUID(uuidString: "5E2B0D6A-3C1F-4A7E-9B21-5E5E2B0D6A01")!
+     static let projectName = "Sermo 说明书"
+     static let documentName = "Sermo 使用说明"
+@@ -26,17 +26,17 @@
+             Item(name: "新建对话", how: "对话页右上角的笔形按钮，或侧栏底部「新建会话」。新对话会落在上次选的项目里。"),
+             Item(name: "选项目", how: "新对话还没发消息时，输入框下方加号旁的文件夹按钮。选一次会记住，之后新开的对话都在这个项目里；发出第一条消息后按钮收起。"),
+             Item(name: "模型和思考档位", how: "输入框下方的药丸（例如 Flash High）。可选 Flash 或 V4 Pro，思考档位 Off / Low / High / Max。只有 Flash 能看图片。"),
+-            Item(name: "添加内容", how: "输入区可直接打开相册、导入PDF或文字文件，也可粘贴文字；选择图片时保留当前草稿，处理完成后由你发送。"),
+-            Item(name: "一键到底", how: "向上查看历史消息后，在输入区点向下箭头回到最新消息；键盘打开和夜江主题下也可使用。"),
++            Item(name: "添加内容", how: "输入框左下角的「+」：图片、文件（PDF或文字）、粘贴剪贴板文字；选择图片时保留当前草稿，处理完成后由你发送。"),
++            Item(name: "一键到底", how: "向上查看历史消息时，输入框右上方会浮出一个向下箭头的小圆按钮，点它回到最新消息；回到底部后自动隐藏。"),
+             Item(name: "手动联网", how: "输入框下方的地球按钮（DeepSeek）。打开后这一次先搜索、读取排名靠前的几个网页正文，再回答；会多一次搜索费用。想让模型自己决定何时搜索，用项目里的「联网工具」。"),
+             Item(name: "停止生成", how: "生成时发送按钮变成停止按钮，点一下即可。"),
+-            Item(name: "复制、编辑、重新生成", how: "回答下方的按钮；或长按任意消息打开菜单。编辑你的消息时可以「保存并重新发送」。"),
++            Item(name: "复制、编辑、重新生成", how: "回答下方的按钮；或长按任意消息打开菜单。想只复制一部分，点回答下方的「选择文字」（光标图标），按住拖动选中后拷贝。编辑你的消息时可以「保存并重新发送」。"),
+             Item(name: "选择部分文字", how: "长按回答 → 选择文字，在弹出页里自由选择并复制。"),
+             Item(name: "日常对话的心声", how: "长按一条已完成的回答 → 他在想什么。按当前对话人设和语气，单独生成一段第一人称心声补写，可停止或重写，结果保存在这条回答下。它是根据对话生成的演绎，与思考过程分开，不会发回聊天；额外生成计入所用服务的用量。"),
+             Item(name: "思考过程", how: "回答上方的思考行，点开看完整时间线，可切换原文、中文、双语。"),
+             Item(name: "猜你回复", how: "回答完后给出 1～3 条回复草稿，点一下填进输入框，改完再自己发。在设置「回复建议」里开关。"),
+             Item(name: "排版", how: "回答里的列表、标题、引用、分隔线和表格会自动排好；表格太宽时可以左右滑动。"),
+-            Item(name: "高光", how: "回答里的粗体画成半高荧光笔，每条回答最多两处，其余保持粗体。颜色在设置「文字高光」里改。瑞士风格不画高光，粗体改为蓝色。"),
++            Item(name: "重点", how: "回答里的重点只把字稍微加粗，不再画荧光笔。瑞士风格的重点是蓝色。"),
+             Item(name: "搜索本对话", how: "对话标题旁的菜单 → 搜索本对话，按关键词查找当前对话里的消息。结果显示说话人、时间和摘要，点一下回到对应消息，较早的消息也可定位。"),
+             Item(name: "消息收藏", how: "长按消息 → 收藏或取消收藏；对话标题菜单 → 本对话收藏，可查看和定位保存的重要消息。收藏沿用现有聊天记录保存，随聊天备份一起保留，不会额外发送给模型。"),
+             Item(name: "对话管理", how: "标题旁的「⋯」：重命名、置顶、移到项目、导出为 Markdown。"),
+@@ -78,10 +78,10 @@
+             Item(name: "回答方式", how: "默认模型、深度思考、思考程度、每次输出上限、携带的历史消息条数。"),
+             Item(name: "系统指令库", how: "设置 → 系统指令库，可自己命名、新建、编辑和删除多份指令，也可把原默认指令另存为一份；每份最多2万字，最多100份，不会自动加入学习模板。修改库内指令后，需要在相应聊天里重新选择才能使用新版。指令库随聊天备份保存和合并导入。"),
+             Item(name: "全局默认与项目", how: "原系统提示词作为全局默认保留。未选择自定义指令时，普通聊天用全局默认，项目聊天跟随项目；选择自定义指令会替代该聊天的说话规则，项目资料与记忆仍保留。书架故事和本书讨论使用专门指令，不参与这个切换。"),
+-            Item(name: "界面风格", how: "「阅读与外观 → 界面风格」可选纸笺、瑞士和夜江，切换立刻生效。纸笺是暖纸色、宋体与荧光高光；瑞士是灰白底、黑体与蓝色强调；夜江是深色江水、月白文字和月光色强调，带月相与书脊样式。三套主题共用聊天搜索、收藏、项目资料和阅读功能。"),
++            Item(name: "界面风格", how: "「阅读与外观 → 界面风格」可选纸笺、瑞士和夜江，切换立刻生效。纸笺是暖纸色、重点加粗与液态玻璃按钮；你的消息在右侧气泡里；「白天与夜晚」可选跟随系统、始终浅色或始终深色（夜江始终深色）；瑞士是灰白底、黑体与蓝色强调；夜江是深色江水、月白文字和月光色强调，带月相与书脊样式。三套主题共用聊天搜索、收藏、项目资料和阅读功能。"),
+             Item(name: "阅读与外观", how: "界面风格、侧栏触感、字体（内置宋体、系统字体、导入自己的字体；瑞士风格固定用黑体）、AI 回答气泡、正文字号。"),
+-            Item(name: "导入字体", how: "「阅读与外观 → 字体」选「自定义字体」，从文件里导入 .ttf 或 .otf，可分别导入常规和粗体。全局生效，可随时恢复默认。字体不进备份。"),
+-            Item(name: "备份", how: "「记录与备份」可手动导出、导入；「自动备份」选一个文件夹（iCloud 云盘、谷歌云盘等）后，每天第一次打开时自动备份，保留最近 7 份。备份不含 API Key、登录凭证和字体。"),
++            Item(name: "导入字体", how: "「阅读与外观 → 字体」选「自定义字体」，在文件里勾选 .ttf 或 .otf 后点「打开」，可分别导入常规和粗体。「系统字体」是 iPhone 自带的苹方配 SF。全局生效，可随时恢复默认。字体不进备份。"),
++            Item(name: "备份", how: "「记录与备份」可手动导出、导入；自动备份不用设置，每天第一次打开时存进「文件 → 我的 iPhone → Sermo → 自动备份」，保留最近 7 份；还可另选一个文件夹（勾选后点「打开」）额外存一份。备份不含 API Key、登录凭证和字体。"),
+         ]),
+         Section(title: "本地小说阅读器 · 1.14", items: [
+             Item(name: "全屏阅读", how: "书架点书先进入详情，点阅读原文才进入全屏小说阅读器。轻点中间呼出菜单，阅读和全文搜索完全在本地完成。"),
+diff -ruN a/QingJian/DeepSeekPocket/Info.plist b/QingJian/DeepSeekPocket/Info.plist
+--- a/QingJian/DeepSeekPocket/Info.plist	2026-11-08 17:10:30.347746013 +0800
++++ b/QingJian/DeepSeekPocket/Info.plist	2026-11-08 17:10:30.357851470 +0800
+@@ -63,7 +63,9 @@
+ 		</dict>
+ 	</array>
+ 	<key>LSSupportsOpeningDocumentsInPlace</key>
+-	<false/>
++	<true/>
++	<key>UIFileSharingEnabled</key>
++	<true/>
+ 	<key>NSFaceIDUsageDescription</key>
+ 	<string>打开上锁的项目前，用面容 ID 确认是你本人。</string>
+ 	<key>UIAppFonts</key>
+diff -ruN a/QingJian/DeepSeekPocket/Services/BackupFolder.swift b/QingJian/DeepSeekPocket/Services/BackupFolder.swift
+--- a/QingJian/DeepSeekPocket/Services/BackupFolder.swift	2026-11-08 17:10:30.354698124 +0800
++++ b/QingJian/DeepSeekPocket/Services/BackupFolder.swift	2026-11-08 17:10:30.366632691 +0800
+@@ -1,9 +1,13 @@
+ import Foundation
+ 
+-// A folder the user picked once in the Files picker (iCloud Drive, Google Drive's
+-// Files extension, On My iPhone…). Its security-scoped bookmark lets the app write
+-// there again later without iCloud entitlements, so this works with self-signing.
++// Daily backups always go to the app's own Documents/自动备份 folder, which the Files
++// app shows under 我的 iPhone › Sermo, so backing up never depends on a picker.
++// A folder the user picked once (iCloud Drive, On My iPhone…) gets an extra copy;
++// its security-scoped bookmark lets the app write there again later without iCloud
++// entitlements, so this works with self-signing.
+ enum BackupFolder {
++    static let localFolderName = "自动备份"
++    static let localLocation = "我的 iPhone › Sermo › 自动备份"
+     private static let bookmarkKey = "qingjian.backup.folderBookmark"
+     private static let nameKey = "qingjian.backup.folderName"
+     private static let lastKey = "qingjian.backup.lastDate"
+@@ -25,12 +29,12 @@
+         let name = FileManager.default.displayName(atPath: url.path)
+         UserDefaults.standard.set(bookmark, forKey: bookmarkKey)
+         UserDefaults.standard.set(name, forKey: nameKey)
+-        UserDefaults.standard.removeObject(forKey: lastKey)
+         return name
+     }
+ 
++    /// Stops the extra copy only; backups into the app's own folder keep running.
+     static func forget() {
+-        for key in [bookmarkKey, nameKey, lastKey] { UserDefaults.standard.removeObject(forKey: key) }
++        for key in [bookmarkKey, nameKey] { UserDefaults.standard.removeObject(forKey: key) }
+     }
+ 
+     /// File name for a given day; one file per day, rewritten if run again that day.
+@@ -47,8 +51,29 @@
+         return Array(ours.dropFirst(keep))
+     }
+ 
+-    /// Writes today's backup into the folder and trims old ones. Runs off the main thread.
+-    static func write(_ data: Data, now: Date = Date()) throws {
++    /// The app's own backup folder inside Documents, created on first use.
++    static func localFolder() throws -> URL {
++        let documents = try FileManager.default.url(for: .documentDirectory, in: .userDomainMask,
++                                                    appropriateFor: nil, create: true)
++        let folder = documents.appendingPathComponent(localFolderName, isDirectory: true)
++        try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
++        return folder
++    }
++
++    /// Writes today's backup into the app's own folder (must succeed) and, when one was
++    /// picked, an extra copy into that folder. Returns why the extra copy failed, if it did.
++    /// Runs off the main thread.
++    @discardableResult
++    static func write(_ data: Data, now: Date = Date()) throws -> String? {
++        let local = try localFolder()
++        try data.write(to: local.appendingPathComponent(fileName(for: now)), options: .atomic)
++        let names = (try? FileManager.default.contentsOfDirectory(atPath: local.path)) ?? []
++        for name in expired(names) { try? FileManager.default.removeItem(at: local.appendingPathComponent(name)) }
++        guard UserDefaults.standard.data(forKey: bookmarkKey) != nil else { return nil }
++        do { try writeExtra(data, now: now); return nil } catch { return error.localizedDescription }
++    }
++
++    private static func writeExtra(_ data: Data, now: Date) throws {
+         guard let bookmark = UserDefaults.standard.data(forKey: bookmarkKey) else {
+             throw CocoaError(.fileNoSuchFile)
+         }
+@@ -76,3 +101,31 @@
+         }
+     }
+ }
++
++// A file opened in Sermo from the Files app arrives as the original, not a copy, now that
++// the app's own folder is shown in Files. Importers delete what they are handed once read,
++// so they get a private copy and the original is never touched.
++enum IncomingFile {
++    static func privateCopy(of url: URL) -> URL? {
++        let scoped = url.startAccessingSecurityScopedResource()
++        defer { if scoped { url.stopAccessingSecurityScopedResource() } }
++        let folder = FileManager.default.temporaryDirectory.appendingPathComponent("Incoming-" + UUID().uuidString, isDirectory: true)
++        let target = folder.appendingPathComponent(url.lastPathComponent)
++        var coordinationError: NSError?
++        var copied = false
++        NSFileCoordinator().coordinate(readingItemAt: url, options: .withoutChanges, error: &coordinationError) { readable in
++            do {
++                try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
++                try FileManager.default.copyItem(at: readable, to: target)
++                copied = true
++            } catch {}
++        }
++        // The system's own inbox copy (older "Open in" path) is ours to clear.
++        if copied, url.pathComponents.contains("Inbox"),
++           let documents = try? FileManager.default.url(for: .documentDirectory, in: .userDomainMask, appropriateFor: nil, create: false),
++           url.standardizedFileURL.path.hasPrefix(documents.standardizedFileURL.path) {
++            try? FileManager.default.removeItem(at: url)
++        }
++        return copied ? target : nil
++    }
++}
+diff -ruN a/QingJian/DeepSeekPocket/Services/FontLibrary.swift b/QingJian/DeepSeekPocket/Services/FontLibrary.swift
+--- a/QingJian/DeepSeekPocket/Services/FontLibrary.swift	2026-11-08 17:10:30.354737633 +0800
++++ b/QingJian/DeepSeekPocket/Services/FontLibrary.swift	2026-11-08 17:10:30.366671316 +0800
+@@ -114,6 +114,10 @@
+         UserDefaults.standard.set(UserDefaults.standard.integer(forKey: revisionKey) + 1, forKey: revisionKey)
+     }
+ 
++    /// True when text should use the real system font (SF for Latin and digits,
++    /// PingFang for Chinese, with the system's own optical sizing), not a named face.
++    static var usesSystemFace: Bool { InterfaceStyle.isSwiss || choice == .system }
++
+     // Names TypeScale and ReadingStyle draw with. The Swiss look always uses the
+     // system sans (PingFang SC); the chosen font comes back with the paper look.
+     static var regularFace: String {
+diff -ruN a/QingJian/DeepSeekPocket/Views/AppTheme.swift b/QingJian/DeepSeekPocket/Views/AppTheme.swift
+--- a/QingJian/DeepSeekPocket/Views/AppTheme.swift	2026-11-08 17:10:30.354928879 +0800
++++ b/QingJian/DeepSeekPocket/Views/AppTheme.swift	2026-11-08 17:10:30.366797796 +0800
+@@ -48,11 +48,11 @@
+     }
+     static var ink2: Color {
+         if night { return fixed(0xB4C3C9) }
+-        return swiss ? Color.adaptive(light: 0x3B3B3B, dark: 0xC6C6C1) : Color.adaptive(light: 0x4F4D48, dark: 0xC2BFB6)
++        return swiss ? Color.adaptive(light: 0x3B3B3B, dark: 0xC6C6C1) : Color.adaptive(light: 0x3D3C38, dark: 0xD0CDC4)
+     }
+     static var ink3: Color {
+         if night { return fixed(0x92A1A8) }
+-        return swiss ? Color.adaptive(light: 0x5E5E5E, dark: 0x9B9B96) : Color.adaptive(light: 0x7A7872, dark: 0x9A978F)
++        return swiss ? Color.adaptive(light: 0x5E5E5E, dark: 0x9B9B96) : Color.adaptive(light: 0x6B6964, dark: 0xA6A39B)
+     }
+     static var line: Color {
+         if night { return fixed(0xDBEBEF, alpha: 0.13) }
+@@ -102,13 +102,36 @@
+     // Chosen in Settings (built-in serif, system PingFang, or an imported font).
+     static var serifName: String { FontLibrary.regularFace }
+     static func serif(_ size: CGFloat, relativeTo style: Font.TextStyle = .body) -> Font {
+-        .custom(serifName, size: size, relativeTo: style)
++        // "系统字体" means the real system font: SF for Latin and digits, PingFang for
++        // Chinese. Naming PingFang alone drew Latin and digits thin and narrow.
++        if FontLibrary.usesSystemFace { return .system(size: scaled(size, style)) }
++        return .custom(serifName, size: size, relativeTo: style)
++    }
++    /// A point size grown or shrunk with the reader's text size setting.
++    static func scaled(_ size: CGFloat, _ style: Font.TextStyle) -> CGFloat {
++        UIFontMetrics(forTextStyle: uiStyle(style)).scaledValue(for: size)
++    }
++    static func uiStyle(_ style: Font.TextStyle) -> UIFont.TextStyle {
++        switch style {
++        case .largeTitle: return .largeTitle
++        case .title: return .title1
++        case .title2: return .title2
++        case .title3: return .title3
++        case .headline: return .headline
++        case .subheadline: return .subheadline
++        case .callout: return .callout
++        case .footnote: return .footnote
++        case .caption: return .caption1
++        case .caption2: return .caption2
++        default: return .body
++        }
+     }
+     // The bold cut is optional: without the font file, headings fall back to the system heavy weight.
+     static var heavyName: String { FontLibrary.boldFace }
+     static var hasHeavy: Bool { UIFont(name: heavyName, size: 12) != nil }
+     static func heavy(_ size: CGFloat, relativeTo style: Font.TextStyle = .body) -> Font {
+         if InterfaceStyle.isSwiss { return .system(size: size, weight: .heavy) }
++        if FontLibrary.usesSystemFace { return .system(size: scaled(size, style), weight: .semibold) }
+         return hasHeavy ? .custom(heavyName, size: size, relativeTo: style) : .system(size: size, weight: .heavy)
+     }
+     /// Numbers and small labels in the Swiss look: Q.01, COPY, 2026.10.20.
+@@ -129,8 +152,9 @@
+ enum InkAppearance {
+     @MainActor static func apply() {
+         let ink = UIColor(Ink.ink)
+-        let large = UIFont(name: TypeScale.serifName, size: 32)
+-        let inline = UIFont(name: TypeScale.serifName, size: 17)
++        let system = FontLibrary.usesSystemFace
++        let large = system ? UIFont.systemFont(ofSize: 32, weight: .bold) : UIFont(name: TypeScale.serifName, size: 32)
++        let inline = system ? UIFont.systemFont(ofSize: 17, weight: .semibold) : UIFont(name: TypeScale.serifName, size: 17)
+         func update(_ bar: UINavigationBar) {
+             if let large {
+                 bar.largeTitleTextAttributes = [.font: UIFontMetrics(forTextStyle: .largeTitle).scaledFont(for: large), .foregroundColor: ink]
+@@ -166,6 +190,18 @@
+     }
+ }
+ 
++extension View {
++    /// A small control floating over the page: liquid glass in its own shape on paper
++    /// and 夜江, a white box with a black frame in the Swiss look.
++    @ViewBuilder func floatingGlass(in shape: AnyShape) -> some View {
++        if InterfaceStyle.isSwiss {
++            self.background(Ink.raised).overlay(Rectangle().stroke(Ink.ink, lineWidth: 1.5).allowsHitTesting(false))
++        } else {
++            self.glassEffect(.regular.interactive(), in: shape)
++        }
++    }
++}
++
+ struct PageContour: Shape {
+     var radius: CGFloat
+     var topInset: CGFloat
+@@ -191,6 +227,9 @@
+     private var font: Font {
+         let points = size + adjustment
+         _ = (choice, revision)
++        if FontLibrary.usesSystemFace {
++            return .system(size: TypeScale.scaled(points, .body), weight: heavy ? .semibold : .regular)
++        }
+         if heavy {
+             return TypeScale.hasHeavy ? .custom(TypeScale.heavyName, size: points, relativeTo: .body)
+                 : .custom(TypeScale.serifName, size: points, relativeTo: .body).bold()
+diff -ruN a/QingJian/DeepSeekPocket/Views/ContentView.swift b/QingJian/DeepSeekPocket/Views/ContentView.swift
+--- a/QingJian/DeepSeekPocket/Views/ContentView.swift	2026-11-08 17:10:30.354996834 +0800
++++ b/QingJian/DeepSeekPocket/Views/ContentView.swift	2026-11-08 17:10:30.366919956 +0800
+@@ -22,6 +22,7 @@
+     @State private var composerPanelHeight: CGFloat = 130
+     @State private var sidebarDrag: CGFloat = 0
+     @AppStorage("qingjian.haptics") private var hapticsEnabled = true
++    @AppStorage(AppearanceMode.key) private var appearance = AppearanceMode.system.rawValue
+ 
+     var body: some View {
+         GeometryReader { geometry in
+@@ -93,7 +94,7 @@
+                 }))
+         }
+         .ignoresSafeArea(.keyboard, edges: .bottom)
+-        .preferredColorScheme(InterfaceStyle.isNight ? .dark : nil)
++        .preferredColorScheme(AppearanceMode.scheme(appearance))
+         .onChange(of: showSidebar) { _, open in
+             if hapticsEnabled { UIImpactFeedbackGenerator(style: .soft).impactOccurred(intensity: 0.65) }
+             if open { store.refreshBalance() }
+@@ -106,7 +107,15 @@
+         .onOpenURL { url in
+             guard url.isFileURL else { return }
+             showBooks = true
+-            Task { _ = await store.books.importBook(from: url) }
++            Task {
++                // Import a private copy: the importer removes what it reads, and the
++                // original may now be the user's own file rather than a system copy.
++                guard let local = await Task.detached(priority: .userInitiated, operation: { IncomingFile.privateCopy(of: url) }).value else {
++                    store.errorMessage = "没能读取这个文件，请在「文件」里确认它已下载后再试。"
++                    return
++                }
++                _ = await store.books.importBook(from: local)
++            }
+         }
+         .sheet(isPresented: $showBooks) {
+             BookshelfView(opened: { showBooks = false; showSidebar = false }).environmentObject(store).environmentObject(store.books)
+@@ -356,8 +365,14 @@
+                 .padding(.horizontal, swiss ? 20 : 24).padding(.top, 10).padding(.bottom, 22)
+             }
+             .accessibilityIdentifier("chat-scroll")
+-            // Text fades softly under the floating buttons instead of a solid band.
+-            .scrollEdgeEffectStyle(.soft, for: .top)
++            // The system's top edge effect drew a solid paper band behind the buttons, so
++            // they never looked afloat. Text now passes under the glass; only the clock
++            // keeps a short fade so it stays readable.
++            .scrollEdgeEffectHidden(true, for: .top)
++            .overlay(alignment: .top) {
++                LinearGradient(colors: [Ink.paper, Ink.paper.opacity(0)], startPoint: .top, endPoint: .bottom)
++                    .frame(height: 50).allowsHitTesting(false).accessibilityHidden(true)
++            }
+             .scrollPosition($scrollPosition)
+             .contentMargins(.bottom, composerPanelHeight + bottomInset + 12, for: .scrollContent)
+             .contentMargins(.bottom, composerPanelHeight + bottomInset + 12, for: .scrollIndicators)
+@@ -416,6 +431,8 @@
+         .background(AppBackground())
+         .navigationTitle("Sermo")
+         .navigationBarTitleDisplayMode(.inline)
++        // No title in the bar: only the floating glass buttons, as in the Claude app.
++        .toolbar(removing: .title)
+         .toolbar {
+             ToolbarItem(placement: .topBarLeading) {
+                 Button { focusComposer(false); openHistory() } label: { SidebarGlyph() }
+@@ -728,8 +745,6 @@
+     // one. Locked projects ask for Face ID first. The pick is remembered for new chats.
+     private var projectPill: some View {
+         let current = store.activeProject
+-        let radius: CGFloat = swiss ? 0 : 19
+-        let strokeWidth: CGFloat = swiss ? 1 : (current == nil ? 0.8 : 0)
+         return Menu {
+             Picker("项目", selection: Binding(get: { store.activeThread?.projectID }, set: { chooseProject($0) })) {
+                 Label("无项目", systemImage: "bubble.left").tag(UUID?.none)
+@@ -741,17 +756,15 @@
+             HStack(spacing: 5) {
+                 Image(systemName: current == nil ? "folder" : "folder.fill").font(.system(size: 14))
+                 if let name = current?.name {
+-                    Text(name).lineLimit(1).frame(maxWidth: 84, alignment: .leading)
++                    // As wide as the name: a max-width frame stretched "11" to a long bar.
++                    Text(name.count > 8 ? String(name.prefix(7)) + "…" : name).lineLimit(1).fixedSize()
+                 }
+             }
+             .font(swiss ? TypeScale.mono(11) : TypeScale.serif(14))
+-            .foregroundStyle(current == nil ? Ink.ink3 : Ink.ink)
+-            .padding(.horizontal, current == nil ? 0 : 12)
+-            .frame(minWidth: 38, minHeight: 38)
+-            .background(current == nil ? Color.clear : Ink.raised,
+-                        in: RoundedRectangle(cornerRadius: radius, style: .continuous))
+-            .overlay(RoundedRectangle(cornerRadius: radius, style: .continuous)
+-                .stroke(swiss ? Ink.ink : Ink.line, lineWidth: strokeWidth))
++            .foregroundStyle(current == nil ? Ink.ink2 : Ink.ink)
++            .padding(.horizontal, current == nil ? 0 : 14)
++            .frame(minWidth: 44, minHeight: 44)
++            .floatingGlass(in: current == nil ? AnyShape(Circle()) : AnyShape(Capsule()))
+             .contentShape(Rectangle())
+         }
+         .disabled(!store.canPersist)
+@@ -858,35 +871,6 @@
+         withAnimation(.easeOut(duration: 0.2)) { scrollPosition.scrollTo(edge: .bottom) }
+     }
+ 
+-    private var attachmentControls: some View {
+-        HStack(spacing: 10) {
+-            Button(action: choosePhotos) {
+-                Label("图片", systemImage: "photo").font(TypeScale.label).frame(minHeight: 44)
+-            }
+-            .accessibilityLabel("从相册选择图片").accessibilityIdentifier("chat-add-photos")
+-            .disabled(attachmentBusy || !store.canPersist || pendingImages.count >= 4)
+-            Button(action: chooseDocuments) {
+-                Label("文件", systemImage: "doc.badge.plus").font(TypeScale.label).frame(minHeight: 44)
+-            }
+-            .accessibilityLabel("导入 PDF 或文字文件").accessibilityIdentifier("chat-add-document")
+-            .disabled(attachmentBusy || !store.canPersist)
+-            Button {
+-                guard let id = store.activeThreadID else { return }
+-                guard let text = UIPasteboard.general.string, !text.isEmpty else {
+-                    attachmentReport = "剪贴板里没有文字。"
+-                    return
+-                }
+-                if store.appendImportedText(text, to: id) { focusComposer(true) }
+-            } label: {
+-                Image(systemName: "doc.on.clipboard").frame(width: 44, height: 44)
+-            }
+-            .accessibilityLabel("粘贴文字").disabled(!store.canPersist)
+-            Spacer(minLength: 0)
+-            if store.canChooseProject { projectPill }
+-        }
+-        .buttonStyle(.plain).foregroundStyle(Ink.ink2)
+-    }
+-
+     private func choosePhotos() {
+         guard !attachmentBusy, store.canPersist, let thread = store.activeThread, !store.isHidden(thread) else { return }
+         let origin = thread.id
+@@ -1018,20 +1002,13 @@
+                 focusComposer(false)
+                 systemPromptTarget = ConversationPanelTarget(threadID: thread.id)
+             } label: {
+-                HStack(spacing: 6) {
+-                    Image(systemName: "text.bubble").font(.system(size: 13))
+-                    Text("指令").font(TypeScale.tiny).foregroundStyle(Ink.ink3)
+-                    Text(store.systemPromptTitle(for: thread)).font(TypeScale.label).lineLimit(1)
+-                    Image(systemName: "chevron.down").font(.system(size: 9, weight: .semibold))
+-                }
+-                .foregroundStyle(Ink.ink)
+-                .padding(.horizontal, 11).frame(minHeight: 44)
+-                .background(Ink.raised, in: RoundedRectangle(cornerRadius: swiss ? 0 : 16, style: .continuous))
+-                .overlay(RoundedRectangle(cornerRadius: swiss ? 0 : 16, style: .continuous).stroke(Ink.line, lineWidth: 0.8))
+-                .contentShape(Rectangle())
++                Image(systemName: "text.bubble").font(.system(size: 17, weight: .medium))
++                    .foregroundStyle(Ink.ink)
++                    .frame(width: 44, height: 44)
++                    .floatingGlass(in: AnyShape(Circle()))
++                    .contentShape(Circle())
+             }
+             .buttonStyle(.plain)
+-            .frame(maxWidth: 220, alignment: .leading)
+             .disabled(store.isGenerating || !store.canPersist || !store.canChooseSystemPrompt(for: thread))
+             .accessibilityLabel("切换系统指令")
+             .accessibilityValue(store.systemPromptTitle(for: thread))
+@@ -1041,26 +1018,66 @@
+     }
+ 
+     @ViewBuilder private var composerTopControls: some View {
+-        if showsSystemPromptControl || store.activeThread?.messages.isEmpty == false {
+-            // This row belongs to the foreground composer host, above the attachment row.
+-            HStack(spacing: 8) {
++        let hasMessages = store.activeThread?.messages.isEmpty == false
++        if showsSystemPromptControl || store.canChooseProject || (hasMessages && !nearBottom) {
++            // Small glass buttons floating above the composer: instruction and project on
++            // the left, 「回到最新」 on the right only while you are scrolled up.
++            HStack(spacing: 10) {
+                 systemPromptControl
++                if store.canChooseProject { projectPill }
+                 Spacer(minLength: 0)
+-                if store.activeThread?.messages.isEmpty == false {
++                if hasMessages && !nearBottom {
+                     Button(action: jumpToLatest) {
+-                        Label("回到最新", systemImage: "arrow.down")
+-                            .font(TypeScale.label).foregroundStyle(Ink.ink)
+-                            .padding(.horizontal, 14).frame(minHeight: 44)
+-                            .background(Ink.raised, in: Capsule())
+-                            .overlay(Capsule().stroke(Ink.line, lineWidth: 0.8))
++                        Image(systemName: "arrow.down").font(.system(size: 17, weight: .medium))
++                            .foregroundStyle(Ink.ink)
++                            .frame(width: 44, height: 44)
++                            .floatingGlass(in: AnyShape(Circle()))
++                            .contentShape(Circle())
+                     }
+                     .buttonStyle(.plain).accessibilityLabel("一键回到最新消息")
+                     .accessibilityIdentifier("chat-jump-to-latest")
++                    .transition(.opacity.combined(with: .scale(scale: 0.8)))
+                 }
+             }
++            .animation(.snappy(duration: 0.2), value: nearBottom)
+         }
+     }
+ 
++    // Photos, files and pasted text behind one 「+」, like the Claude app, so the
++    // composer is a single quiet glass card instead of a toolbar on a white slab.
++    private var attachmentMenu: some View {
++        Menu {
++            Button("图片", systemImage: "photo") { afterMenuCloses(choosePhotos) }
++                .disabled(attachmentBusy || !store.canPersist || pendingImages.count >= 4)
++                .accessibilityIdentifier("chat-add-photos")
++            Button("文件", systemImage: "doc.badge.plus") { afterMenuCloses(chooseDocuments) }
++                .disabled(attachmentBusy || !store.canPersist)
++                .accessibilityIdentifier("chat-add-document")
++            Button("粘贴剪贴板文字", systemImage: "doc.on.clipboard") {
++                guard let id = store.activeThreadID else { return }
++                guard let text = UIPasteboard.general.string, !text.isEmpty else {
++                    attachmentReport = "剪贴板里没有文字。"
++                    return
++                }
++                if store.appendImportedText(text, to: id) { focusComposer(true) }
++            }
++            .disabled(!store.canPersist)
++        } label: {
++            Image(systemName: "plus").font(.system(size: 17, weight: .medium))
++                .foregroundStyle(Ink.ink)
++                .frame(width: 38, height: 38)
++                .background(Ink.raised, in: swiss ? AnyShape(Rectangle()) : AnyShape(Circle()))
++                .contentShape(Circle())
++        }
++        .accessibilityLabel("添加图片、文件或文字")
++        .accessibilityIdentifier("chat-attachments")
++    }
++
++    // A picker opened while the menu is still closing can be refused as "page switching".
++    private func afterMenuCloses(_ action: @escaping () -> Void) {
++        DispatchQueue.main.asyncAfter(deadline: .now() + 0.35, execute: action)
++    }
++
+     private var composer: some View {
+         VStack(spacing: 8) {
+             composerTopControls
+@@ -1076,8 +1093,7 @@
+                         .font(TypeScale.caption).foregroundStyle(Ink.ink3)
+                 }.padding(.bottom, 2)
+             }
+-            VStack(alignment: .leading, spacing: 14) {
+-                attachmentControls
++            VStack(alignment: .leading, spacing: 12) {
+                 if photoLoadThreadID != nil {
+                     HStack(spacing: 8) {
+                         ProgressView()
+@@ -1131,6 +1147,7 @@
+                     .disabled(!store.canPersist)
+                     .accessibilityIdentifier("chat-composer")
+                 HStack(spacing: 10) {
++                    attachmentMenu
+                     // Model and thinking level in one pill, like "Haiku 5.5 中等" in the Claude app.
+                     Menu {
+                         if store.activeProvider == .chatGPT {
+@@ -1209,7 +1226,7 @@
+                 }
+             }
+             .padding(.horizontal, 14).padding(.top, swiss ? 14 : 16).padding(.bottom, swiss ? 10 : 12)
+-            .clearGlass(radius: 28)
++            .clearGlass(radius: 26)
+             if store.isGenerating && store.generatingThreadID != store.activeThreadID {
+                 Text("另一个对话正在生成，右侧按钮可停止。")
+                     .font(TypeScale.tiny).foregroundStyle(Ink.ink3)
+@@ -1470,49 +1487,36 @@
+     // 纸笺: one column; your note set off by a thin rule, the answer as plain text.
+     private var paperContent: some View {
+         VStack(alignment: .leading, spacing: 12) {
+-            if message.role == .user && style == .night {
+-                // 夜江: a water line between exchanges, then your words a step quieter
+-                // than the answer, under a small 「你」 in moonlight.
+-                if round > 1 { WaveRule().padding(.bottom, 8) }
+-                VStack(alignment: .leading, spacing: 6) {
+-                    Text("你").font(TypeScale.serif(12)).tracking(2.4).foregroundStyle(Ink.seal)
+-                        .accessibilityHidden(true)
+-                    discussionVoiceLabel
+-                    if let names = message.images, !names.isEmpty { AttachmentRow(names: names) }
+-                    Text(message.content).readingStyle(adjustment: -2).lineSpacing(6).textSelection(.enabled)
+-                        .foregroundStyle(Ink.ink2)
+-                    Text(MessageTime.label(message.createdAt)).font(TypeScale.serif(11)).monospacedDigit().foregroundStyle(Ink.ink3)
+-                }
+-                .frame(maxWidth: .infinity, alignment: .leading)
+-                .padding(.trailing, 28)
+-                .accessibilityElement(children: .combine)
+-            } else if message.role == .user {
+-                // Your side of the talk reads down the same left edge as the
+-                // answer: a note set off by a thin rounded rule, a step quieter
+-                // than the answer below it, so the page reads as one column.
+-                VStack(alignment: .leading, spacing: 8) {
+-                    discussionVoiceLabel
+-                    if let names = message.images, !names.isEmpty { AttachmentRow(names: names) }
+-                    Text(message.content).readingStyle(adjustment: -1).lineSpacing(5).textSelection(.enabled)
+-                        .foregroundStyle(Ink.ink2)
+-                    Text(MessageTime.label(message.createdAt)).font(TypeScale.serif(11)).monospacedDigit().foregroundStyle(Ink.ink3)
+-                }
+-                .padding(.leading, 14)
+-                .overlay(alignment: .leading) {
+-                    Capsule().fill(Ink.ink3.opacity(0.45)).frame(width: 2.5)
++            if message.role == .user {
++                // Your words on the right in a soft rounded bubble, like the Claude app;
++                // the answer stays plain text on the page. 夜江 keeps its water line.
++                if style == .night && round > 1 { WaveRule().padding(.bottom, 8) }
++                HStack(spacing: 0) {
++                    Spacer(minLength: 52)
++                    VStack(alignment: .trailing, spacing: 6) {
++                        discussionVoiceLabel
++                        if let names = message.images, !names.isEmpty { AttachmentRow(names: names) }
++                        Text(message.content).readingStyle(adjustment: -1).lineSpacing(4)
++                            .foregroundStyle(Ink.ink).textSelection(.enabled)
++                            .padding(.horizontal, 16).padding(.vertical, 11)
++                            .background(Ink.raised, in: RoundedRectangle(cornerRadius: 20, style: .continuous))
++                        Text(MessageTime.label(message.createdAt)).font(TypeScale.serif(11)).monospacedDigit()
++                            .foregroundStyle(Ink.ink3).padding(.trailing, 6)
++                    }
+                 }
+-                .frame(maxWidth: .infinity, alignment: .leading)
+-                .padding(.trailing, 28)
++                .frame(maxWidth: .infinity, alignment: .trailing)
+             } else {
+                 answerParts
+                 if message.state == .streaming {
+                     StreamActivityView(message: message)
+                 } else {
+-                    HStack(spacing: 22) {
++                    HStack(spacing: 18) {
+                         Button {
+                             UIPasteboard.general.string = message.content; copied = true
+                         } label: { Image(systemName: copied ? "checkmark" : "doc.on.doc") }
+                             .accessibilityLabel("复制回答")
++                        Button { selecting = true } label: { Image(systemName: "text.cursor") }
++                            .accessibilityLabel("选择部分文字")
+                         Button { edit() } label: { Image(systemName: "pencil") }
+                             .disabled(isGenerating).accessibilityLabel("编辑回答")
+                         if message.state == .complete, let speech {
+@@ -1523,10 +1527,13 @@
+                                 .disabled(isGenerating || !canRegenerate).accessibilityLabel("重新生成")
+                         }
+                         Spacer(minLength: 4)
+-                        Text(MessageTime.label(message.createdAt)).font(TypeScale.serif(11)).monospacedDigit()
+-                        if let usage = message.usage {
+-                            Text(usageLabel(usage)).font(TypeScale.serif(11)).monospacedDigit()
+-                                .accessibilityLabel("本次请求共 \(usage.totalTokens) 个 Token")
++                        // Time over cost, right-aligned, so neither wraps mid-line.
++                        VStack(alignment: .trailing, spacing: 2) {
++                            Text(MessageTime.label(message.createdAt)).font(TypeScale.serif(11)).monospacedDigit()
++                            if let usage = message.usage {
++                                Text(usageLabel(usage)).font(TypeScale.serif(11)).monospacedDigit().lineLimit(1)
++                                    .accessibilityLabel("本次请求共 \(usage.totalTokens) 个 Token")
++                            }
+                         }
+                     }.font(.system(size: 13)).foregroundStyle(Ink.ink3).buttonStyle(.plain).padding(.top, 2)
+                 }
+@@ -1743,7 +1750,7 @@
+                             Text(String(format: "%02d", index + 1))
+                                 .font(swiss ? TypeScale.mono(11) : TypeScale.serif(11)).monospacedDigit()
+                                 .foregroundStyle(swiss ? Ink.seal : Ink.ink3)
+-                            Text(reply).font(TypeScale.serif(15)).foregroundStyle(swiss ? Ink.ink : Ink.ink2)
++                            Text(reply).font(TypeScale.serif(15)).foregroundStyle(Ink.ink)
+                                 .multilineTextAlignment(.leading)
+                                 .frame(maxWidth: .infinity, alignment: .leading)
+                         }
+@@ -1928,12 +1935,8 @@
+ }
+ 
+ struct MarkdownParagraph: View, Equatable {
+-    @AppStorage(HighlightStyle.key) private var highlightHex = ""
+-    @Environment(\.colorScheme) private var colorScheme
+-    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+-    @State private var sweep = 1.0
+     let text: String
+-    /// How many bold phrases here are drawn as highlighter marks; the rest stay bold.
++    /// Kept for callers; bold phrases are no longer drawn as highlighter marks.
+     var marks = HighlightMarks.perAnswer
+     /// The Swiss look draws bold in the accent colour instead of a highlighter.
+     var style: InterfaceStyle = .paper
+@@ -1951,25 +1954,9 @@
+             Text(markdown: parsed, emphasis: Ink.seal).readingStyle(adjustment: -1).lineSpacing(6)
+                 .foregroundStyle(Ink.ink)
+         } else {
+-            let value = parsed
+-            let shown = min(marks, HighlightMarks.boldRanges(in: value).count)
+-            let color = HighlightStyle.color(highlightHex, scheme: colorScheme)
+-            // Bold in an answer is drawn as a half-height highlighter stroke.
+-            // When a new mark appears (its closing ** arrives while the answer
+-            // streams in), the strokes sweep in from the left. Old answers and
+-            // reopened chats show them at once; Reduce Motion skips the sweep.
+-            // No .textSelection here: selectable Text appears to be drawn by the system
+-            // without custom renderers, the likely reason highlights vanished in 1.5.6–1.5.7.
+-            // "选择文字" in the long-press menu opens the answer for selecting instead.
+-            Text(markdown: value, marks: shown).readingStyle().lineSpacing(7)
++            // Emphasis is a touch heavier text now, no highlighter stroke behind it.
++            Text(markdown: parsed, emphasisWeight: .semibold).readingStyle().lineSpacing(7)
+                 .foregroundStyle(Ink.ink)
+-                .textRenderer(MarkerRenderer(color: color, progress: sweep))
+-                .onChange(of: shown) { old, new in
+-                    guard new > old, !reduceMotion else { return }
+-                    sweep = 0
+-                    // Next run loop, so the stroke is drawn at zero before it sweeps in.
+-                    DispatchQueue.main.async { withAnimation(.easeOut(duration: 0.38)) { sweep = 1 } }
+-                }
+         }
+     }
+ }
+diff -ruN a/QingJian/DeepSeekPocket/Views/DocumentPicker.swift b/QingJian/DeepSeekPocket/Views/DocumentPicker.swift
+--- a/QingJian/DeepSeekPocket/Views/DocumentPicker.swift	2026-11-08 17:10:30.355029573 +0800
++++ b/QingJian/DeepSeekPocket/Views/DocumentPicker.swift	2026-11-08 17:10:30.366954965 +0800
+@@ -29,9 +29,22 @@
+         show(types, asCopy: asCopy, multiple: true, onCancel: onCancel, onError: onError, pick: pick)
+     }
+ 
++    // A folder is chosen with the tick beside it plus 「打开」, the same way as files. In
++    // single-choice mode the picker only lets you tap into a folder, and on recent iOS
++    // 「打开」 often stayed grey even inside it, so no folder could ever be chosen.
++    @discardableResult
++    static func presentFolder(onCancel: (() -> Void)? = nil, onError: ((String) -> Void)? = nil,
++                              pick: @escaping (URL) -> Void) -> Bool {
++        show([.folder], asCopy: false, multiple: true, onCancel: onCancel, onError: onError) { urls in
++            if let url = urls.first { pick(url) }
++        }
++    }
++
+     private static func show(_ types: [UTType], asCopy: Bool, multiple: Bool,
+                              onCancel: (() -> Void)?, onError: ((String) -> Void)?,
+                              pick: @escaping ([URL]) -> Void) -> Bool {
++        // A picker closed without telling us (swiped away mid-transition) must not block the next one.
++        if let open = current, open.picker?.presentingViewController == nil { current = nil; open.cancel?() }
+         guard current == nil else { onError?("文件选择器已经打开，请先完成或取消当前选择。"); return false }
+         guard let top = topViewController(), top.viewIfLoaded?.window != nil,
+               !top.isBeingPresented, !top.isBeingDismissed else {
+@@ -42,10 +55,12 @@
+         let picker = UIDocumentPickerViewController(forOpeningContentTypes: types, asCopy: asCopy)
+         picker.allowsMultipleSelection = multiple
+         picker.delegate = coordinator
++        picker.shouldShowFileExtensions = true
++        coordinator.picker = picker
+         current = coordinator
+         top.view.endEditing(true)
++        // The picker keeps its own presentation delegate; replacing it could leave 「打开」 unusable.
+         top.present(picker, animated: true)
+-        picker.presentationController?.delegate = coordinator
+         return true
+     }
+ 
+@@ -58,9 +73,10 @@
+         return top
+     }
+ 
+-    @MainActor private final class Coordinator: NSObject, UIDocumentPickerDelegate, UIAdaptivePresentationControllerDelegate {
++    @MainActor private final class Coordinator: NSObject, UIDocumentPickerDelegate {
+         let pick: ([URL]) -> Void
+         let cancel: (() -> Void)?
++        weak var picker: UIDocumentPickerViewController?
+         private var completed = false
+         init(pick: @escaping ([URL]) -> Void, cancel: (() -> Void)?) { self.pick = pick; self.cancel = cancel }
+         func documentPicker(_ controller: UIDocumentPickerViewController, didPickDocumentsAt urls: [URL]) {
+@@ -69,9 +85,6 @@
+         func documentPickerWasCancelled(_ controller: UIDocumentPickerViewController) {
+             finish(controller, urls: [])
+         }
+-        func presentationControllerDidDismiss(_ presentationController: UIPresentationController) {
+-            finish(nil, urls: [])
+-        }
+         private func finish(_ controller: UIViewController?, urls: [URL]) {
+             guard !completed else { return }
+             completed = true
+diff -ruN a/QingJian/DeepSeekPocket/Views/HighlightMarker.swift b/QingJian/DeepSeekPocket/Views/HighlightMarker.swift
+--- a/QingJian/DeepSeekPocket/Views/HighlightMarker.swift	2026-11-08 17:10:30.355061317 +0800
++++ b/QingJian/DeepSeekPocket/Views/HighlightMarker.swift	2026-11-08 17:10:30.366985391 +0800
+@@ -82,3 +82,27 @@
+         self = result
+     }
+ }
++
++extension Text {
++    /// Emphasis as slightly heavier words, nothing drawn behind them: bold phrases in
++    /// an answer are set semibold in the text colour.
++    init(markdown value: AttributedString, emphasisWeight weight: Font.Weight) {
++        let ranges = HighlightMarks.boldRanges(in: value)
++        guard !ranges.isEmpty else { self.init(value); return }
++        var result = Text(verbatim: "")
++        var cursor = value.startIndex
++        for range in ranges {
++            if cursor < range.lowerBound {
++                result = Text("\(result)\(Text(AttributedString(value[cursor..<range.lowerBound])))")
++            }
++            var phrase = AttributedString(value[range])
++            phrase.inlinePresentationIntent?.remove(.stronglyEmphasized)
++            result = Text("\(result)\(Text(phrase).fontWeight(weight))")
++            cursor = range.upperBound
++        }
++        if cursor < value.endIndex {
++            result = Text("\(result)\(Text(AttributedString(value[cursor..<value.endIndex])))")
++        }
++        self = result
++    }
++}
+diff -ruN a/QingJian/DeepSeekPocket/Views/InterfaceStyle.swift b/QingJian/DeepSeekPocket/Views/InterfaceStyle.swift
+--- a/QingJian/DeepSeekPocket/Views/InterfaceStyle.swift	2026-11-08 17:10:30.355087715 +0800
++++ b/QingJian/DeepSeekPocket/Views/InterfaceStyle.swift	2026-11-08 17:10:30.367438086 +0800
+@@ -24,9 +24,9 @@
+     }
+     var detail: String {
+         switch self {
+-        case .paper: return "暖纸色、宋体、荧光高光、液态玻璃"
++        case .paper: return "暖纸色、重点加粗、液态玻璃"
+         case .swiss: return "灰白底、黑体、蓝色粗体、网格线与方角"
+-        case .night: return "千江有水千江月：夜色江水、宋体、月光高光，始终是深色"
++        case .night: return "千江有水千江月：夜色江水、重点加粗，始终是深色"
+         }
+     }
+ 
+@@ -63,10 +63,35 @@
+     }
+ }
+ 
++/// Light or dark for 纸笺 and 瑞士: with the system by default, or held on one side.
++/// 夜江 is a night scene and always stays dark.
++enum AppearanceMode: String, CaseIterable, Identifiable, Sendable {
++    case system, light, dark
++    static let key = "sermo.appearance.mode"
++    var id: String { rawValue }
++    var title: String {
++        switch self {
++        case .system: return "跟随系统"
++        case .light: return "始终浅色"
++        case .dark: return "始终深色"
++        }
++    }
++    /// The scheme the window should use for a stored mode in the current look.
++    static func scheme(_ raw: String) -> ColorScheme? {
++        if InterfaceStyle.isNight { return .dark }
++        switch AppearanceMode(rawValue: raw) ?? .system {
++        case .system: return nil
++        case .light: return .light
++        case .dark: return .dark
++        }
++    }
++}
++
+ /// Settings row: pick the look. Saved at once; the app redraws in place.
+ @MainActor
+ struct InterfaceStylePicker: View {
+     @AppStorage(InterfaceStyle.key) private var stored = InterfaceStyle.paper.rawValue
++    @AppStorage(AppearanceMode.key) private var appearance = AppearanceMode.system.rawValue
+     var body: some View {
+         Picker("界面风格", selection: $stored) {
+             ForEach(InterfaceStyle.allCases) { style in
+@@ -77,7 +102,12 @@
+         .accessibilityValue((InterfaceStyle(rawValue: stored) ?? .paper).title)
+         // The app also listens for this key; reloading here as well makes the switch immediate.
+         .onChange(of: stored) { _, _ in StyleAppearance.shared.reload(); InkAppearance.apply() }
+-        Text((InterfaceStyle(rawValue: stored) ?? .paper).detail + "。切换后整个 App 立刻换样式，对话和设置都不受影响。瑞士风格固定使用系统黑体，不显示荧光高光；夜江不跟随系统浅色模式，高光固定为月光色。")
++        Picker("白天与夜晚", selection: $appearance) {
++            ForEach(AppearanceMode.allCases) { mode in Text(mode.title).tag(mode.rawValue) }
++        }
++        .disabled(InterfaceStyle(rawValue: stored) == .night)
++        .accessibilityIdentifier("appearance-mode")
++        Text((InterfaceStyle(rawValue: stored) ?? .paper).detail + "。切换后整个 App 立刻换样式，对话和设置都不受影响。纸笺和瑞士默认跟着手机的浅色、深色模式自动切换，也可以固定一边；瑞士风格固定使用系统字体；夜江始终是深色。")
+             .font(TypeScale.serif(12)).foregroundStyle(.secondary)
+     }
+ }
+diff -ruN a/QingJian/DeepSeekPocket/Views/ReasoningView.swift b/QingJian/DeepSeekPocket/Views/ReasoningView.swift
+--- a/QingJian/DeepSeekPocket/Views/ReasoningView.swift	2026-11-08 17:10:30.355207051 +0800
++++ b/QingJian/DeepSeekPocket/Views/ReasoningView.swift	2026-11-08 17:10:30.367583028 +0800
+@@ -26,7 +26,7 @@
+     var body: some View {
+         Button(action: open) {
+             HStack(spacing: 8) {
+-                Image(systemName: "clock").font(.system(size: 14))
++                ThinkingMark(live: live)
+                 if live {
+                     TimelineView(.periodic(from: .now, by: 1)) { timeline in
+                         line(head: "思考中 · \(max(0, Int(timeline.date.timeIntervalSince(message.createdAt)))) 秒")
+@@ -51,6 +51,45 @@
+         }
+     }
+ }
++
++/// Sermo's thinking mark: five small terracotta petals round a seed. While it thinks
++/// the petals turn slowly and breathe one after another; when it is done they settle
++/// into a still little flower. Motion stops when Reduce Motion is on.
++struct ThinkingMark: View {
++    var live: Bool
++    var size: CGFloat = 18
++    @Environment(\.accessibilityReduceMotion) private var reduceMotion
++    var body: some View {
++        Group {
++            if live && !reduceMotion {
++                TimelineView(.animation) { timeline in
++                    petals(time: timeline.date.timeIntervalSinceReferenceDate)
++                }
++            } else {
++                petals(time: nil)
++            }
++        }
++        .frame(width: size, height: size)
++        .accessibilityHidden(true)
++    }
++
++    private func petals(time: Double?) -> some View {
++        let dot = size * 0.26
++        let ring = size * 0.34
++        let turn = (time ?? 0) * 70
++        return ZStack {
++            ForEach(0..<5, id: \.self) { index in
++                let wave = time.map { 0.72 + 0.28 * (0.5 + 0.5 * sin($0 * 3.2 - Double(index) * 1.25)) } ?? 1
++                Circle().fill(Ink.seal)
++                    .frame(width: dot * wave, height: dot * wave)
++                    .opacity(time == nil ? 0.9 : 0.55 + 0.45 * wave)
++                    .offset(y: -ring)
++                    .rotationEffect(.degrees(Double(index) * 72 + turn))
++            }
++            Circle().fill(Ink.seal).frame(width: dot * 0.7, height: dot * 0.7)
++        }
++    }
++}
+ 
+ struct ThinkingTarget: Identifiable, Equatable {
+     let threadID: UUID
+diff -ruN a/QingJian/DeepSeekPocket/Views/SettingsView.swift b/QingJian/DeepSeekPocket/Views/SettingsView.swift
+--- a/QingJian/DeepSeekPocket/Views/SettingsView.swift	2026-11-08 17:10:30.355218619 +0800
++++ b/QingJian/DeepSeekPocket/Views/SettingsView.swift	2026-11-08 17:10:30.367595470 +0800
+@@ -18,6 +18,8 @@
+     @State private var connectionError: String?
+     @State private var connectionTask: Task<Void, Never>?
+     @State private var showKey = false
++    // A long default instruction stays folded to two lines until opened.
++    @State private var promptExpanded = false
+     @State private var saved = false
+     @State private var loadedSettings = false
+     @State private var showProfile = ProcessInfo.processInfo.arguments.contains("--preview-profile")
+@@ -142,12 +144,35 @@
+                         .font(TypeScale.caption).foregroundStyle(Ink.ink3)
+                 } header: { Text("系统指令库") }
+                 Section {
+-                    TextEditor(text: $draftSettings.systemPrompt).frame(minHeight: 150).font(TypeScale.serif(15)).scrollContentBackground(.hidden)
+-                        .accessibilityIdentifier("system-prompt-editor")
++                    Button {
++                        withAnimation(.snappy(duration: 0.25)) { promptExpanded.toggle() }
++                    } label: {
++                        HStack(alignment: .top, spacing: 10) {
++                            VStack(alignment: .leading, spacing: 4) {
++                                if !promptExpanded {
++                                    Text(draftSettings.systemPrompt.isEmpty ? "（空）" : draftSettings.systemPrompt)
++                                        .font(TypeScale.serif(15)).foregroundStyle(Ink.ink2).lineLimit(2)
++                                        .multilineTextAlignment(.leading)
++                                }
++                                Text(promptExpanded ? "收起" : "\(draftSettings.systemPrompt.count) 字 · 点开编辑")
++                                    .font(TypeScale.caption).foregroundStyle(Ink.ink3)
++                            }
++                            Spacer(minLength: 0)
++                            Image(systemName: "chevron.down").font(.system(size: 12, weight: .semibold))
++                                .foregroundStyle(Ink.ink3).rotationEffect(.degrees(promptExpanded ? 180 : 0))
++                                .padding(.top, 4)
++                        }
++                        .contentShape(Rectangle())
++                    }
++                    .buttonStyle(.plain)
++                    .accessibilityLabel(promptExpanded ? "收起全局默认指令" : "展开全局默认指令")
++                    if promptExpanded {
++                        TextEditor(text: $draftSettings.systemPrompt).frame(minHeight: 150).font(TypeScale.serif(15)).scrollContentBackground(.hidden)
++                            .accessibilityIdentifier("system-prompt-editor")
++                    }
+                 } header: { Text("全局默认指令") } footer: {
+                     Text("未选自定义指令、也不在项目里的聊天使用这里的内容；修改后点本页右上角保存。每个聊天可从输入区选择自己的指令，项目默认使用项目指令。思考原文与译文不占用普通聊天上下文。")
+                 }
+-                HighlightColorSettings()
+                 Section("阅读与外观") {
+                     InterfaceStylePicker()
+                     Toggle("侧栏触感反馈", isOn: $hapticsEnabled)
+diff -ruN a/QingJian/DeepSeekPocket/Views/StreamActivityView.swift b/QingJian/DeepSeekPocket/Views/StreamActivityView.swift
+--- a/QingJian/DeepSeekPocket/Views/StreamActivityView.swift	2026-11-08 17:10:30.355259564 +0800
++++ b/QingJian/DeepSeekPocket/Views/StreamActivityView.swift	2026-11-08 17:10:30.367636571 +0800
+@@ -12,7 +12,7 @@
+                 (!message.reasoning.isEmpty ? .thinking : (store.generationProgress?.phase ?? .connecting))
+             VStack(alignment: .leading, spacing: 7) {
+                 HStack(spacing: 9) {
+-                    PulseDot()
++                    if InterfaceStyle.isSwiss || InterfaceStyle.isNight { PulseDot() } else { ThinkingMark(live: true, size: 16) }
+                     // The reasoning header above already says it is thinking and for how long.
+                     if phase == .connecting || phase == .waiting {
+                         Text("\(phase.title) · \(seconds) 秒").font(TypeScale.caption).monospacedDigit()
+diff -ruN a/QingJian/DeepSeekPocket/Views/ToolSettingsSections.swift b/QingJian/DeepSeekPocket/Views/ToolSettingsSections.swift
+--- a/QingJian/DeepSeekPocket/Views/ToolSettingsSections.swift	2026-11-08 17:10:30.355278265 +0800
++++ b/QingJian/DeepSeekPocket/Views/ToolSettingsSections.swift	2026-11-08 17:10:30.367656362 +0800
+@@ -30,31 +30,32 @@
+     }
+ }
+ 
+-// Daily backup into a folder picked once in the Files app.
++// Daily backup into the app's own folder, plus an optional extra copy in a picked folder.
+ @MainActor
+ struct AutoBackupSection: View {
+     @EnvironmentObject private var store: AppStore
+     var body: some View {
+         Section {
++            LabeledContent("备份到", value: BackupFolder.localLocation)
++            LabeledContent("上次备份", value: store.lastAutoBackup.map {
++                $0.formatted(date: .abbreviated, time: .shortened)
++            } ?? "尚未备份")
++            Button("立即备份") { store.autoBackupIfNeeded(force: true) }
++                .disabled(!store.canPersist)
+             if let name = store.backupFolderName {
+-                LabeledContent("备份到", value: name)
+-                LabeledContent("上次备份", value: store.lastAutoBackup.map {
+-                    $0.formatted(date: .abbreviated, time: .shortened)
+-                } ?? "尚未备份")
+-                Button("立即备份") { store.autoBackupIfNeeded(force: true) }
+-                    .disabled(!store.canPersist)
+-                Button("更换文件夹") { chooseFolder() }
+-                Button("停止自动备份", role: .destructive) { store.clearBackupFolder() }
++                LabeledContent("额外存一份到", value: name)
++                Button("更换额外文件夹") { chooseFolder() }
++                Button("不再额外存一份", role: .destructive) { store.clearBackupFolder() }
+             } else {
+-                Button { chooseFolder() } label: { Label("选择备份文件夹", systemImage: "folder.badge.plus") }
++                Button { chooseFolder() } label: { Label("额外存一份到其他文件夹", systemImage: "folder.badge.plus") }
+             }
+             if let issue = store.backupIssue { Text(issue).font(TypeScale.serif(13)).foregroundStyle(.secondary) }
+         } header: { Text("自动备份") } footer: {
+-            Text("每天第一次打开 Sermo 时，把聊天备份存进你选的文件夹，例如 iCloud 云盘或谷歌云盘里的一个文件夹。选择时先点进那个文件夹，再点右上角「打开」。只保留最近 7 天的自动备份，旧的会被替换；不含 API Key 和登录凭证。")
++            Text("每天第一次打开 Sermo 时自动备份聊天，存进「文件」App 的「我的 iPhone › Sermo › 自动备份」，不用设置。想在 iCloud 云盘等地方再存一份，可以另选一个文件夹：在文件夹右侧勾选后点「打开」。只保留最近 7 天的自动备份；不含 API Key 和登录凭证。")
+         }
+     }
+     private func chooseFolder() {
+-        DocumentPicker.present([.folder]) { url in store.setBackupFolder(url) }
++        DocumentPicker.presentFolder(onError: { store.errorMessage = $0 }) { url in store.setBackupFolder(url) }
+     }
+ }
+ 
+@@ -115,9 +116,14 @@
+     }
+     private func importFont(bold: Bool) {
+         let types = [UTType.font] + ["ttf", "otf"].compactMap { UTType(filenameExtension: $0) }
+-        DocumentPicker.present(types) { url in
+-            do { try FontLibrary.importFont(from: url, bold: bold) }
+-            catch { store.errorMessage = "无法导入字体：\(error.localizedDescription)" }
++        // Tick a font, then 「打开」: a single tap on a font file previews it instead of picking it.
++        // The picker hands over a private copy, removed once it has been read.
++        DocumentPicker.presentMany(types, asCopy: true, onError: { store.errorMessage = $0 }) { urls in
++            guard let url = urls.first else { return }
++            defer { for copy in urls { try? FileManager.default.removeItem(at: copy) } }
++            do {
++                try FontLibrary.importFont(from: url, bold: bold)
++            } catch { store.errorMessage = "无法导入字体：\(error.localizedDescription)" }
+         }
+     }
+ }
+diff -ruN a/QingJian/DeepSeekPocket/Views/ToolViews.swift b/QingJian/DeepSeekPocket/Views/ToolViews.swift
+--- a/QingJian/DeepSeekPocket/Views/ToolViews.swift	2026-11-08 17:10:30.355289388 +0800
++++ b/QingJian/DeepSeekPocket/Views/ToolViews.swift	2026-11-08 17:10:30.367693503 +0800
+@@ -1,4 +1,5 @@
+ import SwiftUI
++import UIKit
+ 
+ // One quiet line per tool the answer used: what it did and how it went.
+ struct ToolActivityList: View {
+@@ -83,24 +84,56 @@
+ struct SelectableTextSheet: View {
+     let text: String
+     @Environment(\.dismiss) private var dismiss
+-    private var rendered: AttributedString {
+-        (try? AttributedString(markdown: text, options: .init(interpretedSyntax: .inlineOnlyPreservingWhitespace))) ?? AttributedString(text)
++    @AppStorage("qingjian.reading.size") private var size = 18.0
++    // Markdown marks (**, #) are dropped so what you copy is the words themselves.
++    private var plain: String {
++        let rendered = (try? AttributedString(markdown: text, options: .init(interpretedSyntax: .inlineOnlyPreservingWhitespace))) ?? AttributedString(text)
++        return String(rendered.characters)
+     }
+     var body: some View {
+         NavigationStack {
+-            ScrollView {
+-                Text(rendered).readingStyle().lineSpacing(7).foregroundStyle(Ink.ink)
+-                    .textSelection(.enabled)
+-                    .frame(maxWidth: .infinity, alignment: .leading)
+-                    .padding(20)
+-            }
+-            .background(Ink.paper)
+-            .navigationTitle("选择文字")
+-            .navigationBarTitleDisplayMode(.inline)
+-            .toolbar {
+-                ToolbarItem(placement: .topBarTrailing) { Button("完成") { dismiss() } }
+-            }
++            // A real text view: SwiftUI's text selection only copies a whole block on
++            // iPhone, so part of an answer could never be picked out before.
++            SelectableTextView(text: plain, size: size)
++                .background(Ink.paper)
++                .navigationTitle("选择文字")
++                .navigationBarTitleDisplayMode(.inline)
++                .toolbar {
++                    ToolbarItem(placement: .topBarLeading) {
++                        Button("全部复制") { UIPasteboard.general.string = plain; dismiss() }
++                    }
++                    ToolbarItem(placement: .topBarTrailing) { Button("完成") { dismiss() } }
++                }
+         }
+         .presentationDragIndicator(.visible)
+     }
+ }
++
++/// Read-only text with the system's handles: press and drag to pick any part, then 「拷贝」.
++struct SelectableTextView: UIViewRepresentable {
++    let text: String
++    var size: Double = 18
++    func makeUIView(context: Context) -> UITextView {
++        let view = UITextView()
++        view.isEditable = false
++        view.isSelectable = true
++        view.backgroundColor = .clear
++        view.textContainerInset = UIEdgeInsets(top: 20, left: 16, bottom: 32, right: 16)
++        view.alwaysBounceVertical = true
++        view.dataDetectorTypes = []
++        return view
++    }
++    func updateUIView(_ view: UITextView, context: Context) {
++        let font: UIFont = FontLibrary.usesSystemFace
++            ? UIFont.systemFont(ofSize: size)
++            : (UIFont(name: FontLibrary.regularFace, size: size) ?? UIFont.systemFont(ofSize: size))
++        let paragraph = NSMutableParagraphStyle()
++        paragraph.lineSpacing = 7
++        let attributed = NSAttributedString(string: text, attributes: [
++            .font: UIFontMetrics(forTextStyle: .body).scaledFont(for: font),
++            .foregroundColor: UIColor(Ink.ink), .paragraphStyle: paragraph
++        ])
++        if view.attributedText != attributed { view.attributedText = attributed }
++        view.tintColor = UIColor(Ink.seal)
++    }
++}
+diff -ruN a/QingJian/QingJian.xcodeproj/project.pbxproj b/QingJian/QingJian.xcodeproj/project.pbxproj
+--- a/QingJian/QingJian.xcodeproj/project.pbxproj	2026-11-08 17:10:30.355345178 +0800
++++ b/QingJian/QingJian.xcodeproj/project.pbxproj	2026-11-08 17:10:30.367770582 +0800
+@@ -110,7 +110,7 @@
+ 		82FA67131BBD396F86E2116A = { isa = "PBXBuildFile"; fileRef = "FD74A26728B90EEDF0289739"; };
+ 		83A2F5A6AC45B5491E1C720F = { isa = "PBXBuildFile"; fileRef = "7904190125DA8DD29BF99CDB"; };
+ 		845ECD744C27640FC0E6C3BE = { isa = "PBXFileReference"; lastKnownFileType = "sourcecode.swift"; path = "DeepSeekPocket/Core/GitHubTools.swift"; sourceTree = "SOURCE_ROOT"; };
+-		86A46D98C12482E1EF3DC46C = { isa = "XCBuildConfiguration"; buildSettings = { PRODUCT_BUNDLE_IDENTIFIER = "com.xiaolong.qingjian"; PRODUCT_NAME = "DeepSeekPocket"; INFOPLIST_FILE = "DeepSeekPocket/Info.plist"; GENERATE_INFOPLIST_FILE = "NO"; MARKETING_VERSION = "1.25.0"; CURRENT_PROJECT_VERSION = "51"; ASSETCATALOG_COMPILER_APPICON_NAME = "AppIcon"; ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = "AccentColor"; TARGETED_DEVICE_FAMILY = "1,2"; CODE_SIGN_STYLE = "Automatic"; LD_RUNPATH_SEARCH_PATHS = ( "$(inherited)", "@executable_path/Frameworks", ); SUPPORTED_PLATFORMS = "iphoneos iphonesimulator"; SUPPORTS_MACCATALYST = "NO"; SWIFT_EMIT_LOC_STRINGS = "YES"; }; name = "Release"; };
++		86A46D98C12482E1EF3DC46C = { isa = "XCBuildConfiguration"; buildSettings = { PRODUCT_BUNDLE_IDENTIFIER = "com.xiaolong.qingjian"; PRODUCT_NAME = "DeepSeekPocket"; INFOPLIST_FILE = "DeepSeekPocket/Info.plist"; GENERATE_INFOPLIST_FILE = "NO"; MARKETING_VERSION = "1.26.0"; CURRENT_PROJECT_VERSION = "52"; ASSETCATALOG_COMPILER_APPICON_NAME = "AppIcon"; ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = "AccentColor"; TARGETED_DEVICE_FAMILY = "1,2"; CODE_SIGN_STYLE = "Automatic"; LD_RUNPATH_SEARCH_PATHS = ( "$(inherited)", "@executable_path/Frameworks", ); SUPPORTED_PLATFORMS = "iphoneos iphonesimulator"; SUPPORTS_MACCATALYST = "NO"; SWIFT_EMIT_LOC_STRINGS = "YES"; }; name = "Release"; };
+ 		8B37FFF4CB7BE1135BD14ACD = { isa = "PBXFileReference"; lastKnownFileType = "sourcecode.swift"; path = "DeepSeekPocket/Core/WebSearch.swift"; sourceTree = "SOURCE_ROOT"; };
+ 		8BDCEEA2EB43FC91018F696F = { isa = "PBXBuildFile"; fileRef = "FF1F92A5772CD6C2220F3CD7"; };
+ 		8C6280633D259F66427E2288 = { isa = "PBXFileReference"; lastKnownFileType = "sourcecode.swift"; path = "DeepSeekPocket/Views/ReasoningView.swift"; sourceTree = "SOURCE_ROOT"; };
+@@ -160,7 +160,7 @@
+ 		BD12731D7BC9B843D8523E65 = { isa = "PBXFileReference"; lastKnownFileType = "folder.assetcatalog"; path = "DeepSeekPocket/Assets.xcassets"; sourceTree = "SOURCE_ROOT"; };
+ 		BF41F4472847DA8EE81FF145 = { isa = "PBXBuildFile"; fileRef = "42CC3A23349A29CD3B9B13B7"; };
+ 		C0C355164654B03A78373B5A = { isa = "PBXBuildFile"; fileRef = "39F9C2B4BC13DE9D1B7A0828"; };
+-		C131AA990408F5A8B287713E = { isa = "XCBuildConfiguration"; buildSettings = { PRODUCT_BUNDLE_IDENTIFIER = "com.xiaolong.qingjian"; PRODUCT_NAME = "DeepSeekPocket"; INFOPLIST_FILE = "DeepSeekPocket/Info.plist"; GENERATE_INFOPLIST_FILE = "NO"; MARKETING_VERSION = "1.25.0"; CURRENT_PROJECT_VERSION = "51"; ASSETCATALOG_COMPILER_APPICON_NAME = "AppIcon"; ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = "AccentColor"; TARGETED_DEVICE_FAMILY = "1,2"; CODE_SIGN_STYLE = "Automatic"; LD_RUNPATH_SEARCH_PATHS = ( "$(inherited)", "@executable_path/Frameworks", ); SUPPORTED_PLATFORMS = "iphoneos iphonesimulator"; SUPPORTS_MACCATALYST = "NO"; SWIFT_EMIT_LOC_STRINGS = "YES"; }; name = "Debug"; };
++		C131AA990408F5A8B287713E = { isa = "XCBuildConfiguration"; buildSettings = { PRODUCT_BUNDLE_IDENTIFIER = "com.xiaolong.qingjian"; PRODUCT_NAME = "DeepSeekPocket"; INFOPLIST_FILE = "DeepSeekPocket/Info.plist"; GENERATE_INFOPLIST_FILE = "NO"; MARKETING_VERSION = "1.26.0"; CURRENT_PROJECT_VERSION = "52"; ASSETCATALOG_COMPILER_APPICON_NAME = "AppIcon"; ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = "AccentColor"; TARGETED_DEVICE_FAMILY = "1,2"; CODE_SIGN_STYLE = "Automatic"; LD_RUNPATH_SEARCH_PATHS = ( "$(inherited)", "@executable_path/Frameworks", ); SUPPORTED_PLATFORMS = "iphoneos iphonesimulator"; SUPPORTS_MACCATALYST = "NO"; SWIFT_EMIT_LOC_STRINGS = "YES"; }; name = "Debug"; };
+ 		C4BF254EBAFEB4755D037451 = { isa = "PBXFileReference"; lastKnownFileType = "sourcecode.swift"; path = "DeepSeekPocket/Views/StreamActivityView.swift"; sourceTree = "SOURCE_ROOT"; };
+ 		C7B5A2A8067AD2778E7DFC27 = { isa = "PBXFileReference"; lastKnownFileType = "sourcecode.swift"; path = "DeepSeekPocket/Views/HighlightColorSettings.swift"; sourceTree = "SOURCE_ROOT"; };
+ 		C7D59EFCCEB862427B91F038 = { isa = "PBXBuildFile"; fileRef = "5A6EB7F92D195E7AEE28EEB7"; };
