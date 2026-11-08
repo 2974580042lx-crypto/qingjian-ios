@@ -1,0 +1,379 @@
+diff -ruN pa/QingJian/DeepSeekPocket/Core/AppManual.swift pb/QingJian/DeepSeekPocket/Core/AppManual.swift
+--- a/QingJian/DeepSeekPocket/Core/AppManual.swift	2026-11-08 18:24:28.157321896 +0800
++++ b/QingJian/DeepSeekPocket/Core/AppManual.swift	2026-11-08 18:24:28.167728541 +0800
+@@ -4,7 +4,7 @@
+ // "Sermo 说明书" project (as its document) and the feature overview in Settings.
+ // Update it with every feature, and bump `revision` so the project refreshes.
+ enum AppManual {
+-    static let revision = 17
++    static let revision = 18
+     static let projectID = UUID(uuidString: "5E2B0D6A-3C1F-4A7E-9B21-5E5E2B0D6A01")!
+     static let projectName = "Sermo 说明书"
+     static let documentName = "Sermo 使用说明"
+diff -ruN pa/QingJian/DeepSeekPocket/Views/AppTheme.swift pb/QingJian/DeepSeekPocket/Views/AppTheme.swift
+--- a/QingJian/DeepSeekPocket/Views/AppTheme.swift	2026-11-08 18:24:28.163998134 +0800
++++ b/QingJian/DeepSeekPocket/Views/AppTheme.swift	2026-11-08 18:24:28.174594903 +0800
+@@ -36,7 +36,8 @@
+     }
+     static var sheet: Color {
+         if night { return fixed(0x071419) }
+-        return swiss ? Color.adaptive(light: 0xE7E7E3, dark: 0x0A0A0B) : Color.adaptive(light: 0xF2F0E9, dark: 0x121211)
++        // One step from the page in the same hue: the sidebar had read as a separate, yellow sheet.
++        return swiss ? Color.adaptive(light: 0xE7E7E3, dark: 0x0A0A0B) : Color.adaptive(light: 0xF3F2EE, dark: 0x111110)
+     }
+     static var raised: Color {
+         if night { return fixed(0x0F1D24) }
+diff -ruN pa/QingJian/DeepSeekPocket/Views/ContentView.swift pb/QingJian/DeepSeekPocket/Views/ContentView.swift
+--- a/QingJian/DeepSeekPocket/Views/ContentView.swift	2026-11-08 18:24:28.164068498 +0800
++++ b/QingJian/DeepSeekPocket/Views/ContentView.swift	2026-11-08 18:24:28.174657952 +0800
+@@ -411,7 +411,10 @@
+                 if phase == .idle && nearBottom && pendingMessageJump == nil && focusedMessageID == nil { followsOutput = true }
+             }
+             .onChange(of: store.activeThread?.messages.count) { _, _ in
+-                if shouldFollowOutput { scrollPosition.scrollTo(edge: .bottom) }
++                // After sending, glide down to the new message instead of jumping there.
++                guard shouldFollowOutput else { return }
++                if reduceMotion { scrollPosition.scrollTo(edge: .bottom) }
++                else { withAnimation(.easeOut(duration: 0.32)) { scrollPosition.scrollTo(edge: .bottom) } }
+             }
+             .onChange(of: store.activeThread?.messages.last?.content) { _, _ in
+                 if shouldFollowOutput && store.generatingThreadID == store.activeThreadID {
+@@ -860,10 +863,11 @@
+                 Text(store.pillModelTitle).foregroundStyle(Ink.ink).lineLimit(1)
+                 Text(store.pillEffortTitle).foregroundStyle(Ink.ink3)
+             }
++            // Plain text like the Claude app's model name: only 「+」 keeps a round base,
++            // so the row no longer mixes a filled pill, a filled circle and a bare icon.
+             .font(TypeScale.serif(15)).monospacedDigit()
+-            .padding(.horizontal, 14).frame(height: 38)
+-            .background(Ink.raised, in: Capsule())
+-            .contentShape(Capsule())
++            .padding(.horizontal, 6).frame(height: 38)
++            .contentShape(Rectangle())
+         }
+     }
+ 
+@@ -875,15 +879,14 @@
+                 .foregroundStyle(store.webSearchEnabled ? Ink.seal : Ink.ink3)
+                 .frame(minWidth: 38, minHeight: 38).contentShape(Rectangle())
+         } else {
++            // Off: a quiet globe. On: the globe and 「联网」 in the accent colour, no base.
+             HStack(spacing: 5) {
+                 Image(systemName: "globe")
+                 if store.webSearchEnabled { Text("联网").font(TypeScale.serif(15)) }
+             }
+-            .foregroundStyle(store.webSearchEnabled ? Ink.ink : Ink.ink3)
+-            .padding(.horizontal, store.webSearchEnabled ? 12 : 0)
++            .foregroundStyle(store.webSearchEnabled ? Ink.seal : Ink.ink3)
+             .frame(minWidth: 38, minHeight: 38)
+-            .background(store.webSearchEnabled ? Ink.raised : Color.clear, in: Capsule())
+-            .contentShape(Capsule())
++            .contentShape(Rectangle())
+         }
+     }
+ 
+@@ -1511,16 +1514,17 @@
+         .contextMenu {
+             // Times are no longer printed under every message; they are one press away.
+             Text(MessageTime.label(message.createdAt))
+-            Button("复制", systemImage: "doc.on.doc") { UIPasteboard.general.string = message.content; Haptic.tap() }
+-            // Answers draw their highlights with a custom renderer, which inline text
+-            // selection would bypass; selecting part of an answer happens in a sheet.
+-            Button("选择文字", systemImage: "selection.pin.in.out") { selecting = true }
++            // The three used most come first; everything else sits below a divider.
++            Section {
++                Button("复制", systemImage: "doc.on.doc") { UIPasteboard.general.string = message.content; Haptic.tap() }
++                Button("选择文字", systemImage: "selection.pin.in.out") { selecting = true }
++                Button("编辑文字", systemImage: "pencil") { edit() }.disabled(isGenerating)
++            }
+             if let toggleBookmark {
+                 Button(message.isBookmarked == true ? "取消收藏" : "收藏消息", systemImage: message.isBookmarked == true ? "bookmark.slash" : "bookmark") {
+                     toggleBookmark()
+                 }.disabled(message.state == .streaming)
+             }
+-            Button("编辑文字", systemImage: "pencil") { edit() }.disabled(isGenerating)
+             if let showThoughts {
+                 Button("他在想什么", systemImage: "bubble.left.and.text.bubble.right") { showThoughts() }
+             }
+diff -ruN pa/QingJian/DeepSeekPocket/Views/HistoryView.swift pb/QingJian/DeepSeekPocket/Views/HistoryView.swift
+--- a/QingJian/DeepSeekPocket/Views/HistoryView.swift	2026-11-08 18:24:28.164136818 +0800
++++ b/QingJian/DeepSeekPocket/Views/HistoryView.swift	2026-11-08 18:24:28.174731044 +0800
+@@ -51,7 +51,7 @@
+             }
+             .padding(.bottom, 18)
+             if searching {
+-                TextField("搜索对话", text: $search).font(TypeScale.serif(16)).autocorrectionDisabled()
++                TextField("搜索对话", text: $search).font(TypeScale.serif(17)).autocorrectionDisabled()
+                     .focused($searchFocused)
+                     .padding(.horizontal, 14).frame(height: 44).clearGlass(radius: 22)
+                     .padding(.bottom, 12)
+@@ -68,7 +68,7 @@
+                         groupLabel("最近")
+                         let recent = store.recentThreads
+                         if recent.isEmpty {
+-                            Text("还没有对话").font(TypeScale.serif(14)).foregroundStyle(Ink.ink3).padding(.vertical, 10)
++                            Text("还没有对话").font(TypeScale.serif(15)).foregroundStyle(Ink.ink3).padding(.vertical, 10)
+                         }
+                         ForEach(recent.prefix(Self.recentLimit)) { row($0) }
+                         if night && !recent.isEmpty {
+@@ -76,7 +76,7 @@
+                                 MoonPhaseIcon(phase: 0.15, size: 13)
+                                 MoonPhaseIcon(phase: 0.5, size: 13)
+                                 MoonPhaseIcon(phase: 1, size: 13)
+-                                Text("月越圆，这局戏聊得越深").font(TypeScale.serif(12)).foregroundStyle(Ink.ink3)
++                                Text("月越圆，这局戏聊得越深").font(TypeScale.serif(13)).foregroundStyle(Ink.ink3)
+                             }
+                             .padding(.top, 10)
+                             .accessibilityElement(children: .ignore)
+@@ -87,7 +87,7 @@
+                                 Text("查看全部")
+                                 Image(systemName: "chevron.right").font(.system(size: 12, weight: .medium))
+                             }
+-                            .font(TypeScale.serif(16)).foregroundStyle(Ink.ink2)
++                            .font(TypeScale.serif(17)).foregroundStyle(Ink.ink2)
+                             .padding(.vertical, 14).contentShape(Rectangle())
+                         }
+                         .buttonStyle(.plain).accessibilityIdentifier("sidebar-all-chats")
+@@ -138,7 +138,7 @@
+             Button { store.createNewChat(); finish() } label: {
+                 HStack(spacing: 8) {
+                     Image(systemName: "plus").font(.system(size: 15, weight: .medium))
+-                    Text("新建会话").font(TypeScale.serif(16).weight(.semibold))
++                    Text("新建会话").font(TypeScale.serif(17).weight(.semibold))
+                 }
+                 .foregroundStyle(InterfaceStyle.isNight ? Ink.onSeal : Ink.onSolid)
+                 .padding(.horizontal, 20).frame(height: 48)
+@@ -152,7 +152,7 @@
+     }
+ 
+     private func groupLabel(_ title: String) -> some View {
+-        Text(title).font(TypeScale.serif(14)).foregroundStyle(Ink.ink3)
++        Text(title).font(TypeScale.serif(15)).foregroundStyle(Ink.ink3)
+             .padding(.top, 22).padding(.bottom, 6)
+     }
+ 
+@@ -160,7 +160,7 @@
+         Button(action: action) {
+             HStack(spacing: 14) {
+                 Image(systemName: symbol).font(.system(size: 18)).frame(width: 24)
+-                Text(title).font(TypeScale.serif(18))
++                Text(title).font(TypeScale.serif(17))
+             }
+             .foregroundStyle(Ink.ink).padding(.vertical, 12)
+             .frame(maxWidth: .infinity, alignment: .leading).contentShape(Rectangle())
+@@ -195,12 +195,12 @@
+         if open {
+             let members = store.threads(in: project.id)
+             if members.isEmpty {
+-                Text("还没有对话").font(TypeScale.serif(14)).foregroundStyle(Ink.ink3)
++                Text("还没有对话").font(TypeScale.serif(15)).foregroundStyle(Ink.ink3)
+                     .padding(.leading, 38).padding(.vertical, 6)
+             }
+             ForEach(members) { row($0, showProject: false).padding(.leading, 24) }
+             Button { store.createThread(in: project.id); finish() } label: {
+-                Label("在此项目新建会话", systemImage: "plus").font(TypeScale.serif(14)).foregroundStyle(Ink.ink2)
++                Label("在此项目新建会话", systemImage: "plus").font(TypeScale.serif(15)).foregroundStyle(Ink.ink2)
+                     .padding(.leading, 38).padding(.vertical, 8)
+                     .frame(maxWidth: .infinity, alignment: .leading).contentShape(Rectangle())
+             }
+@@ -224,11 +224,9 @@
+                 }
+                 .frame(width: 24)
+                 .accessibilityHidden(true)
+-                Text(thread.title).font(TypeScale.serif(17)).lineLimit(1)
++                // The open talk: semibold on a soft grey pill instead of a yellow marker stroke.
++                Text(thread.title).font(TypeScale.serif(17)).fontWeight(active && !night ? .semibold : .regular).lineLimit(1)
+                     .foregroundStyle(night && active ? Ink.seal : Ink.ink)
+-                    .background(alignment: .bottom) {
+-                        if active && !night { Rectangle().fill(HighlightStyle.color(highlightHex, scheme: colorScheme)).frame(height: 9).padding(.horizontal, -2) }
+-                    }
+                 Spacer(minLength: 8)
+                 if thread.id == store.generatingThreadID { PulseDot(size: 7) }
+                 else if showProject, let project = store.project(thread.projectID) {
+@@ -237,6 +235,9 @@
+             }
+             .padding(.vertical, 11)
+             .frame(maxWidth: .infinity, alignment: .leading)
++            .padding(.horizontal, 10)
++            .background(active && !night ? Ink.line.opacity(0.7) : Color.clear, in: RoundedRectangle(cornerRadius: 12, style: .continuous))
++            .padding(.horizontal, -10)
+             .contentShape(Rectangle())
+         }
+         .buttonStyle(.plain)
+diff -ruN pa/QingJian/DeepSeekPocket/Views/InterfaceStyle.swift pb/QingJian/DeepSeekPocket/Views/InterfaceStyle.swift
+--- a/QingJian/DeepSeekPocket/Views/InterfaceStyle.swift	2026-11-08 18:24:28.164152200 +0800
++++ b/QingJian/DeepSeekPocket/Views/InterfaceStyle.swift	2026-11-08 18:24:28.174745023 +0800
+@@ -108,7 +108,7 @@
+         .disabled(InterfaceStyle(rawValue: stored) == .night)
+         .accessibilityIdentifier("appearance-mode")
+         Text((InterfaceStyle(rawValue: stored) ?? .paper).detail + "。切换后整个 App 立刻换样式，对话和设置都不受影响。纸笺和瑞士默认跟着手机的浅色、深色模式自动切换，也可以固定一边；瑞士风格固定使用系统字体；夜江始终是深色。")
+-            .font(TypeScale.serif(12)).foregroundStyle(.secondary)
++            .font(TypeScale.serif(13)).foregroundStyle(.secondary)
+     }
+ }
+ 
+diff -ruN pa/QingJian/DeepSeekPocket/Views/ProjectsView.swift pb/QingJian/DeepSeekPocket/Views/ProjectsView.swift
+--- a/QingJian/DeepSeekPocket/Views/ProjectsView.swift	2026-11-08 18:24:28.164235706 +0800
++++ b/QingJian/DeepSeekPocket/Views/ProjectsView.swift	2026-11-08 18:24:28.174823043 +0800
+@@ -144,7 +144,7 @@
+                 NavigationLink { ProjectMemoryView(projectID: projectID) } label: {
+                     HStack(spacing: 10) {
+                         Image(systemName: "brain").font(.system(size: 15)).foregroundStyle(Ink.ink2).frame(width: 24)
+-                        Text("项目记忆").font(TypeScale.serif(16)).foregroundStyle(Ink.ink)
++                        Text("项目记忆").font(TypeScale.serif(17)).foregroundStyle(Ink.ink)
+                         Spacer()
+                         Text(memorySummary).font(TypeScale.tiny).foregroundStyle(Ink.ink3)
+                         Image(systemName: "chevron.right").font(.system(size: 12)).foregroundStyle(Ink.ink3)
+@@ -159,7 +159,7 @@
+                 VStack(spacing: 12) {
+                     Image(systemName: "bubble.left.and.bubble.right").font(.system(size: 21)).foregroundStyle(Ink.ink2)
+                         .frame(width: 56, height: 56).background(Ink.raised, in: Circle())
+-                    Text("向 Sermo 提出任何问题").font(TypeScale.serif(18)).foregroundStyle(Ink.ink2)
++                    Text("向 Sermo 提出任何问题").font(TypeScale.serif(17)).foregroundStyle(Ink.ink2)
+                     Text("此项目中的会话将显示在这里。").font(TypeScale.serif(15)).foregroundStyle(Ink.ink3)
+                 }
+                 Spacer(); Spacer()
+@@ -193,7 +193,7 @@
+             Button { store.createThread(in: projectID); opened() } label: {
+                 HStack(spacing: 8) {
+                     Image(systemName: "plus").font(.system(size: 15, weight: .medium))
+-                    Text("新建会话").font(TypeScale.serif(16).weight(.semibold))
++                    Text("新建会话").font(TypeScale.serif(17).weight(.semibold))
+                 }
+                 .foregroundStyle(Ink.onSolid).padding(.horizontal, 20).frame(height: 48)
+                 .background(Ink.solid, in: InkCapsule()).contentShape(Capsule())
+@@ -332,7 +332,7 @@
+     }
+ 
+     private func pill(_ title: String) -> some View {
+-        Text(title).font(TypeScale.serif(16).weight(.semibold)).foregroundStyle(Ink.ink)
++        Text(title).font(TypeScale.serif(17).weight(.semibold)).foregroundStyle(Ink.ink)
+             .frame(maxWidth: .infinity).frame(height: 50)
+             .overlay(InkCapsule().stroke(Ink.line, lineWidth: 1))
+             .contentShape(Capsule())
+@@ -750,7 +750,7 @@
+             VStack(alignment: .leading, spacing: 12) {
+                 Text("这个项目里的对话只用这段指令，不叠加设置里的系统提示词。可以写身份、语气和规矩，比如「你是一位研究明史的老教授……」。")
+                     .font(TypeScale.caption).foregroundStyle(Ink.ink3)
+-                TextEditor(text: $text).font(TypeScale.serif(16)).scrollContentBackground(.hidden)
++                TextEditor(text: $text).font(TypeScale.serif(17)).scrollContentBackground(.hidden)
+                     .padding(12).background(Ink.raised, in: InkRounded(radius: 20))
+                     .accessibilityIdentifier("project-instructions")
+             }
+@@ -857,7 +857,7 @@
+ 
+     private func rowLabel(_ thread: ChatThread) -> some View {
+         VStack(alignment: .leading, spacing: 3) {
+-            Text(thread.title).font(TypeScale.serif(16)).foregroundStyle(Ink.ink).lineLimit(1)
++            Text(thread.title).font(TypeScale.serif(17)).foregroundStyle(Ink.ink).lineLimit(1)
+             HStack(spacing: 6) {
+                 if let project = store.project(thread.projectID) { Text(project.name) }
+                 Text(thread.updatedAt.formatted(date: .abbreviated, time: .omitted))
+@@ -928,7 +928,7 @@
+         VStack(alignment: .leading, spacing: 10) {
+             Text(prompt).font(TypeScale.caption).foregroundStyle(Ink.ink3)
+             TextEditor(text: $wish)
+-                .font(TypeScale.serif(16)).scrollContentBackground(.hidden)
++                .font(TypeScale.serif(17)).scrollContentBackground(.hidden)
+                 .frame(minHeight: 96)
+                 .padding(12).background(Ink.raised, in: InkRounded(radius: 20))
+                 .accessibilityIdentifier("project-designer-wish")
+@@ -937,7 +937,7 @@
+                     if working { ProgressView() } else { Image(systemName: "sparkles") }
+                     Text(working ? "正在生成…" : buttonTitle)
+                 }
+-                .font(TypeScale.serif(16).weight(.semibold))
++                .font(TypeScale.serif(17).weight(.semibold))
+                 .frame(maxWidth: .infinity).frame(height: 46)
+                 .overlay(InkCapsule().stroke(Ink.line, lineWidth: 1))
+                 .contentShape(Capsule())
+@@ -976,7 +976,7 @@
+                     }
+                     Toggle("告诉角色时间流逝", isOn: binding.timeAwareness)
+                 }
+-                .font(TypeScale.serif(16)).tint(Ink.seal)
++                .font(TypeScale.serif(17)).tint(Ink.seal)
+                 field("指令（\(binding.wrappedValue.instructions.count) 字）") {
+                     TextEditor(text: binding.instructions)
+                         .font(TypeScale.serif(15)).scrollContentBackground(.hidden)
+diff -ruN pa/QingJian/DeepSeekPocket/Views/SettingsView.swift pb/QingJian/DeepSeekPocket/Views/SettingsView.swift
+--- a/QingJian/DeepSeekPocket/Views/SettingsView.swift	2026-11-08 18:24:28.164276987 +0800
++++ b/QingJian/DeepSeekPocket/Views/SettingsView.swift	2026-11-08 18:24:28.174863475 +0800
+@@ -35,7 +35,7 @@
+                     HStack(spacing: 14) {
+                         ProfileAvatar(image: profile.avatar)
+                         VStack(alignment: .leading, spacing: 3) {
+-                            Text(profile.name).font(TypeScale.serif(23).weight(.semibold))
++                            Text(profile.name).font(TypeScale.serif(20).weight(.semibold))
+                             Text(profile.handle.isEmpty ? "编辑个人资料" : "ID：\(profile.handle)").font(TypeScale.caption).foregroundStyle(Ink.ink3)
+                         }
+                         Spacer()
+@@ -486,7 +486,7 @@
+                 }
+                 Section {
+                     TextEditor(text: $content).frame(minHeight: 280).scrollContentBackground(.hidden)
+-                        .font(TypeScale.serif(16)).accessibilityIdentifier("system-prompt-content")
++                        .font(TypeScale.serif(17)).accessibilityIdentifier("system-prompt-content")
+                 } header: { Text("指令内容 · \(content.count.formatted()) / 20,000 字") } footer: {
+                     Text("写下你想要的人设、语气或回答方式。支持已有的提示词变量，例如 {{名字}} 和 {{时间}}。")
+                 }
+diff -ruN pa/QingJian/DeepSeekPocket/Views/ToolSettingsSections.swift pb/QingJian/DeepSeekPocket/Views/ToolSettingsSections.swift
+--- a/QingJian/DeepSeekPocket/Views/ToolSettingsSections.swift	2026-11-08 18:24:28.164333967 +0800
++++ b/QingJian/DeepSeekPocket/Views/ToolSettingsSections.swift	2026-11-08 18:24:28.174920887 +0800
+@@ -10,7 +10,7 @@
+             LabeledContent("账号", value: drive.accountLabel)
+                 .accessibilityIdentifier("google-account")
+             if drive.signingIn {
+-                HStack { ProgressView(); Text("请在谷歌页面登录并允许访问云盘").font(TypeScale.serif(16)) }
++                HStack { ProgressView(); Text("请在谷歌页面登录并允许访问云盘").font(TypeScale.serif(17)) }
+                 Button("取消登录") { drive.cancelSignIn() }
+             } else {
+                 Button(drive.connected ? "重新登录谷歌" : "用 Google 登录") { drive.signIn() }
+@@ -20,7 +20,7 @@
+                 Text("登录已过期，请重新登录。测试状态的谷歌应用大约每 7 天需要登录一次。")
+                     .font(TypeScale.serif(13)).foregroundStyle(.secondary)
+             }
+-            if let issue = drive.issue { Text(issue).font(TypeScale.serif(14)) }
++            if let issue = drive.issue { Text(issue).font(TypeScale.serif(15)) }
+             if drive.connected {
+                 Button("退出谷歌账号", role: .destructive) { drive.signOut() }
+             }
+@@ -79,7 +79,7 @@
+             } else {
+                 Button("断开 GitHub", role: .destructive) { github.disconnect() }
+             }
+-            if let issue = github.issue { Text(issue).font(TypeScale.serif(14)) }
++            if let issue = github.issue { Text(issue).font(TypeScale.serif(15)) }
+         } header: { Text("GitHub") } footer: {
+             Text("生成「细粒度令牌」（Fine-grained token）时，只选需要的仓库，权限勾选 Contents、Pull requests 为读写，Actions 为只读。在项目「⋯」里打开「GitHub 工具」后，模型可以读代码、在 sermo/ 开头的分支上提交、开 PR、看编译结果；不会改动默认分支，提交和开 PR 前都会请你确认。令牌只存在本机钥匙串。")
+         }
+@@ -112,7 +112,7 @@
+                 .disabled(FontLibrary.regularName == nil)
+         }
+         Text("切换或导入后界面会刷新一次。导入的字体只保存在这台手机上，不进备份。瑞士风格下固定用系统黑体，换回纸笺后恢复这里选的字体。")
+-            .font(TypeScale.serif(12)).foregroundStyle(.secondary)
++            .font(TypeScale.serif(13)).foregroundStyle(.secondary)
+     }
+     private func importFont(bold: Bool) {
+         let types = [UTType.font] + ["ttf", "otf"].compactMap { UTType(filenameExtension: $0) }
+diff -ruN pa/QingJian/QingJian.xcodeproj/project.pbxproj pb/QingJian/QingJian.xcodeproj/project.pbxproj
+--- a/QingJian/QingJian.xcodeproj/project.pbxproj	2026-11-08 18:24:28.165393658 +0800
++++ b/QingJian/QingJian.xcodeproj/project.pbxproj	2026-11-08 18:24:28.175008760 +0800
+@@ -110,7 +110,7 @@
+ 		82FA67131BBD396F86E2116A = { isa = "PBXBuildFile"; fileRef = "FD74A26728B90EEDF0289739"; };
+ 		83A2F5A6AC45B5491E1C720F = { isa = "PBXBuildFile"; fileRef = "7904190125DA8DD29BF99CDB"; };
+ 		845ECD744C27640FC0E6C3BE = { isa = "PBXFileReference"; lastKnownFileType = "sourcecode.swift"; path = "DeepSeekPocket/Core/GitHubTools.swift"; sourceTree = "SOURCE_ROOT"; };
+-		86A46D98C12482E1EF3DC46C = { isa = "XCBuildConfiguration"; buildSettings = { PRODUCT_BUNDLE_IDENTIFIER = "com.xiaolong.qingjian"; PRODUCT_NAME = "DeepSeekPocket"; INFOPLIST_FILE = "DeepSeekPocket/Info.plist"; GENERATE_INFOPLIST_FILE = "NO"; MARKETING_VERSION = "1.28.0"; CURRENT_PROJECT_VERSION = "54"; ASSETCATALOG_COMPILER_APPICON_NAME = "AppIcon"; ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = "AccentColor"; TARGETED_DEVICE_FAMILY = "1,2"; CODE_SIGN_STYLE = "Automatic"; LD_RUNPATH_SEARCH_PATHS = ( "$(inherited)", "@executable_path/Frameworks", ); SUPPORTED_PLATFORMS = "iphoneos iphonesimulator"; SUPPORTS_MACCATALYST = "NO"; SWIFT_EMIT_LOC_STRINGS = "YES"; }; name = "Release"; };
++		86A46D98C12482E1EF3DC46C = { isa = "XCBuildConfiguration"; buildSettings = { PRODUCT_BUNDLE_IDENTIFIER = "com.xiaolong.qingjian"; PRODUCT_NAME = "DeepSeekPocket"; INFOPLIST_FILE = "DeepSeekPocket/Info.plist"; GENERATE_INFOPLIST_FILE = "NO"; MARKETING_VERSION = "1.29.0"; CURRENT_PROJECT_VERSION = "55"; ASSETCATALOG_COMPILER_APPICON_NAME = "AppIcon"; ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = "AccentColor"; TARGETED_DEVICE_FAMILY = "1,2"; CODE_SIGN_STYLE = "Automatic"; LD_RUNPATH_SEARCH_PATHS = ( "$(inherited)", "@executable_path/Frameworks", ); SUPPORTED_PLATFORMS = "iphoneos iphonesimulator"; SUPPORTS_MACCATALYST = "NO"; SWIFT_EMIT_LOC_STRINGS = "YES"; }; name = "Release"; };
+ 		8B37FFF4CB7BE1135BD14ACD = { isa = "PBXFileReference"; lastKnownFileType = "sourcecode.swift"; path = "DeepSeekPocket/Core/WebSearch.swift"; sourceTree = "SOURCE_ROOT"; };
+ 		8BDCEEA2EB43FC91018F696F = { isa = "PBXBuildFile"; fileRef = "FF1F92A5772CD6C2220F3CD7"; };
+ 		8C6280633D259F66427E2288 = { isa = "PBXFileReference"; lastKnownFileType = "sourcecode.swift"; path = "DeepSeekPocket/Views/ReasoningView.swift"; sourceTree = "SOURCE_ROOT"; };
+@@ -160,7 +160,7 @@
+ 		BD12731D7BC9B843D8523E65 = { isa = "PBXFileReference"; lastKnownFileType = "folder.assetcatalog"; path = "DeepSeekPocket/Assets.xcassets"; sourceTree = "SOURCE_ROOT"; };
+ 		BF41F4472847DA8EE81FF145 = { isa = "PBXBuildFile"; fileRef = "42CC3A23349A29CD3B9B13B7"; };
+ 		C0C355164654B03A78373B5A = { isa = "PBXBuildFile"; fileRef = "39F9C2B4BC13DE9D1B7A0828"; };
+-		C131AA990408F5A8B287713E = { isa = "XCBuildConfiguration"; buildSettings = { PRODUCT_BUNDLE_IDENTIFIER = "com.xiaolong.qingjian"; PRODUCT_NAME = "DeepSeekPocket"; INFOPLIST_FILE = "DeepSeekPocket/Info.plist"; GENERATE_INFOPLIST_FILE = "NO"; MARKETING_VERSION = "1.28.0"; CURRENT_PROJECT_VERSION = "54"; ASSETCATALOG_COMPILER_APPICON_NAME = "AppIcon"; ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = "AccentColor"; TARGETED_DEVICE_FAMILY = "1,2"; CODE_SIGN_STYLE = "Automatic"; LD_RUNPATH_SEARCH_PATHS = ( "$(inherited)", "@executable_path/Frameworks", ); SUPPORTED_PLATFORMS = "iphoneos iphonesimulator"; SUPPORTS_MACCATALYST = "NO"; SWIFT_EMIT_LOC_STRINGS = "YES"; }; name = "Debug"; };
++		C131AA990408F5A8B287713E = { isa = "XCBuildConfiguration"; buildSettings = { PRODUCT_BUNDLE_IDENTIFIER = "com.xiaolong.qingjian"; PRODUCT_NAME = "DeepSeekPocket"; INFOPLIST_FILE = "DeepSeekPocket/Info.plist"; GENERATE_INFOPLIST_FILE = "NO"; MARKETING_VERSION = "1.29.0"; CURRENT_PROJECT_VERSION = "55"; ASSETCATALOG_COMPILER_APPICON_NAME = "AppIcon"; ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = "AccentColor"; TARGETED_DEVICE_FAMILY = "1,2"; CODE_SIGN_STYLE = "Automatic"; LD_RUNPATH_SEARCH_PATHS = ( "$(inherited)", "@executable_path/Frameworks", ); SUPPORTED_PLATFORMS = "iphoneos iphonesimulator"; SUPPORTS_MACCATALYST = "NO"; SWIFT_EMIT_LOC_STRINGS = "YES"; }; name = "Debug"; };
+ 		C4BF254EBAFEB4755D037451 = { isa = "PBXFileReference"; lastKnownFileType = "sourcecode.swift"; path = "DeepSeekPocket/Views/StreamActivityView.swift"; sourceTree = "SOURCE_ROOT"; };
+ 		C7B5A2A8067AD2778E7DFC27 = { isa = "PBXFileReference"; lastKnownFileType = "sourcecode.swift"; path = "DeepSeekPocket/Views/HighlightColorSettings.swift"; sourceTree = "SOURCE_ROOT"; };
+ 		C7D59EFCCEB862427B91F038 = { isa = "PBXBuildFile"; fileRef = "5A6EB7F92D195E7AEE28EEB7"; };

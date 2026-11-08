@@ -1,0 +1,402 @@
+diff -ruN pa/QingJian/DeepSeekPocket/Core/AppManual.swift pb/QingJian/DeepSeekPocket/Core/AppManual.swift
+--- a/QingJian/DeepSeekPocket/Core/AppManual.swift	2026-11-08 18:19:04.051255429 +0800
++++ b/QingJian/DeepSeekPocket/Core/AppManual.swift	2026-11-08 18:19:04.061990478 +0800
+@@ -4,7 +4,7 @@
+ // "Sermo 说明书" project (as its document) and the feature overview in Settings.
+ // Update it with every feature, and bump `revision` so the project refreshes.
+ enum AppManual {
+-    static let revision = 16
++    static let revision = 17
+     static let projectID = UUID(uuidString: "5E2B0D6A-3C1F-4A7E-9B21-5E5E2B0D6A01")!
+     static let projectName = "Sermo 说明书"
+     static let documentName = "Sermo 使用说明"
+@@ -14,14 +14,14 @@
+ 
+     static let sections: [Section] = [
+         Section(title: "文件与PDF导入", items: [
+-            Item(name: "聊天里导入", how: "输入区点文件按钮，可选PDF、TXT或Markdown。文件在本地读取，文字追加到发起导入的那条对话草稿，原草稿保留，核对后自己发送；一次选多个文件会逐项说明结果。"),
++            Item(name: "聊天里导入", how: "输入框「+」→「文件」，可选PDF、TXT或Markdown。文件在本地读取，文字追加到发起导入的那条对话草稿，原草稿保留，核对后自己发送；一次选多个文件会逐项说明结果。"),
+             Item(name: "项目里导入", how: "项目 → 文件 → 导入PDF或文字文件。可多选，读取期间显示进度，结束后报告成功和失败的文件。启用资料合计超过10万字时，新资料先保存为关闭引用，打开开关后才随请求发送。"),
+             Item(name: "PDF范围与页码", how: "支持带可提取文字层的PDF；每页前保留PDF物理页序，不等同于书上印刷页码。部分页面没有文字会标注，纯扫描或密码锁定的文件会明确提示。当前导入的是提取出的文字，图表和页面版式请在原文件核对。"),
+             Item(name: "大小与编码", how: "PDF最多30MB和1000页，文字文件最多2MB，提取文字最多10万字；超过限制会提示拆分，不静默截断。支持常见UTF-8、带BOM的UTF-16以及GB18030、Big5中文文本，旧编码读取后请核对文字。"),
+         ]),
+         Section(title: "聊天", items: [
+             Item(name: "GPT 声音朗读", how: "在设置 → GPT 声音中领取并绑定 API 额度，保存 OpenAI API Key，选择声音。已完成回答下面点小喇叭可朗读，再点可停止；也可以打开 DeepSeek 回复后自动朗读。每次生成语音都会把回答文字发送给 OpenAI 并计入 API 用量，语音为 AI 生成，可能与文字略有不同。"),
+-            Item(name: "切换系统指令", how: "输入区上方点当前指令名称，选择自己保存的另一份指令。下一次发送或重新生成起生效，历史消息不改写；每个聊天各自保存选择时的副本，其他聊天不受影响。"),
++            Item(name: "切换系统指令", how: "点输入框左下角「+」，再点「指令 · 当前名称」，选择自己保存的另一份指令。下一次发送或重新生成起生效，历史消息不改写；每个聊天各自保存选择时的副本，其他聊天不受影响。"),
+             Item(name: "保留旧答案", how: "普通聊天重新生成，或修改问题后重新发送，会保留旧版本。右上角菜单 → 旧答案，可预览并切回之前的整条对话路径，再接着聊。切版本不调用模型；侧栏仍合并显示为一个对话，删除整条对话会连同其版本一起删除。"),
+             Item(name: "新建对话", how: "对话页右上角的笔形按钮，或侧栏底部「新建会话」。新对话会落在上次选的项目里。"),
+             Item(name: "选项目", how: "新对话还没发消息时，输入框下方加号旁的文件夹按钮。选一次会记住，之后新开的对话都在这个项目里；发出第一条消息后按钮收起。"),
+@@ -30,7 +30,7 @@
+             Item(name: "一键到底", how: "向上查看历史消息时，输入框右上方会浮出一个向下箭头的小圆按钮，点它回到最新消息；回到底部后自动隐藏。"),
+             Item(name: "手动联网", how: "输入框下方的地球按钮（DeepSeek）。打开后这一次先搜索、读取排名靠前的几个网页正文，再回答；会多一次搜索费用。想让模型自己决定何时搜索，用项目里的「联网工具」。"),
+             Item(name: "停止生成", how: "生成时发送按钮变成停止按钮，点一下即可。"),
+-            Item(name: "复制、编辑、重新生成", how: "回答下方的按钮；或长按任意消息打开菜单。想只复制一部分，点回答下方的「选择文字」（光标图标），按住拖动选中后拷贝。编辑你的消息时可以「保存并重新发送」。"),
++            Item(name: "复制、编辑、重新生成", how: "回答下方的按钮；或长按任意消息打开菜单，菜单最上面是这条消息的时间。想只复制一部分，点回答下方的「选择文字」（光标图标），按住拖动选中后拷贝。编辑你的消息时可以「保存并重新发送」。"),
+             Item(name: "选择部分文字", how: "长按回答 → 选择文字，在弹出页里自由选择并复制。"),
+             Item(name: "日常对话的心声", how: "长按一条已完成的回答 → 他在想什么。按当前对话人设和语气，单独生成一段第一人称心声补写，可停止或重写，结果保存在这条回答下。它是根据对话生成的演绎，与思考过程分开，不会发回聊天；额外生成计入所用服务的用量。"),
+             Item(name: "思考过程", how: "回答上方的思考行，点开看完整时间线，可切换原文、中文、双语。"),
+diff -ruN pa/QingJian/DeepSeekPocket/Views/AppTheme.swift pb/QingJian/DeepSeekPocket/Views/AppTheme.swift
+--- a/QingJian/DeepSeekPocket/Views/AppTheme.swift	2026-11-08 18:19:04.059342699 +0800
++++ b/QingJian/DeepSeekPocket/Views/AppTheme.swift	2026-11-08 18:19:04.069546475 +0800
+@@ -44,7 +44,7 @@
+     }
+     static var ink: Color {
+         if night { return fixed(0xDBEBEF) }
+-        return swiss ? Color.adaptive(light: 0x111111, dark: 0xEDEDE9) : Color.adaptive(light: 0x1F1E1D, dark: 0xECEAE3)
++        return swiss ? Color.adaptive(light: 0x111111, dark: 0xEDEDE9) : Color.adaptive(light: 0x2A2926, dark: 0xE8E6DF)
+     }
+     static var ink2: Color {
+         if night { return fixed(0xB4C3C9) }
+@@ -202,6 +202,33 @@
+     }
+ }
+ 
++/// Small controls dim and shrink a touch while pressed, so a tap is felt as well as seen.
++struct PressFeedbackStyle: ButtonStyle {
++    func makeBody(configuration: Configuration) -> some View {
++        configuration.label
++            .scaleEffect(configuration.isPressed ? 0.92 : 1)
++            .opacity(configuration.isPressed ? 0.6 : 1)
++            .animation(.snappy(duration: 0.16), value: configuration.isPressed)
++    }
++}
++extension ButtonStyle where Self == PressFeedbackStyle { static var pressFeedback: PressFeedbackStyle { PressFeedbackStyle() } }
++
++/// A light tap felt in the hand, unless haptics are switched off in Settings.
++enum Haptic {
++    @MainActor static func tap() {
++        guard UserDefaults.standard.object(forKey: "qingjian.haptics") as? Bool ?? true else { return }
++        UIImpactFeedbackGenerator(style: .light).impactOccurred(intensity: 0.7)
++    }
++}
++
++/// Chinese reading text: a little air between characters and Chinese punctuation
++/// (full-width quotes) even in the system font, whose Latin quotes left odd gaps.
++extension View {
++    func chineseReading() -> some View {
++        self.tracking(0.3).typesettingLanguage(Locale.Language(identifier: "zh-Hans"))
++    }
++}
++
+ struct PageContour: Shape {
+     var radius: CGFloat
+     var topInset: CGFloat
+diff -ruN pa/QingJian/DeepSeekPocket/Views/ContentView.swift pb/QingJian/DeepSeekPocket/Views/ContentView.swift
+--- a/QingJian/DeepSeekPocket/Views/ContentView.swift	2026-11-08 18:19:04.059415032 +0800
++++ b/QingJian/DeepSeekPocket/Views/ContentView.swift	2026-11-08 18:19:04.069611586 +0800
+@@ -247,6 +247,7 @@
+ struct ChatScreen: View {
+     @EnvironmentObject private var store: AppStore
+     @EnvironmentObject private var profile: ProfileStore
++    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+     let openHistory: () -> Void
+     let openSettings: () -> Void
+     @Binding var keyboardVisible: Bool
+@@ -372,6 +373,7 @@
+                     Color.clear.frame(height: 2)
+                 }
+                 .scrollTargetLayout()
++                .animation(reduceMotion ? nil : .easeOut(duration: 0.28), value: store.activeThread?.messages.count)
+                 .padding(.horizontal, swiss ? 20 : 18).padding(.top, 10).padding(.bottom, 22)
+             }
+             .accessibilityIdentifier("chat-scroll")
+@@ -607,6 +609,8 @@
+         return ForEach(visibleMessages) { message in
+             // Equatable: only the message that changed redraws while an answer streams.
+             messageRow(message, threadID: threadID, isLast: message.id == lastID, round: rounds[message.id] ?? 1, style: look)
++                // A new message eases in and rises a little instead of popping in.
++                .transition(.opacity.combined(with: .offset(y: 10)))
+                 .background {
+                     if pendingMessageJump?.messageID == message.id, let requestID = pendingMessageJump?.id {
+                         GeometryReader { geometry in
+@@ -1037,11 +1041,11 @@
+ 
+     @ViewBuilder private var composerTopControls: some View {
+         let hasMessages = store.activeThread?.messages.isEmpty == false
+-        if showsSystemPromptControl || store.canChooseProject || (hasMessages && !nearBottom) {
+-            // Small glass buttons floating above the composer: instruction and project on
+-            // the left, 「回到最新」 on the right only while you are scrolled up.
++        if store.canChooseProject || (hasMessages && !nearBottom) {
++            // Small glass buttons floating above the composer: the project on a new page,
++            // 「回到最新」 on the right only while you are scrolled up. The instruction
++            // button lives in the 「+」 row now, so nothing sits on the text you read.
+             HStack(spacing: 10) {
+-                systemPromptControl
+                 if store.canChooseProject { projectPill }
+                 Spacer(minLength: 0)
+                 if hasMessages && !nearBottom {
+@@ -1052,7 +1056,7 @@
+                             .floatingGlass(in: AnyShape(Circle()))
+                             .contentShape(Circle())
+                     }
+-                    .buttonStyle(.plain).accessibilityLabel("一键回到最新消息")
++                    .buttonStyle(.pressFeedback).accessibilityLabel("一键回到最新消息")
+                     .accessibilityIdentifier("chat-jump-to-latest")
+                     .transition(.opacity.combined(with: .scale(scale: 0.8)))
+                 }
+@@ -1066,6 +1070,7 @@
+     // closing was dropped, so 「图片」 needed several taps before.
+     private var attachmentButton: some View {
+         Button {
++            Haptic.tap()
+             withAnimation(.snappy(duration: 0.22)) { attachTrayOpen.toggle() }
+         } label: {
+             Image(systemName: "plus").font(.system(size: 17, weight: .medium))
+@@ -1075,13 +1080,22 @@
+                 .background(Ink.raised, in: swiss ? AnyShape(Rectangle()) : AnyShape(Circle()))
+                 .contentShape(Circle())
+         }
+-        .buttonStyle(.plain)
+-        .accessibilityLabel(attachTrayOpen ? "收起添加内容" : "添加图片、文件或文字")
++        .buttonStyle(.pressFeedback)
++        .accessibilityLabel(attachTrayOpen ? "收起添加内容" : "添加图片、文件、文字或切换指令")
+         .accessibilityIdentifier("chat-attachments")
+     }
+ 
+     private var attachmentTray: some View {
+         HStack(spacing: 8) {
++            if showsSystemPromptControl, let thread = store.activeThread {
++                let current = store.systemPromptTitle(for: thread)
++                trayButton("指令 · " + (current.count > 6 ? String(current.prefix(5)) + "…" : current),
++                           symbol: "text.bubble", id: "chat-system-prompt",
++                           disabled: store.isGenerating || !store.canPersist || !store.canChooseSystemPrompt(for: thread)) {
++                    focusComposer(false)
++                    systemPromptTarget = ConversationPanelTarget(threadID: thread.id)
++                }
++            }
+             trayButton("图片", symbol: "photo", id: "chat-add-photos",
+                        disabled: attachmentBusy || !store.canPersist || pendingImages.count >= 4) { choosePhotos() }
+             trayButton("文件", symbol: "doc.badge.plus", id: "chat-add-document",
+@@ -1110,7 +1124,7 @@
+                 .background(Ink.raised, in: swiss ? AnyShape(Rectangle()) : AnyShape(Capsule()))
+                 .contentShape(Capsule())
+         }
+-        .buttonStyle(.plain).disabled(disabled)
++        .buttonStyle(.pressFeedback).disabled(disabled)
+         .accessibilityIdentifier(id)
+     }
+ 
+@@ -1242,6 +1256,7 @@
+                         else {
+                             clearMessageNavigation()
+                             followsOutput = true
++                            Haptic.tap()
+                             if store.send(store.activeDraft, images: pendingImages.map(\.data)) {
+                                 pendingImages = []
+                                 focusComposer(false)
+@@ -1494,7 +1509,9 @@
+             } else if style == .swiss { swissContent } else { paperContent }
+         }
+         .contextMenu {
+-            Button("复制", systemImage: "doc.on.doc") { UIPasteboard.general.string = message.content }
++            // Times are no longer printed under every message; they are one press away.
++            Text(MessageTime.label(message.createdAt))
++            Button("复制", systemImage: "doc.on.doc") { UIPasteboard.general.string = message.content; Haptic.tap() }
+             // Answers draw their highlights with a custom renderer, which inline text
+             // selection would bypass; selecting part of an answer happens in a sheet.
+             Button("选择文字", systemImage: "selection.pin.in.out") { selecting = true }
+@@ -1533,12 +1550,10 @@
+                     VStack(alignment: .trailing, spacing: 6) {
+                         discussionVoiceLabel
+                         if let names = message.images, !names.isEmpty { AttachmentRow(names: names) }
+-                        Text(message.content).readingStyle().lineSpacing(5)
++                        Text(message.content).readingStyle().lineSpacing(6).chineseReading()
+                             .foregroundStyle(Ink.ink).textSelection(.enabled)
+                             .padding(.horizontal, 16).padding(.vertical, 11)
+                             .background(Ink.raised, in: RoundedRectangle(cornerRadius: 20, style: .continuous))
+-                        Text(MessageTime.label(message.createdAt)).font(TypeScale.serif(11)).monospacedDigit()
+-                            .foregroundStyle(Ink.ink3).padding(.trailing, 6)
+                     }
+                 }
+                 .frame(maxWidth: .infinity, alignment: .trailing)
+@@ -1548,9 +1563,7 @@
+                     StreamActivityView(message: message)
+                 } else {
+                     HStack(spacing: 18) {
+-                        Button {
+-                            UIPasteboard.general.string = message.content; copied = true
+-                        } label: { Image(systemName: copied ? "checkmark" : "doc.on.doc") }
++                        Button { copyAnswer() } label: { Image(systemName: copied ? "checkmark" : "doc.on.doc") }
+                             .accessibilityLabel("复制回答")
+                         Button { selecting = true } label: { Image(systemName: "text.cursor") }
+                             .accessibilityLabel("选择部分文字")
+@@ -1564,15 +1577,12 @@
+                                 .disabled(isGenerating || !canRegenerate).accessibilityLabel("重新生成")
+                         }
+                         Spacer(minLength: 4)
+-                        // Time over cost, right-aligned, so neither wraps mid-line.
+-                        VStack(alignment: .trailing, spacing: 2) {
+-                            Text(MessageTime.label(message.createdAt)).font(TypeScale.serif(11)).monospacedDigit()
+-                            if let usage = message.usage {
+-                                Text(usageLabel(usage)).font(TypeScale.serif(11)).monospacedDigit().lineLimit(1)
+-                                    .accessibilityLabel("本次请求共 \(usage.totalTokens) 个 Token")
+-                            }
++                        // Cost only; the time is in the long-press menu.
++                        if let usage = message.usage {
++                            Text(usageLabel(usage)).font(TypeScale.serif(11)).monospacedDigit().lineLimit(1)
++                                .accessibilityLabel("本次请求共 \(usage.totalTokens) 个 Token")
+                         }
+-                    }.font(.system(size: 15)).foregroundStyle(Ink.ink3).buttonStyle(.plain).padding(.top, 2)
++                    }.font(.system(size: 15)).foregroundStyle(Ink.ink3).buttonStyle(.pressFeedback).padding(.top, 2)
+                 }
+             }
+             trailingParts
+@@ -1620,9 +1630,7 @@
+     private var swissActions: some View {
+         VStack(alignment: .leading, spacing: 4) {
+             HStack(spacing: 18) {
+-                Button {
+-                    UIPasteboard.general.string = message.content; copied = true
+-                } label: { MonoLabel(text: copied ? "COPIED" : "COPY", color: Ink.ink).frame(minHeight: 32) }
++                Button { copyAnswer() } label: { MonoLabel(text: copied ? "COPIED" : "COPY", color: Ink.ink).frame(minHeight: 32) }
+                     .accessibilityLabel("复制回答")
+                 Button { edit() } label: { MonoLabel(text: "EDIT", color: Ink.ink).frame(minHeight: 32) }
+                     .disabled(isGenerating).accessibilityLabel("编辑回答")
+@@ -1705,6 +1713,17 @@
+         }
+     }
+ 
++    // The tick shows for a moment, then the copy icon comes back.
++    private func copyAnswer() {
++        UIPasteboard.general.string = message.content
++        Haptic.tap()
++        copied = true
++        Task { @MainActor in
++            try? await Task.sleep(nanoseconds: 1_500_000_000)
++            copied = false
++        }
++    }
++
+     // Tokens come from the server; the price is our estimate from the official list.
+     // The ChatGPT plan has no price per answer, so it shows tokens and the plan.
+     private func usageLabel(_ usage: TokenUsage) -> String {
+@@ -1784,21 +1803,27 @@
+             if let batch = message.replySuggestions {
+                 ForEach(Array(batch.replies.prefix(3).enumerated()), id: \.offset) { index, reply in
+                     Button { use(reply) } label: {
+-                        HStack(alignment: .firstTextBaseline, spacing: 12) {
+-                            Text(String(format: "%02d", index + 1))
+-                                .font(swiss ? TypeScale.mono(11) : TypeScale.serif(11)).monospacedDigit()
+-                                .foregroundStyle(swiss ? Ink.seal : Ink.ink3)
+-                            Text(reply).font(TypeScale.serif(15)).foregroundStyle(Ink.ink)
++                        HStack(alignment: .firstTextBaseline, spacing: 10) {
++                            if swiss {
++                                Text(String(format: "%02d", index + 1))
++                                    .font(TypeScale.mono(11)).monospacedDigit().foregroundStyle(Ink.seal)
++                            } else {
++                                // A light arrow instead of numbers and rules: three quiet
++                                // lines you can tap, not a table of contents.
++                                Image(systemName: "arrow.turn.down.right").font(.system(size: 11, weight: .medium))
++                                    .foregroundStyle(Ink.ink3).accessibilityHidden(true)
++                            }
++                            Text(reply).font(TypeScale.serif(15)).foregroundStyle(Ink.ink2).chineseReading()
+                                 .multilineTextAlignment(.leading)
+                                 .frame(maxWidth: .infinity, alignment: .leading)
+                         }
+-                        .padding(.vertical, 12)
++                        .padding(.vertical, swiss ? 12 : 8)
+                         .contentShape(Rectangle())
+                         .overlay(alignment: .bottom) {
+-                            if swiss { SwissRule() } else if index < min(batch.replies.count, 3) - 1 { InkRule() }
++                            if swiss { SwissRule() }
+                         }
+                     }
+-                    .buttonStyle(.plain).disabled(store.isGenerating)
++                    .buttonStyle(.pressFeedback).disabled(store.isGenerating)
+                     .accessibilityLabel("使用回复建议 \(index + 1)：\(reply)")
+                     .accessibilityIdentifier("reply-suggestion-\(index)")
+                 }
+@@ -1864,7 +1889,8 @@
+     // how many of the answer's highlighter marks it may still draw.
+     private var blocks: [MarkdownBlock] { MarkdownBlock.parse(content) }
+     var body: some View {
+-        VStack(alignment: .leading, spacing: 16) {
++        // Paragraphs a clear step apart (about one line), so each reads as its own block.
++        VStack(alignment: .leading, spacing: style == .swiss ? 16 : 22) {
+             ForEach(Array(blocks.enumerated()), id: \.offset) { _, block in
+                 switch block {
+                 case .paragraph(let text, let marks):
+@@ -1994,7 +2020,9 @@
+                 .foregroundStyle(Ink.ink)
+         } else {
+             // Emphasis is a touch heavier text now, no highlighter stroke behind it.
+-            Text(markdown: parsed, emphasisWeight: .semibold).readingStyle().lineSpacing(6)
++            // About 1.6× line height, a little letter spacing and Chinese punctuation:
++            // the page had read as one dense block next to the Claude app.
++            Text(markdown: parsed, emphasisWeight: .semibold).readingStyle().lineSpacing(8).chineseReading()
+                 .foregroundStyle(Ink.ink)
+         }
+     }
+diff -ruN pa/QingJian/DeepSeekPocket/Views/ReasoningView.swift pb/QingJian/DeepSeekPocket/Views/ReasoningView.swift
+--- a/QingJian/DeepSeekPocket/Views/ReasoningView.swift	2026-11-08 18:19:04.059632611 +0800
++++ b/QingJian/DeepSeekPocket/Views/ReasoningView.swift	2026-11-08 18:19:04.069871442 +0800
+@@ -44,11 +44,10 @@
+         .accessibilityIdentifier("thinking-row")
+     }
+ 
++    // Only how long it thought; the raw first words of the reasoning read as noise.
++    // The whole timeline opens with a tap.
+     private func line(head: String) -> some View {
+-        HStack(spacing: 6) {
+-            Text(head).foregroundStyle(Ink.ink2).monospacedDigit().layoutPriority(1)
+-            Text(snippet).lineLimit(1)
+-        }
++        Text(head).foregroundStyle(Ink.ink2).monospacedDigit()
+     }
+ }
+ 
+diff -ruN pa/QingJian/DeepSeekPocket/Views/SettingsView.swift pb/QingJian/DeepSeekPocket/Views/SettingsView.swift
+--- a/QingJian/DeepSeekPocket/Views/SettingsView.swift	2026-11-08 18:19:04.059647826 +0800
++++ b/QingJian/DeepSeekPocket/Views/SettingsView.swift	2026-11-08 18:19:04.069882355 +0800
+@@ -140,7 +140,7 @@
+                     } label: {
+                         Label("系统指令库 · \(store.systemPromptPresets.count)", systemImage: "text.book.closed")
+                     }
+-                    Text("在库里保存多份指令，聊天输入区可直接选择。指令库内的修改会单独保存。")
++                    Text("在库里保存多份指令，在聊天输入框的「+」→「指令」里选择。指令库内的修改会单独保存。")
+                         .font(TypeScale.caption).foregroundStyle(Ink.ink3)
+                 } header: { Text("系统指令库") }
+                 Section {
+@@ -171,7 +171,7 @@
+                             .accessibilityIdentifier("system-prompt-editor")
+                     }
+                 } header: { Text("全局默认指令") } footer: {
+-                    Text("未选自定义指令、也不在项目里的聊天使用这里的内容；修改后点本页右上角保存。每个聊天可从输入区选择自己的指令，项目默认使用项目指令。思考原文与译文不占用普通聊天上下文。")
++                    Text("未选自定义指令、也不在项目里的聊天使用这里的内容；修改后点本页右上角保存。每个聊天可在输入框「+」→「指令」里选择自己的指令，项目默认使用项目指令。思考原文与译文不占用普通聊天上下文。")
+                 }
+                 Section("阅读与外观") {
+                     InterfaceStylePicker()
+diff -ruN pa/QingJian/DeepSeekPocket/Views/WelcomeView.swift pb/QingJian/DeepSeekPocket/Views/WelcomeView.swift
+--- a/QingJian/DeepSeekPocket/Views/WelcomeView.swift	2026-11-08 18:19:04.059773478 +0800
++++ b/QingJian/DeepSeekPocket/Views/WelcomeView.swift	2026-11-08 18:19:04.069962957 +0800
+@@ -89,7 +89,7 @@
+                 .accessibilityIdentifier("time-greeting")
+                 .modifier(Arrive(shown: shown, delay: 0.18))
+                 if let projectName {
+-                    Text(projectName).font(TypeScale.label).foregroundStyle(Ink.ink3)
++                    Text("在「\(projectName)」里").font(TypeScale.label).foregroundStyle(Ink.ink3)
+                         .modifier(Arrive(shown: shown, delay: 0.3))
+                 }
+             }
+diff -ruN pa/QingJian/QingJian.xcodeproj/project.pbxproj pb/QingJian/QingJian.xcodeproj/project.pbxproj
+--- a/QingJian/QingJian.xcodeproj/project.pbxproj	2026-11-08 18:19:04.059805492 +0800
++++ b/QingJian/QingJian.xcodeproj/project.pbxproj	2026-11-08 18:19:04.070046111 +0800
+@@ -110,7 +110,7 @@
+ 		82FA67131BBD396F86E2116A = { isa = "PBXBuildFile"; fileRef = "FD74A26728B90EEDF0289739"; };
+ 		83A2F5A6AC45B5491E1C720F = { isa = "PBXBuildFile"; fileRef = "7904190125DA8DD29BF99CDB"; };
+ 		845ECD744C27640FC0E6C3BE = { isa = "PBXFileReference"; lastKnownFileType = "sourcecode.swift"; path = "DeepSeekPocket/Core/GitHubTools.swift"; sourceTree = "SOURCE_ROOT"; };
+-		86A46D98C12482E1EF3DC46C = { isa = "XCBuildConfiguration"; buildSettings = { PRODUCT_BUNDLE_IDENTIFIER = "com.xiaolong.qingjian"; PRODUCT_NAME = "DeepSeekPocket"; INFOPLIST_FILE = "DeepSeekPocket/Info.plist"; GENERATE_INFOPLIST_FILE = "NO"; MARKETING_VERSION = "1.27.0"; CURRENT_PROJECT_VERSION = "53"; ASSETCATALOG_COMPILER_APPICON_NAME = "AppIcon"; ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = "AccentColor"; TARGETED_DEVICE_FAMILY = "1,2"; CODE_SIGN_STYLE = "Automatic"; LD_RUNPATH_SEARCH_PATHS = ( "$(inherited)", "@executable_path/Frameworks", ); SUPPORTED_PLATFORMS = "iphoneos iphonesimulator"; SUPPORTS_MACCATALYST = "NO"; SWIFT_EMIT_LOC_STRINGS = "YES"; }; name = "Release"; };
++		86A46D98C12482E1EF3DC46C = { isa = "XCBuildConfiguration"; buildSettings = { PRODUCT_BUNDLE_IDENTIFIER = "com.xiaolong.qingjian"; PRODUCT_NAME = "DeepSeekPocket"; INFOPLIST_FILE = "DeepSeekPocket/Info.plist"; GENERATE_INFOPLIST_FILE = "NO"; MARKETING_VERSION = "1.28.0"; CURRENT_PROJECT_VERSION = "54"; ASSETCATALOG_COMPILER_APPICON_NAME = "AppIcon"; ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = "AccentColor"; TARGETED_DEVICE_FAMILY = "1,2"; CODE_SIGN_STYLE = "Automatic"; LD_RUNPATH_SEARCH_PATHS = ( "$(inherited)", "@executable_path/Frameworks", ); SUPPORTED_PLATFORMS = "iphoneos iphonesimulator"; SUPPORTS_MACCATALYST = "NO"; SWIFT_EMIT_LOC_STRINGS = "YES"; }; name = "Release"; };
+ 		8B37FFF4CB7BE1135BD14ACD = { isa = "PBXFileReference"; lastKnownFileType = "sourcecode.swift"; path = "DeepSeekPocket/Core/WebSearch.swift"; sourceTree = "SOURCE_ROOT"; };
+ 		8BDCEEA2EB43FC91018F696F = { isa = "PBXBuildFile"; fileRef = "FF1F92A5772CD6C2220F3CD7"; };
+ 		8C6280633D259F66427E2288 = { isa = "PBXFileReference"; lastKnownFileType = "sourcecode.swift"; path = "DeepSeekPocket/Views/ReasoningView.swift"; sourceTree = "SOURCE_ROOT"; };
+@@ -160,7 +160,7 @@
+ 		BD12731D7BC9B843D8523E65 = { isa = "PBXFileReference"; lastKnownFileType = "folder.assetcatalog"; path = "DeepSeekPocket/Assets.xcassets"; sourceTree = "SOURCE_ROOT"; };
+ 		BF41F4472847DA8EE81FF145 = { isa = "PBXBuildFile"; fileRef = "42CC3A23349A29CD3B9B13B7"; };
+ 		C0C355164654B03A78373B5A = { isa = "PBXBuildFile"; fileRef = "39F9C2B4BC13DE9D1B7A0828"; };
+-		C131AA990408F5A8B287713E = { isa = "XCBuildConfiguration"; buildSettings = { PRODUCT_BUNDLE_IDENTIFIER = "com.xiaolong.qingjian"; PRODUCT_NAME = "DeepSeekPocket"; INFOPLIST_FILE = "DeepSeekPocket/Info.plist"; GENERATE_INFOPLIST_FILE = "NO"; MARKETING_VERSION = "1.27.0"; CURRENT_PROJECT_VERSION = "53"; ASSETCATALOG_COMPILER_APPICON_NAME = "AppIcon"; ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = "AccentColor"; TARGETED_DEVICE_FAMILY = "1,2"; CODE_SIGN_STYLE = "Automatic"; LD_RUNPATH_SEARCH_PATHS = ( "$(inherited)", "@executable_path/Frameworks", ); SUPPORTED_PLATFORMS = "iphoneos iphonesimulator"; SUPPORTS_MACCATALYST = "NO"; SWIFT_EMIT_LOC_STRINGS = "YES"; }; name = "Debug"; };
++		C131AA990408F5A8B287713E = { isa = "XCBuildConfiguration"; buildSettings = { PRODUCT_BUNDLE_IDENTIFIER = "com.xiaolong.qingjian"; PRODUCT_NAME = "DeepSeekPocket"; INFOPLIST_FILE = "DeepSeekPocket/Info.plist"; GENERATE_INFOPLIST_FILE = "NO"; MARKETING_VERSION = "1.28.0"; CURRENT_PROJECT_VERSION = "54"; ASSETCATALOG_COMPILER_APPICON_NAME = "AppIcon"; ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = "AccentColor"; TARGETED_DEVICE_FAMILY = "1,2"; CODE_SIGN_STYLE = "Automatic"; LD_RUNPATH_SEARCH_PATHS = ( "$(inherited)", "@executable_path/Frameworks", ); SUPPORTED_PLATFORMS = "iphoneos iphonesimulator"; SUPPORTS_MACCATALYST = "NO"; SWIFT_EMIT_LOC_STRINGS = "YES"; }; name = "Debug"; };
+ 		C4BF254EBAFEB4755D037451 = { isa = "PBXFileReference"; lastKnownFileType = "sourcecode.swift"; path = "DeepSeekPocket/Views/StreamActivityView.swift"; sourceTree = "SOURCE_ROOT"; };
+ 		C7B5A2A8067AD2778E7DFC27 = { isa = "PBXFileReference"; lastKnownFileType = "sourcecode.swift"; path = "DeepSeekPocket/Views/HighlightColorSettings.swift"; sourceTree = "SOURCE_ROOT"; };
+ 		C7D59EFCCEB862427B91F038 = { isa = "PBXBuildFile"; fileRef = "5A6EB7F92D195E7AEE28EEB7"; };

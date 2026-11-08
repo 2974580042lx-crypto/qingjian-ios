@@ -1,18 +1,16 @@
 {
   "base": {
-    "drive_file_id": "123Uhwb-ZBuWi1NUR-usQyINPMwr4_oxs",
-    "uploaded_at": "2026-10-21T20:09:40.711Z",
     "sha256": "1cc3a6c22d2a2898a50dbf43c5121436113e82f063cd07bca99db020bbfbe25c",
     "version": "1.12.0",
     "build": "36",
     "tests_run": false
   },
-  "version": "1.27.0",
-  "build": "53",
+  "version": "1.29.0",
+  "build": "55",
   "base_commit": "54fca01d6f0f1f3785220ba492a442573fdaf965",
-  "overlay_sha256": "3e31fec03467e4cd5b94317d76b4954aa1dab58595fc839338bb8c7f45bd03a3",
+  "overlay_sha256": "2d4c95a52e3a6e7757364bb79bcaa00b259ed86ae13d0596bfb59a49ba137dd6",
   "tests_run": false,
   "validation": "Not compiled yet; push to main to run the GitHub Actions Release build",
   "sha256": "cb5332b71990c74ff38670cbb7d6213d55b49ecafa6255cd75869f573b2ff460",
-  "source_layout": "Verified immutable baseline plus cumulative overlay through 1.27.0"
+  "source_layout": "Verified immutable baseline plus cumulative overlay through 1.29.0"
 }
