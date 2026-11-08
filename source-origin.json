@@ -5,12 +5,12 @@
     "build": "36",
     "tests_run": false
   },
-  "version": "1.30.0",
-  "build": "56",
+  "version": "1.31.0",
+  "build": "57",
   "base_commit": "54fca01d6f0f1f3785220ba492a442573fdaf965",
-  "overlay_sha256": "51978d51e114ea96c3c6af8d0cc108c78f5f4c55d0bab71ded1c19cd31507929",
+  "overlay_sha256": "9d21bc098c7c7fe259d9d00c5428e921fdd96ffd949a0de602b5d06eedaee96c",
   "tests_run": false,
   "validation": "Not compiled yet; push to main to run the GitHub Actions Release build",
   "sha256": "cb5332b71990c74ff38670cbb7d6213d55b49ecafa6255cd75869f573b2ff460",
-  "source_layout": "Verified immutable baseline plus cumulative overlay through 1.30.0"
+  "source_layout": "Verified immutable baseline plus cumulative overlay through 1.31.0"
 }
