@@ -1,0 +1,492 @@
+diff -ruN pa/QingJian/DeepSeekPocket/Core/AppManual.swift pb/QingJian/DeepSeekPocket/Core/AppManual.swift
+--- a/QingJian/DeepSeekPocket/Core/AppManual.swift	2026-11-08 18:00:09.652178423 +0800
++++ b/QingJian/DeepSeekPocket/Core/AppManual.swift	2026-11-08 18:00:09.664387386 +0800
+@@ -4,7 +4,7 @@
+ // "Sermo 说明书" project (as its document) and the feature overview in Settings.
+ // Update it with every feature, and bump `revision` so the project refreshes.
+ enum AppManual {
+-    static let revision = 15
++    static let revision = 16
+     static let projectID = UUID(uuidString: "5E2B0D6A-3C1F-4A7E-9B21-5E5E2B0D6A01")!
+     static let projectName = "Sermo 说明书"
+     static let documentName = "Sermo 使用说明"
+@@ -26,7 +26,7 @@
+             Item(name: "新建对话", how: "对话页右上角的笔形按钮，或侧栏底部「新建会话」。新对话会落在上次选的项目里。"),
+             Item(name: "选项目", how: "新对话还没发消息时，输入框下方加号旁的文件夹按钮。选一次会记住，之后新开的对话都在这个项目里；发出第一条消息后按钮收起。"),
+             Item(name: "模型和思考档位", how: "输入框下方的药丸（例如 Flash High）。可选 Flash 或 V4 Pro，思考档位 Off / Low / High / Max。只有 Flash 能看图片。"),
+-            Item(name: "添加内容", how: "输入框左下角的「+」：图片、文件（PDF或文字）、粘贴剪贴板文字；选择图片时保留当前草稿，处理完成后由你发送。"),
++            Item(name: "添加内容", how: "点输入框左下角的「+」，输入框里会展开「图片」「文件」「粘贴」三个按钮，点一下就打开；选择图片时保留当前草稿，处理完成后由你发送。"),
+             Item(name: "一键到底", how: "向上查看历史消息时，输入框右上方会浮出一个向下箭头的小圆按钮，点它回到最新消息；回到底部后自动隐藏。"),
+             Item(name: "手动联网", how: "输入框下方的地球按钮（DeepSeek）。打开后这一次先搜索、读取排名靠前的几个网页正文，再回答；会多一次搜索费用。想让模型自己决定何时搜索，用项目里的「联网工具」。"),
+             Item(name: "停止生成", how: "生成时发送按钮变成停止按钮，点一下即可。"),
+@@ -69,7 +69,7 @@
+             Item(name: "告诉角色时间流逝", how: "项目「⋯」里打开。对话的第一条消息、或隔了两小时以上再发消息时，悄悄告诉模型现在几点、过去了多久；连续聊天时什么都不加。"),
+         ]),
+         Section(title: "设置", items: [
+-            Item(name: "高峰时段", how: "DeepSeek 北京时间工作日 9–12 点、14–18 点是高峰价，其余时间和周末减半。侧栏余额下方、输入框模型菜单顶部和书页里都会写现在是哪个时段、到几点结束。"),
++            Item(name: "高峰时段", how: "DeepSeek 北京时间工作日 9–12 点、14–18 点是高峰价，其余时间和周末减半。每条回答和猜你回复的价格后面会标（高峰）或（空闲）。侧栏余额下方、输入框模型菜单顶部和书页里都会写现在是哪个时段、到几点结束。"),
+             Item(name: "用量日历", how: "设置最上方按天显示token和估算花费；打开明细可选本月、近30天或全部，查看逐日token、请求次数和估算费用，并导出CSV。未归类token可能包含搜索、旧记录或订阅请求，不能直接当成某一种服务；估算不代替服务商账单。"),
+             Item(name: "查找功能", how: "设置 → 功能一览，输入功能名、入口或说明中的关键词，本地搜索全部功能；普通聊天、项目、工具和设置排在前面。也可以在侧栏打开「Sermo说明书」项目用聊天提问。"),
+             Item(name: "安装版本", how: "设置底部显示实际安装的版本号和build，可复制版本信息，反馈问题时一起附上。"),
+diff -ruN pa/QingJian/DeepSeekPocket/Core/PeakHours.swift pb/QingJian/DeepSeekPocket/Core/PeakHours.swift
+--- a/QingJian/DeepSeekPocket/Core/PeakHours.swift	2026-11-08 18:00:09.652525905 +0800
++++ b/QingJian/DeepSeekPocket/Core/PeakHours.swift	2026-11-08 18:00:09.664810548 +0800
+@@ -22,6 +22,9 @@
+         return nil
+     }
+ 
++    /// "（高峰）" or "（空闲）" after a price, for the hour the request was made.
++    static func bandTag(_ date: Date) -> String { isPeak(date) ? "（高峰）" : "（空闲）" }
++
+     /// "高峰时段 · 到 12:00 结束" or "空闲时段 · 半价，到 周一 09:00".
+     static func statusLabel(at date: Date = Date()) -> String {
+         let peak = isPeak(date)
+diff -ruN pa/QingJian/DeepSeekPocket/QingJianApp.swift pb/QingJian/DeepSeekPocket/QingJianApp.swift
+--- a/QingJian/DeepSeekPocket/QingJianApp.swift	2026-11-08 18:00:09.652821002 +0800
++++ b/QingJian/DeepSeekPocket/QingJianApp.swift	2026-11-08 18:00:09.665061733 +0800
+@@ -13,6 +13,7 @@
+ 
+     init() {
+         FontLibrary.registerSaved()
++        FontLibrary.applyReadingDefaultsOnce()
+         InkAppearance.apply()
+     }
+ 
+diff -ruN pa/QingJian/DeepSeekPocket/Services/FontLibrary.swift pb/QingJian/DeepSeekPocket/Services/FontLibrary.swift
+--- a/QingJian/DeepSeekPocket/Services/FontLibrary.swift	2026-11-08 18:00:09.660461572 +0800
++++ b/QingJian/DeepSeekPocket/Services/FontLibrary.swift	2026-11-08 18:00:09.674289392 +0800
+@@ -114,6 +114,18 @@
+         UserDefaults.standard.set(UserDefaults.standard.integer(forKey: revisionKey) + 1, forKey: revisionKey)
+     }
+ 
++    /// 1.27: the look is reset once to the system font at 17 pt, the size Apple uses for
++    /// body text, so every screen starts from the same tuned type. Both can be changed
++    /// again in Settings afterwards; this never runs a second time.
++    static func applyReadingDefaultsOnce() {
++        let key = "sermo.typography.defaults.v127"
++        guard !UserDefaults.standard.bool(forKey: key) else { return }
++        UserDefaults.standard.set(FontChoice.system.rawValue, forKey: choiceKey)
++        UserDefaults.standard.set(17.0, forKey: "qingjian.reading.size")
++        UserDefaults.standard.set(true, forKey: key)
++        bumpRevision()
++    }
++
+     /// True when text should use the real system font (SF for Latin and digits,
+     /// PingFang for Chinese, with the system's own optical sizing), not a named face.
+     static var usesSystemFace: Bool { InterfaceStyle.isSwiss || choice == .system }
+diff -ruN pa/QingJian/DeepSeekPocket/Views/AppTheme.swift pb/QingJian/DeepSeekPocket/Views/AppTheme.swift
+--- a/QingJian/DeepSeekPocket/Views/AppTheme.swift	2026-11-08 18:00:09.660683232 +0800
++++ b/QingJian/DeepSeekPocket/Views/AppTheme.swift	2026-11-08 18:00:09.674472950 +0800
+@@ -142,10 +142,10 @@
+     static var hero: Font { serif(30, relativeTo: .title) }
+     static var subject: Font { serif(20, relativeTo: .title3) }
+     static var answer: Font { serif(17) }
+-    static var note: Font { serif(16, relativeTo: .callout) }
+-    static var body: Font { serif(16) }
++    static var note: Font { serif(15, relativeTo: .callout) }
++    static var body: Font { serif(17) }
+     static var label: Font { serif(13, relativeTo: .footnote) }
+-    static var caption: Font { serif(12, relativeTo: .caption) }
++    static var caption: Font { serif(13, relativeTo: .caption) }
+     static var tiny: Font { serif(11, relativeTo: .caption2) }
+ }
+ 
+@@ -218,7 +218,7 @@
+     // Observed so text redraws as soon as the font is changed in Settings.
+     @AppStorage(FontLibrary.choiceKey) private var choice = ""
+     @AppStorage(FontLibrary.revisionKey) private var revision = 0
+-    @AppStorage("qingjian.reading.size") private var size = 18.0
++    @AppStorage("qingjian.reading.size") private var size = 17.0
+     var adjustment: Double = 0
+     var heavy = false
+     func body(content: Content) -> some View {
+diff -ruN pa/QingJian/DeepSeekPocket/Views/ContentView.swift pb/QingJian/DeepSeekPocket/Views/ContentView.swift
+--- a/QingJian/DeepSeekPocket/Views/ContentView.swift	2026-11-08 18:00:09.660787724 +0800
++++ b/QingJian/DeepSeekPocket/Views/ContentView.swift	2026-11-08 18:00:09.674567444 +0800
+@@ -54,7 +54,8 @@
+ 
+                 NavigationStack {
+                     ChatScreen(openHistory: { showSidebar = true }, openSettings: { showSettings = true }, keyboardVisible: $keyboardVisible,
+-                               composerPanelHeight: $composerPanelHeight, bottomInset: geometry.safeAreaInsets.bottom)
++                               composerPanelHeight: $composerPanelHeight, bottomInset: geometry.safeAreaInsets.bottom,
++                               topInset: geometry.safeAreaInsets.top)
+                 }
+                 .frame(maxWidth: .infinity, maxHeight: .infinity)
+                 .scrollDisabled(sidebarDrag != 0)
+@@ -169,6 +170,8 @@
+     @discardableResult
+     static func present(limit: Int, onError: @escaping (String) -> Void,
+                         picked: @escaping ([PHPickerResult]) -> Void) -> Bool {
++        // A picker that never appeared (or vanished unannounced) must not block the next tap.
++        if let open = current, open.picker?.presentingViewController == nil { current = nil }
+         guard current == nil else { onError("相册已打开，请先完成当前选择。"); return false }
+         let scenes = UIApplication.shared.connectedScenes.compactMap { $0 as? UIWindowScene }
+             .filter { $0.activationState == .foregroundActive }
+@@ -189,6 +192,7 @@
+         config.preferredAssetRepresentationMode = .current
+         let picker = PHPickerViewController(configuration: config)
+         let coordinator = Coordinator(picked: picked)
++        coordinator.picker = picker
+         picker.delegate = coordinator
+         picker.modalPresentationStyle = .pageSheet
+         current = coordinator
+@@ -219,6 +223,7 @@
+ 
+     @MainActor private final class Coordinator: NSObject, PHPickerViewControllerDelegate, UIAdaptivePresentationControllerDelegate {
+         let picked: ([PHPickerResult]) -> Void
++        weak var picker: PHPickerViewController?
+         private var finished = false
+         init(picked: @escaping ([PHPickerResult]) -> Void) { self.picked = picked }
+         func picker(_ picker: PHPickerViewController, didFinishPicking results: [PHPickerResult]) {
+@@ -247,6 +252,10 @@
+     @Binding var keyboardVisible: Bool
+     @Binding var composerPanelHeight: CGFloat
+     let bottomInset: CGFloat
++    // The status bar; the chat now runs up behind the floating buttons, so its
++    // first line is pushed down by this plus the button row instead.
++    let topInset: CGFloat
++    private var topChrome: CGFloat { topInset + 56 }
+     @FocusState private var composerFocused: Bool
+     @State private var previewComposerFocused = false
+     private var isComposerFocused: Bool { composerFocused || previewComposerFocused }
+@@ -270,6 +279,7 @@
+     @State private var photoLoadTask: Task<Void, Never>?
+     @State private var imagesByThread: [UUID: [PendingImage]] = [:]
+     @State private var attachmentReport: String?
++    @State private var attachTrayOpen = false
+     private var loadingPhotos: Bool { photoLoadThreadID == store.activeThreadID && photoLoadThreadID != nil }
+     private var attachmentBusy: Bool { choosingFiles || choosingPhotos || fileImportThreadID != nil || photoLoadThreadID != nil }
+     private var pendingImages: [PendingImage] {
+@@ -340,7 +350,7 @@
+                             .id(store.activeThreadID)
+                     }
+                     Spacer(minLength: 12)
+-                }.padding(.bottom, composerPanelHeight)
++                }.padding(.top, topChrome).padding(.bottom, composerPanelHeight)
+             } else {
+             ZStack(alignment: .bottom) {
+             ScrollView {
+@@ -362,7 +372,7 @@
+                     Color.clear.frame(height: 2)
+                 }
+                 .scrollTargetLayout()
+-                .padding(.horizontal, swiss ? 20 : 24).padding(.top, 10).padding(.bottom, 22)
++                .padding(.horizontal, swiss ? 20 : 18).padding(.top, 10).padding(.bottom, 22)
+             }
+             .accessibilityIdentifier("chat-scroll")
+             // The system's top edge effect drew a solid paper band behind the buttons, so
+@@ -370,10 +380,15 @@
+             // keeps a short fade so it stays readable.
+             .scrollEdgeEffectHidden(true, for: .top)
+             .overlay(alignment: .top) {
+-                LinearGradient(colors: [Ink.paper, Ink.paper.opacity(0)], startPoint: .top, endPoint: .bottom)
+-                    .frame(height: 50).allowsHitTesting(false).accessibilityHidden(true)
++                // Only the clock row is softened, with a light blur that fades out, as in
++                // the Claude app; text stays visible under and between the glass buttons.
++                Rectangle().fill(.ultraThinMaterial)
++                    .mask(LinearGradient(colors: [.black, .black.opacity(0.6), .clear], startPoint: .top, endPoint: .bottom))
++                    .frame(height: 54).allowsHitTesting(false).accessibilityHidden(true)
+             }
+             .scrollPosition($scrollPosition)
++            .contentMargins(.top, topChrome, for: .scrollContent)
++            .contentMargins(.top, topChrome, for: .scrollIndicators)
+             .contentMargins(.bottom, composerPanelHeight + bottomInset + 12, for: .scrollContent)
+             .contentMargins(.bottom, composerPanelHeight + bottomInset + 12, for: .scrollIndicators)
+             .scrollDismissesKeyboard(.interactively)
+@@ -424,6 +439,9 @@
+             composer.fixedSize(horizontal: false, vertical: true)
+                 .environmentObject(store).environmentObject(profile)
+         }
++        // Up under the status bar and the glass buttons: before, the chat began below
++        // the bar, so text could never pass behind the buttons and stopped at a band.
++        .ignoresSafeArea(.container, edges: .top)
+     }
+ 
+     private var chatWithNavigation: some View {
+@@ -760,7 +778,7 @@
+                     Text(name.count > 8 ? String(name.prefix(7)) + "…" : name).lineLimit(1).fixedSize()
+                 }
+             }
+-            .font(swiss ? TypeScale.mono(11) : TypeScale.serif(14))
++            .font(swiss ? TypeScale.mono(11) : TypeScale.serif(15))
+             .foregroundStyle(current == nil ? Ink.ink2 : Ink.ink)
+             .padding(.horizontal, current == nil ? 0 : 14)
+             .frame(minWidth: 44, minHeight: 44)
+@@ -838,7 +856,7 @@
+                 Text(store.pillModelTitle).foregroundStyle(Ink.ink).lineLimit(1)
+                 Text(store.pillEffortTitle).foregroundStyle(Ink.ink3)
+             }
+-            .font(TypeScale.serif(14)).monospacedDigit()
++            .font(TypeScale.serif(15)).monospacedDigit()
+             .padding(.horizontal, 14).frame(height: 38)
+             .background(Ink.raised, in: Capsule())
+             .contentShape(Capsule())
+@@ -855,7 +873,7 @@
+         } else {
+             HStack(spacing: 5) {
+                 Image(systemName: "globe")
+-                if store.webSearchEnabled { Text("联网").font(TypeScale.serif(14)) }
++                if store.webSearchEnabled { Text("联网").font(TypeScale.serif(15)) }
+             }
+             .foregroundStyle(store.webSearchEnabled ? Ink.ink : Ink.ink3)
+             .padding(.horizontal, store.webSearchEnabled ? 12 : 0)
+@@ -1043,39 +1061,57 @@
+         }
+     }
+ 
+-    // Photos, files and pasted text behind one 「+」, like the Claude app, so the
+-    // composer is a single quiet glass card instead of a toolbar on a white slab.
+-    private var attachmentMenu: some View {
+-        Menu {
+-            Button("图片", systemImage: "photo") { afterMenuCloses(choosePhotos) }
+-                .disabled(attachmentBusy || !store.canPersist || pendingImages.count >= 4)
+-                .accessibilityIdentifier("chat-add-photos")
+-            Button("文件", systemImage: "doc.badge.plus") { afterMenuCloses(chooseDocuments) }
+-                .disabled(attachmentBusy || !store.canPersist)
+-                .accessibilityIdentifier("chat-add-document")
+-            Button("粘贴剪贴板文字", systemImage: "doc.on.clipboard") {
+-                guard let id = store.activeThreadID else { return }
+-                guard let text = UIPasteboard.general.string, !text.isEmpty else {
+-                    attachmentReport = "剪贴板里没有文字。"
+-                    return
+-                }
+-                if store.appendImportedText(text, to: id) { focusComposer(true) }
+-            }
+-            .disabled(!store.canPersist)
++    // Photos, files and pasted text behind one 「+」. It opens a small row inside the
++    // composer instead of a system menu: a picker started while a menu was still
++    // closing was dropped, so 「图片」 needed several taps before.
++    private var attachmentButton: some View {
++        Button {
++            withAnimation(.snappy(duration: 0.22)) { attachTrayOpen.toggle() }
+         } label: {
+             Image(systemName: "plus").font(.system(size: 17, weight: .medium))
+                 .foregroundStyle(Ink.ink)
++                .rotationEffect(.degrees(attachTrayOpen ? 45 : 0))
+                 .frame(width: 38, height: 38)
+                 .background(Ink.raised, in: swiss ? AnyShape(Rectangle()) : AnyShape(Circle()))
+                 .contentShape(Circle())
+         }
+-        .accessibilityLabel("添加图片、文件或文字")
++        .buttonStyle(.plain)
++        .accessibilityLabel(attachTrayOpen ? "收起添加内容" : "添加图片、文件或文字")
+         .accessibilityIdentifier("chat-attachments")
+     }
+ 
+-    // A picker opened while the menu is still closing can be refused as "page switching".
+-    private func afterMenuCloses(_ action: @escaping () -> Void) {
+-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.35, execute: action)
++    private var attachmentTray: some View {
++        HStack(spacing: 8) {
++            trayButton("图片", symbol: "photo", id: "chat-add-photos",
++                       disabled: attachmentBusy || !store.canPersist || pendingImages.count >= 4) { choosePhotos() }
++            trayButton("文件", symbol: "doc.badge.plus", id: "chat-add-document",
++                       disabled: attachmentBusy || !store.canPersist) { chooseDocuments() }
++            trayButton("粘贴", symbol: "doc.on.clipboard", id: "chat-paste-text", disabled: !store.canPersist) {
++                guard let id = store.activeThreadID else { return }
++                guard let text = UIPasteboard.general.string, !text.isEmpty else {
++                    attachmentReport = "剪贴板里没有文字。"
++                    return
++                }
++                if store.appendImportedText(text, to: id) { focusComposer(true) }
++            }
++            Spacer(minLength: 0)
++        }
++        .transition(.opacity.combined(with: .move(edge: .bottom)))
++    }
++
++    private func trayButton(_ title: String, symbol: String, id: String, disabled: Bool,
++                            action: @escaping () -> Void) -> some View {
++        Button {
++            attachTrayOpen = false
++            action()
++        } label: {
++            Label(title, systemImage: symbol).font(TypeScale.label).foregroundStyle(Ink.ink)
++                .padding(.horizontal, 14).frame(height: 36)
++                .background(Ink.raised, in: swiss ? AnyShape(Rectangle()) : AnyShape(Capsule()))
++                .contentShape(Capsule())
++        }
++        .buttonStyle(.plain).disabled(disabled)
++        .accessibilityIdentifier(id)
+     }
+ 
+     private var composer: some View {
+@@ -1094,6 +1130,7 @@
+                 }.padding(.bottom, 2)
+             }
+             VStack(alignment: .leading, spacing: 12) {
++                if attachTrayOpen { attachmentTray }
+                 if photoLoadThreadID != nil {
+                     HStack(spacing: 8) {
+                         ProgressView()
+@@ -1140,14 +1177,14 @@
+                         PreviewKeyboardField(text: draft, isFocused: previewComposerFocused, focusChanged: { previewComposerFocused = $0 })
+                     } else {
+                         TextField(composerPlaceholder, text: draft, axis: .vertical)
+-                            .readingStyle(adjustment: -1).lineLimit(1...5)
++                            .readingStyle().lineLimit(1...5)
+                             .focused($composerFocused).tint(Ink.ink)
+                     }
+                 }
+                     .disabled(!store.canPersist)
+                     .accessibilityIdentifier("chat-composer")
+                 HStack(spacing: 10) {
+-                    attachmentMenu
++                    attachmentButton
+                     // Model and thinking level in one pill, like "Haiku 5.5 中等" in the Claude app.
+                     Menu {
+                         if store.activeProvider == .chatGPT {
+@@ -1496,7 +1533,7 @@
+                     VStack(alignment: .trailing, spacing: 6) {
+                         discussionVoiceLabel
+                         if let names = message.images, !names.isEmpty { AttachmentRow(names: names) }
+-                        Text(message.content).readingStyle(adjustment: -1).lineSpacing(4)
++                        Text(message.content).readingStyle().lineSpacing(5)
+                             .foregroundStyle(Ink.ink).textSelection(.enabled)
+                             .padding(.horizontal, 16).padding(.vertical, 11)
+                             .background(Ink.raised, in: RoundedRectangle(cornerRadius: 20, style: .continuous))
+@@ -1535,7 +1572,7 @@
+                                     .accessibilityLabel("本次请求共 \(usage.totalTokens) 个 Token")
+                             }
+                         }
+-                    }.font(.system(size: 13)).foregroundStyle(Ink.ink3).buttonStyle(.plain).padding(.top, 2)
++                    }.font(.system(size: 15)).foregroundStyle(Ink.ink3).buttonStyle(.plain).padding(.top, 2)
+                 }
+             }
+             trailingParts
+@@ -1675,6 +1712,7 @@
+         if message.isSubscription { return tokens + " · 订阅额度" }
+         guard let model = message.model else { return tokens }
+         return tokens + " · " + Pricing.label(Pricing.cost(model: model, usage: usage, at: message.createdAt))
++            + Pricing.bandTag(message.createdAt)
+     }
+ }
+ 
+@@ -1714,7 +1752,7 @@
+                 }
+                 if let usage = batch.usage {
+                     Text("建议 \(usage.totalTokens.formatted()) Tokens · " + suggestionCost(batch, usage))
+-                        .font(TypeScale.serif(10)).monospacedDigit().foregroundStyle(Ink.ink3)
++                        .font(TypeScale.serif(11)).monospacedDigit().foregroundStyle(Ink.ink3)
+                 }
+             } else if store.isSuggesting(threadID: threadID, messageID: message.id) {
+                 HStack(spacing: 8) {
+@@ -1766,7 +1804,7 @@
+                 }
+                 if let usage = batch.usage {
+                     Text("建议 \(usage.totalTokens.formatted()) Tokens · " + suggestionCost(batch, usage))
+-                        .font(TypeScale.serif(10)).monospacedDigit().foregroundStyle(Ink.ink3).padding(.top, 2)
++                        .font(TypeScale.serif(11)).monospacedDigit().foregroundStyle(Ink.ink3).padding(.top, 2)
+                 }
+             } else if store.isSuggesting(threadID: threadID, messageID: message.id) {
+                 HStack(spacing: 8) {
+@@ -1789,7 +1827,8 @@
+     }
+ 
+     private func suggestionCost(_ batch: ReplySuggestionBatch, _ usage: TokenUsage) -> String {
+-        batch.provider == .chatGPT ? "订阅额度" : Pricing.label(Pricing.cost(model: batch.pricedModel, usage: usage, at: batch.createdAt))
++        batch.provider == .chatGPT ? "订阅额度"
++            : Pricing.label(Pricing.cost(model: batch.pricedModel, usage: usage, at: batch.createdAt)) + Pricing.bandTag(batch.createdAt)
+     }
+ }
+ 
+@@ -1831,7 +1870,7 @@
+                 case .paragraph(let text, let marks):
+                     MarkdownParagraph(text: text, marks: marks, style: style).equatable()
+                 case .heading(let text, let level):
+-                    Text(Self.inline(text)).readingStyle(adjustment: level <= 2 ? 2 : 1, heavy: true)
++                    Text(Self.inline(text)).readingStyle(adjustment: level <= 2 ? 3 : 0, heavy: true)
+                         .foregroundStyle(Ink.ink).padding(.top, 6)
+                 case .list(let items):
+                     VStack(alignment: .leading, spacing: 8) {
+@@ -1949,13 +1988,13 @@
+     var body: some View {
+         if text.hasPrefix("#") {
+             Text(text.drop(while: { $0 == "#" || $0 == " " }))
+-                .readingStyle(adjustment: 1, heavy: true).padding(.top, 6)
++                .readingStyle(adjustment: 3, heavy: true).padding(.top, 6)
+         } else if style == .swiss {
+             Text(markdown: parsed, emphasis: Ink.seal).readingStyle(adjustment: -1).lineSpacing(6)
+                 .foregroundStyle(Ink.ink)
+         } else {
+             // Emphasis is a touch heavier text now, no highlighter stroke behind it.
+-            Text(markdown: parsed, emphasisWeight: .semibold).readingStyle().lineSpacing(7)
++            Text(markdown: parsed, emphasisWeight: .semibold).readingStyle().lineSpacing(6)
+                 .foregroundStyle(Ink.ink)
+         }
+     }
+diff -ruN pa/QingJian/DeepSeekPocket/Views/KeyboardChatLayout.swift pb/QingJian/DeepSeekPocket/Views/KeyboardChatLayout.swift
+--- a/QingJian/DeepSeekPocket/Views/KeyboardChatLayout.swift	2026-11-08 18:00:09.660942853 +0800
++++ b/QingJian/DeepSeekPocket/Views/KeyboardChatLayout.swift	2026-11-08 18:00:09.674771992 +0800
+@@ -76,8 +76,26 @@
+             DispatchQueue.main.async { [weak self] in self?.view.layoutIfNeeded() }
+         }
+ 
++        // The navigation bar's iOS 26 edge effect lays a paper-coloured scrim over the
++        // chat under the top buttons. SwiftUI's own switch did not reach it, because the
++        // transcript lives in this separate host, so it is turned off on the scroll view.
++        private weak var transcriptScroll: UIScrollView?
++        private func hideTopEdgeEffect() {
++            if let scroll = transcriptScroll, scroll.window != nil { scroll.topEdgeEffect.isHidden = true; return }
++            transcriptScroll = firstScrollView(in: transcriptHost.view)
++            transcriptScroll?.topEdgeEffect.isHidden = true
++        }
++        private func firstScrollView(in root: UIView) -> UIScrollView? {
++            if let scroll = root as? UIScrollView, !(root is UITextView) { return scroll }
++            for child in root.subviews {
++                if let found = firstScrollView(in: child) { return found }
++            }
++            return nil
++        }
++
+         override func viewDidLayoutSubviews() {
+             super.viewDidLayoutSubviews()
++            hideTopEdgeEffect()
+             // reloadInputViews can leave the keyboard guide below an actual
+             // app-owned accessory. Compare both in THIS view's coordinate space,
+             // never add an offset back to an already-adjusted composer frame.
+diff -ruN pa/QingJian/DeepSeekPocket/Views/SettingsView.swift pb/QingJian/DeepSeekPocket/Views/SettingsView.swift
+--- a/QingJian/DeepSeekPocket/Views/SettingsView.swift	2026-11-08 18:00:09.661099137 +0800
++++ b/QingJian/DeepSeekPocket/Views/SettingsView.swift	2026-11-08 18:00:09.674928133 +0800
+@@ -24,7 +24,7 @@
+     @State private var loadedSettings = false
+     @State private var showProfile = ProcessInfo.processInfo.arguments.contains("--preview-profile")
+     @AppStorage("qingjian.reading.serif") private var serif = true
+-    @AppStorage("qingjian.reading.size") private var readingSize = 18.0
++    @AppStorage("qingjian.reading.size") private var readingSize = 17.0
+     @AppStorage("qingjian.reading.aiBubble") private var aiBubble = false
+     @AppStorage("qingjian.haptics") private var hapticsEnabled = true
+     var body: some View {
+diff -ruN pa/QingJian/DeepSeekPocket/Views/ToolViews.swift pb/QingJian/DeepSeekPocket/Views/ToolViews.swift
+--- a/QingJian/DeepSeekPocket/Views/ToolViews.swift	2026-11-08 18:00:09.661204445 +0800
++++ b/QingJian/DeepSeekPocket/Views/ToolViews.swift	2026-11-08 18:00:09.675067208 +0800
+@@ -84,7 +84,7 @@
+ struct SelectableTextSheet: View {
+     let text: String
+     @Environment(\.dismiss) private var dismiss
+-    @AppStorage("qingjian.reading.size") private var size = 18.0
++    @AppStorage("qingjian.reading.size") private var size = 17.0
+     // Markdown marks (**, #) are dropped so what you copy is the words themselves.
+     private var plain: String {
+         let rendered = (try? AttributedString(markdown: text, options: .init(interpretedSyntax: .inlineOnlyPreservingWhitespace))) ?? AttributedString(text)
+diff -ruN pa/QingJian/QingJian.xcodeproj/project.pbxproj pb/QingJian/QingJian.xcodeproj/project.pbxproj
+--- a/QingJian/QingJian.xcodeproj/project.pbxproj	2026-11-08 18:00:09.661292992 +0800
++++ b/QingJian/QingJian.xcodeproj/project.pbxproj	2026-11-08 18:00:09.675168728 +0800
+@@ -110,7 +110,7 @@
+ 		82FA67131BBD396F86E2116A = { isa = "PBXBuildFile"; fileRef = "FD74A26728B90EEDF0289739"; };
+ 		83A2F5A6AC45B5491E1C720F = { isa = "PBXBuildFile"; fileRef = "7904190125DA8DD29BF99CDB"; };
+ 		845ECD744C27640FC0E6C3BE = { isa = "PBXFileReference"; lastKnownFileType = "sourcecode.swift"; path = "DeepSeekPocket/Core/GitHubTools.swift"; sourceTree = "SOURCE_ROOT"; };
+-		86A46D98C12482E1EF3DC46C = { isa = "XCBuildConfiguration"; buildSettings = { PRODUCT_BUNDLE_IDENTIFIER = "com.xiaolong.qingjian"; PRODUCT_NAME = "DeepSeekPocket"; INFOPLIST_FILE = "DeepSeekPocket/Info.plist"; GENERATE_INFOPLIST_FILE = "NO"; MARKETING_VERSION = "1.26.0"; CURRENT_PROJECT_VERSION = "52"; ASSETCATALOG_COMPILER_APPICON_NAME = "AppIcon"; ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = "AccentColor"; TARGETED_DEVICE_FAMILY = "1,2"; CODE_SIGN_STYLE = "Automatic"; LD_RUNPATH_SEARCH_PATHS = ( "$(inherited)", "@executable_path/Frameworks", ); SUPPORTED_PLATFORMS = "iphoneos iphonesimulator"; SUPPORTS_MACCATALYST = "NO"; SWIFT_EMIT_LOC_STRINGS = "YES"; }; name = "Release"; };
++		86A46D98C12482E1EF3DC46C = { isa = "XCBuildConfiguration"; buildSettings = { PRODUCT_BUNDLE_IDENTIFIER = "com.xiaolong.qingjian"; PRODUCT_NAME = "DeepSeekPocket"; INFOPLIST_FILE = "DeepSeekPocket/Info.plist"; GENERATE_INFOPLIST_FILE = "NO"; MARKETING_VERSION = "1.27.0"; CURRENT_PROJECT_VERSION = "53"; ASSETCATALOG_COMPILER_APPICON_NAME = "AppIcon"; ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = "AccentColor"; TARGETED_DEVICE_FAMILY = "1,2"; CODE_SIGN_STYLE = "Automatic"; LD_RUNPATH_SEARCH_PATHS = ( "$(inherited)", "@executable_path/Frameworks", ); SUPPORTED_PLATFORMS = "iphoneos iphonesimulator"; SUPPORTS_MACCATALYST = "NO"; SWIFT_EMIT_LOC_STRINGS = "YES"; }; name = "Release"; };
+ 		8B37FFF4CB7BE1135BD14ACD = { isa = "PBXFileReference"; lastKnownFileType = "sourcecode.swift"; path = "DeepSeekPocket/Core/WebSearch.swift"; sourceTree = "SOURCE_ROOT"; };
+ 		8BDCEEA2EB43FC91018F696F = { isa = "PBXBuildFile"; fileRef = "FF1F92A5772CD6C2220F3CD7"; };
+ 		8C6280633D259F66427E2288 = { isa = "PBXFileReference"; lastKnownFileType = "sourcecode.swift"; path = "DeepSeekPocket/Views/ReasoningView.swift"; sourceTree = "SOURCE_ROOT"; };
+@@ -160,7 +160,7 @@
+ 		BD12731D7BC9B843D8523E65 = { isa = "PBXFileReference"; lastKnownFileType = "folder.assetcatalog"; path = "DeepSeekPocket/Assets.xcassets"; sourceTree = "SOURCE_ROOT"; };
+ 		BF41F4472847DA8EE81FF145 = { isa = "PBXBuildFile"; fileRef = "42CC3A23349A29CD3B9B13B7"; };
+ 		C0C355164654B03A78373B5A = { isa = "PBXBuildFile"; fileRef = "39F9C2B4BC13DE9D1B7A0828"; };
+-		C131AA990408F5A8B287713E = { isa = "XCBuildConfiguration"; buildSettings = { PRODUCT_BUNDLE_IDENTIFIER = "com.xiaolong.qingjian"; PRODUCT_NAME = "DeepSeekPocket"; INFOPLIST_FILE = "DeepSeekPocket/Info.plist"; GENERATE_INFOPLIST_FILE = "NO"; MARKETING_VERSION = "1.26.0"; CURRENT_PROJECT_VERSION = "52"; ASSETCATALOG_COMPILER_APPICON_NAME = "AppIcon"; ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = "AccentColor"; TARGETED_DEVICE_FAMILY = "1,2"; CODE_SIGN_STYLE = "Automatic"; LD_RUNPATH_SEARCH_PATHS = ( "$(inherited)", "@executable_path/Frameworks", ); SUPPORTED_PLATFORMS = "iphoneos iphonesimulator"; SUPPORTS_MACCATALYST = "NO"; SWIFT_EMIT_LOC_STRINGS = "YES"; }; name = "Debug"; };
++		C131AA990408F5A8B287713E = { isa = "XCBuildConfiguration"; buildSettings = { PRODUCT_BUNDLE_IDENTIFIER = "com.xiaolong.qingjian"; PRODUCT_NAME = "DeepSeekPocket"; INFOPLIST_FILE = "DeepSeekPocket/Info.plist"; GENERATE_INFOPLIST_FILE = "NO"; MARKETING_VERSION = "1.27.0"; CURRENT_PROJECT_VERSION = "53"; ASSETCATALOG_COMPILER_APPICON_NAME = "AppIcon"; ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = "AccentColor"; TARGETED_DEVICE_FAMILY = "1,2"; CODE_SIGN_STYLE = "Automatic"; LD_RUNPATH_SEARCH_PATHS = ( "$(inherited)", "@executable_path/Frameworks", ); SUPPORTED_PLATFORMS = "iphoneos iphonesimulator"; SUPPORTS_MACCATALYST = "NO"; SWIFT_EMIT_LOC_STRINGS = "YES"; }; name = "Debug"; };
+ 		C4BF254EBAFEB4755D037451 = { isa = "PBXFileReference"; lastKnownFileType = "sourcecode.swift"; path = "DeepSeekPocket/Views/StreamActivityView.swift"; sourceTree = "SOURCE_ROOT"; };
+ 		C7B5A2A8067AD2778E7DFC27 = { isa = "PBXFileReference"; lastKnownFileType = "sourcecode.swift"; path = "DeepSeekPocket/Views/HighlightColorSettings.swift"; sourceTree = "SOURCE_ROOT"; };
+ 		C7D59EFCCEB862427B91F038 = { isa = "PBXBuildFile"; fileRef = "5A6EB7F92D195E7AEE28EEB7"; };
