@@ -64,7 +64,7 @@
   "QingJian/DeepSeekPocket/Services/DeepSeekClient.swift": "f60ac6ce78d613a8fd6d741e6d3c1319dc6c60b769953f841456b52da7851df9",
   "QingJian/DeepSeekPocket/Services/FontLibrary.swift": "a63fd1c085d8c3c1eb18a282a20223a44920a78c6651580d6a1910243296dee7",
   "QingJian/DeepSeekPocket/Services/GitHubClient.swift": "cef7135ace81dc267ca5be784f477270b391852d2b7f16feea3bc47f5e547745",
-  "QingJian/DeepSeekPocket/Services/GoogleDrive.swift": "3e4f68de009835895faf42267764d5f79df21daf451e8ad5fa3ec78542dce6bd",
+  "QingJian/DeepSeekPocket/Services/GoogleDrive.swift": "75663316274641cbd0bef53e5992ac2364cada32721c4a346c063a2aeaa3d8ff",
   "QingJian/DeepSeekPocket/Services/ImageStore.swift": "db8ee93a44c97dc926e8e00f51d4c34ad6fc813f24c9628317b453f9fd4ce9be",
   "QingJian/DeepSeekPocket/Services/KeychainStore.swift": "8df04838c80406e52f4ec1288f6888ecd1254a00ff7578423f27bef356e44a50",
   "QingJian/DeepSeekPocket/Services/OpenAISpeech.swift": "28773e1fa5cd63fd59643297436377b7f5319aadb72efdc29eb1154e3941db5d",
@@ -75,7 +75,7 @@
   "QingJian/DeepSeekPocket/Views/BookDiscussionViews.swift": "3769658e0ad8f240a74405e1cb1d5d3e13cbf8eab2a46ecde184090379cd56b9",
   "QingJian/DeepSeekPocket/Views/BookshelfView.swift": "244f3eb673aa31b28805b4c54b9bb3bb1236e96c2f8202df16dbe3de5bf6a516",
   "QingJian/DeepSeekPocket/Views/ChatConnectionTestView.swift": "a8d9cbf5c47710318cfeb191f73524adba88504f0e2c9379be251bf5cdc05bef",
-  "QingJian/DeepSeekPocket/Views/ColabSettingsView.swift": "63b58e49b44310bafe1e375e58bb1e731e4b865c7b4b3b745e875949c7a7e1d1",
+  "QingJian/DeepSeekPocket/Views/ColabSettingsView.swift": "9cc83ed4a796baead17e17ba8c5a55cda6ab65b82c714fd3e0cd26c3b058ec18",
   "QingJian/DeepSeekPocket/Views/ContentView.swift": "765e8ff74822a4a22f98fef173d1851e4e536ad64c091e269a4add3a258d6a81",
   "QingJian/DeepSeekPocket/Views/DocumentPicker.swift": "9193d1df6b7e077573ea68b6930a1dd516be75202cb7316b83714091b3a5651c",
   "QingJian/DeepSeekPocket/Views/FeatureOverviewView.swift": "2aa0a2eba463611fe7623da13a4995d385f28516ac8bff7b88d6785250595478",
@@ -102,7 +102,7 @@
   "QingJian/DeepSeekPocket/Views/UsageView.swift": "07992964c995679de615d97209f490e1d95f34b19e5bc7134495fe9e4b6b923d",
   "QingJian/DeepSeekPocket/Views/WelcomeView.swift": "a584eefef0fdce0125b92954b17a0300a433a1846e5e331cb7f39fcf0c95cc4c",
   "QingJian/Package.swift": "7192c77bc3023cb18278772825d66d7b55e8ff5efff4622bd82b6d6c77194290",
-  "QingJian/QingJian.xcodeproj/project.pbxproj": "28e96cefd83947d0027717df6f7a4a200d41979d02644ab857dac4ce97e56142",
+  "QingJian/QingJian.xcodeproj/project.pbxproj": "bd614e07a2d101598554b8eac796da608ec088e2783e83d0b7286d7924cf3d15",
   "QingJian/QingJian.xcodeproj/xcshareddata/xcschemes/QingJian.xcscheme": "1fd4f524f4bfab16a8dba20f05ea5cd1af4b95ebea867e9d44fe47f432a57b8c",
   "QingJian/README.md": "b5888f7c360e8b2d7d6404422677c267155e3553605712f9e711b74ae618963f",
   "QingJian/Tests/AccountBalanceTests.swift": "d783c7e28a96b30ec3718abb948c813922fc8ed49e86c12919428cd40d536b48",
@@ -133,5 +133,5 @@
   "QingJian/scripts/build-ipa.sh": "3c80b25e8b422dba45292f1d1cd1d408d46189cd984b4e5f6a1817b897030e7c",
   "QingJian/scripts/capture-previews.sh": "96d78d7526cfa8db00d8876e4d068c24141f39f6270ddac778bd88237578ef76",
   "QingJian/scripts/check-project.py": "45413d8f97514ec495b6ef8ceb16b83f8f706062f7267d2e844c7a628fb595a5",
-  "QingJian/scripts/generate-project.py": "a2585f597b83a6ba06e990ca1283b654fcdcf8f6fc120cc3386d6239453f4e7b"
+  "QingJian/scripts/generate-project.py": "374a9a9663f50f244367c1984c0bbab44d6aae9ca7f3c00907c211ba4fb0c074"
 }

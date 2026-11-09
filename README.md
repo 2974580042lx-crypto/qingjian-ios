@@ -1,3 +1,9 @@
+Sermo 1.35.1 / build 64 — 修复 Colab 云盘刷新
+
+- 修复下载 endpoint.json 时遗漏路径分隔符导致的请求失败。
+- 刷新时显示进度，失败时弹出具体错误。
+- 通过现有 macOS Actions 执行 Release 编译打包。
+
 Sermo 1.35.0 / build 63 — Colab 云端模型
 
 - 模型与服务新增 Colab 独立设置页，顶部模型胶囊支持切换。
