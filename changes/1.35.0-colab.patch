@@ -362,7 +362,32 @@
          if let note { threads[ti].messages[mi].note = note }
          if state == .complete && threads[ti].messages[mi].content.isEmpty {
              threads[ti].messages[mi].state = .failed
-@@ -1646,7 +1751,7 @@
+@@ -1498,9 +1603,11 @@
+     }
+ 
+     func refreshStoryMemory(threadID: UUID, force: Bool) {
+-        guard storyMemoryTask == nil, !isGenerating, canPersist, !isPreview, hasKey,
++        guard storyMemoryTask == nil, !isGenerating, canPersist, !isPreview,
+               let thread = threads.first(where: { $0.id == threadID }), let story = thread.story,
+               force || (story.automaticMemory != false && story.ended != true) else { return }
++        let provider = auxiliaryProvider(for: thread)
++        guard isReady(provider) else { return }
+         let fresh = StoryPlay.pending(thread)
+         guard !fresh.isEmpty, force || fresh.count >= 12 else { return }
+         let before = story.memory
+@@ -1512,8 +1619,9 @@
+             defer { self.storyMemoryTask = nil; self.memorizingStoryID = nil }
+             let buffer = BookTextBufferBox()
+             do {
+-                try await DeepSeekClient(requestTimeout: 120, resourceTimeout: 240).stream(request: request, key: key) { buffer.value.consume($0) }
+-                self.recordUsage(buffer.value.usage, model: .flash, at: Date())
++                try await self.streamModel(request, provider: provider, requestTimeout: 120, resourceTimeout: 240,
++                    onRestart: { buffer.value = BookTextAccumulator(limit: 20000) }) { buffer.value.consume($0) }
++                self.recordUsage(buffer.value.usage, model: provider == .deepSeek ? .flash : nil, at: Date(), provider: provider)
+                 let text = try buffer.value.result()
+                 guard let ti = self.threads.firstIndex(where: { $0.id == threadID }),
+                       self.threads[ti].story?.memory == before,
+@@ -1646,7 +1754,7 @@
          catch { return }
          cancelReplySuggestions()
          let requestID = UUID(), sourceContent = answer.content
@@ -371,7 +396,7 @@
          suggestionRequestID = requestID
          suggestingThreadID = threadID
          suggestingMessageID = messageID
-@@ -1666,15 +1771,13 @@
+@@ -1666,15 +1774,13 @@
                  if self.isPreview {
                      buffer.value.consume(StreamEvent(content: "{\"replies\":[\"我想再听你说说。\",\"我们接着刚才的话题聊。\"]}",
                          finishReason: "stop", isDone: true))
@@ -391,7 +416,7 @@
                  let replies = try buffer.value.result()
                  guard self.suggestionRequestID == requestID, self.settings.shouldSuggestReplies,
                        self.activeThreadID == threadID,
-@@ -1684,7 +1787,7 @@
+@@ -1684,7 +1790,7 @@
                  let mi = self.threads[ti].messages.count - 1
                  self.threads[ti].messages[mi].replySuggestions = ReplySuggestionBatch(
                      replies: replies, usage: buffer.value.usage, createdAt: Date(),
@@ -400,7 +425,7 @@
                  self.persistNow()
              } catch {
                  if self.suggestionRequestID == requestID && !Task.isCancelled && !(error is CancellationError) {
-@@ -1712,8 +1815,8 @@
+@@ -1712,8 +1818,8 @@
          guard memoryTask == nil, !isPreview, canPersist, let threadID, threadID != generatingThreadID,
                let thread = threads.first(where: { $0.id == threadID }), let project = project(thread.projectID),
                project.remembers else { return }
@@ -411,7 +436,7 @@
          let fresh = ProjectMemory.pending(thread, in: project)
          guard fresh.count >= max(minimum, ProjectMemory.minimumNewMessages),
                let request = try? ProjectMemory.request(project: project, thread: thread, new: fresh) else { return }
-@@ -1728,14 +1831,10 @@
+@@ -1728,14 +1834,10 @@
              defer { self.memoryTask = nil; self.memorizingProjectID = nil }
              let buffer = MemoryBuffer()
              do {
@@ -430,7 +455,7 @@
                  let text = try buffer.value.result()
                  // You may have edited the memory meanwhile; your version wins.
                  guard var latest = self.project(project.id), latest.memory == before else { return }
-@@ -1835,12 +1934,10 @@
+@@ -1835,12 +1937,10 @@
                                                        sources: references, round: round, provider: provider)
              let buffer = BookTextBufferBox()
              do {
@@ -447,7 +472,7 @@
                  let plan: BookDiscussion.Plan = try JSONExtraction.decode(buffer.value.result())
                  if plan.ready == true { break }
                  let previousCount = references.count
-@@ -2038,7 +2135,7 @@
+@@ -2038,7 +2138,7 @@
          config.model = activeThreadID == threadID ? settings.model : (project?.model ?? settings.model)
          let subscriptionModel = activeThreadID == threadID ? settings.subscriptionModel : (project?.subscriptionModel ?? settings.subscriptionModel)
          let variables = PromptVariables.Context(now: Date(), userName: userName,
@@ -456,7 +481,35 @@
          let story = answer.storyState ?? thread.story
          let prompt: String
          let sourceMessages: [ChatMessage]
-@@ -2390,6 +2487,7 @@
+@@ -2068,7 +2168,7 @@
+             let buffer = BookTextBufferBox()
+             defer {
+                 if let usage = buffer.value.usage {
+-                    self.recordUsage(usage, model: provider == .chatGPT ? nil : model, at: Date())
++                    self.recordUsage(usage, model: provider == .deepSeek ? model : nil, at: Date(), provider: provider)
+                     _ = self.persistNow()
+                 }
+                 if self.thoughtsRequestID == requestID {
+@@ -2082,13 +2182,11 @@
+                     guard let self, self.thoughtsRequestID == requestID else { return }
+                     self.thoughtsDraft = buffer.value.content
+                 }
+-                if provider == .chatGPT {
+-                    try await self.subscription.stream(request: request, model: subscriptionModel, effort: .low,
+-                                                       onProgress: { _ in }, onEvent: receive)
+-                } else {
+-                    try await DeepSeekClient(requestTimeout: 120, resourceTimeout: 240)
+-                        .stream(request: request, key: key, onEvent: receive)
+-                }
++                try await self.streamModel(request, provider: provider, subscriptionModel: subscriptionModel,
++                    requestTimeout: 120, resourceTimeout: 240, onRestart: {
++                        buffer.value = BookTextAccumulator(limit: 20000)
++                        self.thoughtsDraft = ""
++                    }, onEvent: receive)
+                 try Task.checkCancellation()
+                 let text = try buffer.value.result().trimmingCharacters(in: .whitespacesAndNewlines)
+                 guard !text.isEmpty else { throw ChatError.server("这次没有生成心声，请稍后重试。") }
+@@ -2390,6 +2488,7 @@
      var content = ""
      var reasoning = ""
      var usage: TokenUsage?
