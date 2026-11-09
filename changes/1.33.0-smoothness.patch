@@ -1,0 +1,286 @@
+diff -ruN pa/QingJian/DeepSeekPocket/AppStore.swift pb/QingJian/DeepSeekPocket/AppStore.swift
+--- a/QingJian/DeepSeekPocket/AppStore.swift	2026-11-09 16:05:24.562885831 +0800
++++ b/QingJian/DeepSeekPocket/AppStore.swift	2026-11-09 16:05:24.573541380 +0800
+@@ -671,7 +671,12 @@
+     }
+ 
+     func setDraft(_ text: String) {
+-        guard let ti = threads.firstIndex(where: { $0.id == activeThreadID }) else { return }
++        guard let activeThreadID else { return }
++        setDraft(text, threadID: activeThreadID)
++    }
++    func draft(of threadID: UUID) -> String { threads.first { $0.id == threadID }?.draft ?? "" }
++    func setDraft(_ text: String, threadID: UUID) {
++        guard let ti = threads.firstIndex(where: { $0.id == threadID }), threads[ti].draft != text else { return }
+         threads[ti].draft = text
+         draftSaveTask?.cancel()
+         draftSaveTask = Task { [weak self] in
+diff -ruN pa/QingJian/DeepSeekPocket/Core/MarkdownBlocks.swift pb/QingJian/DeepSeekPocket/Core/MarkdownBlocks.swift
+--- a/QingJian/DeepSeekPocket/Core/MarkdownBlocks.swift	2026-11-09 16:05:24.563381276 +0800
++++ b/QingJian/DeepSeekPocket/Core/MarkdownBlocks.swift	2026-11-09 16:05:24.574074958 +0800
+@@ -24,12 +24,29 @@
+     case divider
+     case code(String)
+ 
++    // While an answer streams, every new token used to re-read the whole answer line by
++    // line. Finished paragraphs are now remembered, so only the one being written is
++    // parsed again; a long answer no longer gets slower as it grows.
++    nonisolated(unsafe) private static var chunkCache: [String: [MarkdownBlock]] = [:]
++    private static let chunkLock = NSLock()
++    private static func cachedChunk(_ chunk: String) -> [MarkdownBlock] {
++        chunkLock.lock()
++        if let hit = chunkCache[chunk] { chunkLock.unlock(); return hit }
++        chunkLock.unlock()
++        let parsed = parseChunk(chunk)
++        chunkLock.lock()
++        if chunkCache.count > 600 { chunkCache.removeAll(keepingCapacity: true) }
++        chunkCache[chunk] = parsed
++        chunkLock.unlock()
++        return parsed
++    }
++
+     static func parse(_ content: String, markLimit: Int = HighlightMarks.perAnswer) -> [MarkdownBlock] {
+         var blocks: [MarkdownBlock] = []
+         for (index, segment) in content.components(separatedBy: "```").enumerated() {
+             if !index.isMultiple(of: 2) { blocks.append(.code(segment)); continue }
+             for chunk in segment.components(separatedBy: "\n\n") where !chunk.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+-                blocks.append(contentsOf: parseChunk(chunk))
++                blocks.append(contentsOf: cachedChunk(chunk))
+             }
+         }
+         return assignMarks(blocks, limit: markLimit)
+diff -ruN pa/QingJian/DeepSeekPocket/Views/AppTheme.swift pb/QingJian/DeepSeekPocket/Views/AppTheme.swift
+--- a/QingJian/DeepSeekPocket/Views/AppTheme.swift	2026-11-09 16:05:24.570719860 +0800
++++ b/QingJian/DeepSeekPocket/Views/AppTheme.swift	2026-11-09 16:05:24.581813016 +0800
+@@ -427,9 +427,18 @@
+         "ivory": (0xF3F3F0, 0x111110), "white": (0xF4F4F4, 0x050505), "grey": (0xEAEAE7, 0x141416),
+     ]
+ 
++    // Read from UserDefaults once per change, not once per paragraph per redraw.
++    nonisolated(unsafe) private static var cache: [String: String] = [:]
++    nonisolated(unsafe) private static var cachedRevision = -1
++    private static let cacheLock = NSLock()
+     private static func stored(_ key: String) -> String {
+-        _ = StyleAppearance.shared.revision
+-        return UserDefaults.standard.string(forKey: key) ?? ""
++        let revision = StyleAppearance.shared.revision
++        cacheLock.lock(); defer { cacheLock.unlock() }
++        if revision != cachedRevision { cache = [:]; cachedRevision = revision }
++        if let hit = cache[key] { return hit }
++        let value = UserDefaults.standard.string(forKey: key) ?? ""
++        cache[key] = value
++        return value
+     }
+     static func value(_ key: String) -> String { stored(key) }
+     @MainActor static func set(_ value: String, for key: String) {
+@@ -471,10 +480,10 @@
+         return Ink.raised
+     }
+     @MainActor static func setMediumBody(_ on: Bool) {
+-        UserDefaults.standard.set(on, forKey: mediumKey)
++        UserDefaults.standard.set(on ? "1" : "", forKey: mediumKey)
+         StyleAppearance.shared.bump()
+     }
+-    static var mediumBody: Bool { _ = StyleAppearance.shared.revision; return UserDefaults.standard.bool(forKey: mediumKey) }
++    static var mediumBody: Bool { stored(mediumKey) == "1" }
+     /// Line spacing inside a paragraph and the gap between paragraphs.
+     static var lineSpacing: CGFloat {
+         switch stored(spacingKey) { case "compact": return 5; case "loose": return 11; default: return 8 }
+diff -ruN pa/QingJian/DeepSeekPocket/Views/ContentView.swift pb/QingJian/DeepSeekPocket/Views/ContentView.swift
+--- a/QingJian/DeepSeekPocket/Views/ContentView.swift	2026-11-09 16:05:24.570799649 +0800
++++ b/QingJian/DeepSeekPocket/Views/ContentView.swift	2026-11-09 16:05:24.581912917 +0800
+@@ -320,7 +320,7 @@
+         return "对\(story.character)说…"
+     }
+     private var hasInput: Bool {
+-        !store.activeDraft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || !pendingImages.isEmpty
++        !localDraft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || !pendingImages.isEmpty
+     }
+     // 猜你想说: after an answer, one suggested reply waits as grey text in the empty
+     // composer; send takes it as is, a tap on it puts it in to edit, 「换一条」 cycles.
+@@ -388,7 +388,41 @@
+     private var night: Bool { style == .night }
+     private var shouldFollowOutput: Bool { followsOutput && pendingMessageJump == nil && focusedMessageID == nil }
+ 
+-    private var draft: Binding<String> { Binding(get: { store.activeDraft }, set: { store.setDraft($0) }) }
++    // Typing stays in this screen and reaches the store a moment after you pause, so
++    // a keystroke no longer redraws the sidebar or re-saves every chat; long messages
++    // used to make every key heavier.
++    @State private var localDraft = ""
++    @State private var draftThreadID: UUID?
++    @State private var lastPushedDraft = ""
++    @State private var draftPushTask: Task<Void, Never>?
++    private var draft: Binding<String> {
++        Binding(get: { localDraft }, set: { localDraft = $0; scheduleDraftPush() })
++    }
++    private func scheduleDraftPush() {
++        draftPushTask?.cancel()
++        let target = draftThreadID ?? store.activeThreadID
++        draftPushTask = Task { @MainActor in
++            try? await Task.sleep(nanoseconds: 350_000_000)
++            guard !Task.isCancelled else { return }
++            pushDraft(localDraft, to: target)
++        }
++    }
++    private func pushDraft(_ text: String, to threadID: UUID?) {
++        guard let threadID else { return }
++        lastPushedDraft = text
++        store.setDraft(text, threadID: threadID)
++    }
++    /// Hands any typing still waiting to the store, before sending or leaving the chat.
++    private func flushDraft() {
++        draftPushTask?.cancel(); draftPushTask = nil
++        guard let threadID = draftThreadID ?? store.activeThreadID, store.draft(of: threadID) != localDraft else { return }
++        pushDraft(localDraft, to: threadID)
++    }
++    private func loadDraft() {
++        draftThreadID = store.activeThreadID
++        localDraft = store.activeDraft
++        lastPushedDraft = localDraft
++    }
+     private var errorPresented: Binding<Bool> {
+         Binding(get: { store.errorMessage != nil && editedMessage == nil },
+                 set: { if !$0 { store.errorMessage = nil } })
+@@ -428,7 +462,7 @@
+                     Color.clear.frame(height: 2)
+                 }
+                 .scrollTargetLayout()
+-                .animation(reduceMotion ? nil : .easeOut(duration: 0.28), value: store.activeThread?.messages.count)
++                .animation(reduceMotion ? nil : .easeOut(duration: 0.2), value: store.activeThread?.messages.count)
+                 .padding(.horizontal, swiss ? 20 : Personal.margin).padding(.top, 10).padding(.bottom, 22)
+             }
+             .accessibilityIdentifier("chat-scroll")
+@@ -437,12 +471,11 @@
+             // keeps a short fade so it stays readable.
+             .scrollEdgeEffectHidden(true, for: .top)
+             .overlay(alignment: .top) {
+-                // The clock row sits on a real blur that fades out below it, as in the
+-                // Claude app, so the time never prints over the text; text stays visible
+-                // under and between the glass buttons.
+-                Rectangle().fill(.regularMaterial)
+-                    .mask(LinearGradient(stops: [.init(color: .black, location: 0), .init(color: .black, location: 0.6),
+-                                                 .init(color: .clear, location: 1)], startPoint: .top, endPoint: .bottom))
++                // The clock row sits on the page colour fading out below it, so the time
++                // never prints over the text. A plain gradient: a live blur here had to be
++                // recomputed every frame while an answer streamed and scrolled under it.
++                LinearGradient(stops: [.init(color: Ink.paper, location: 0), .init(color: Ink.paper, location: 0.62),
++                                       .init(color: Ink.paper.opacity(0), location: 1)], startPoint: .top, endPoint: .bottom)
+                     .frame(height: topInset + 14).allowsHitTesting(false).accessibilityHidden(true)
+             }
+             .scrollPosition($scrollPosition)
+@@ -562,7 +595,18 @@
+             keyboardVisible = focused
+             if focused && shouldFollowOutput { scrollPosition.scrollTo(edge: .bottom) }
+         }
++        .onAppear { loadDraft() }
++        .onDisappear { flushDraft() }
++        // Something else changed the draft (a suggestion put in, a file read in, a send
++        // clearing it): show that, but not the echo of our own typing coming back.
++        .onChange(of: store.activeDraft) { _, new in
++            if new != localDraft && new != lastPushedDraft { localDraft = new; lastPushedDraft = new }
++        }
+         .onChange(of: store.activeThreadID) { _, newID in
++            // Typing still waiting belongs to the chat you were in.
++            draftPushTask?.cancel(); draftPushTask = nil
++            if let old = draftThreadID, old != newID, store.draft(of: old) != localDraft { store.setDraft(localDraft, threadID: old) }
++            loadDraft()
+             store.speech.stop()
+             systemPromptTarget = nil; versionsTarget = nil
+             messageBrowser = nil; clearMessageNavigation()
+@@ -669,8 +713,8 @@
+         return ForEach(visibleMessages) { message in
+             // Equatable: only the message that changed redraws while an answer streams.
+             messageRow(message, threadID: threadID, isLast: message.id == lastID, round: rounds[message.id] ?? 1, style: look)
+-                // A new message eases in and rises a little instead of popping in.
+-                .transition(.opacity.combined(with: .offset(y: 10)))
++                // A new message fades in quietly instead of popping in.
++                .transition(.opacity)
+                 .background {
+                     if pendingMessageJump?.messageID == message.id, let requestID = pendingMessageJump?.id {
+                         GeometryReader { geometry in
+@@ -809,7 +853,7 @@
+     private func prepareSuggestedReply(_ text: String, messageID: UUID) {
+         guard let threadID = store.activeThreadID else { return }
+         let selection = PendingSuggestedReply(threadID: threadID, messageID: messageID, text: text)
+-        if !store.activeDraft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty && store.activeDraft != text {
++        if !localDraft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty && localDraft != text {
+             pendingSuggestedReply = selection
+         } else { applySuggestedReply(selection) }
+     }
+@@ -1177,6 +1221,7 @@
+                             action: @escaping () -> Void) -> some View {
+         Button {
+             attachTrayOpen = false
++            flushDraft()
+             action()
+         } label: {
+             Label(title, systemImage: symbol).font(TypeScale.label).foregroundStyle(Ink.ink)
+@@ -1342,6 +1387,7 @@
+                             clearMessageNavigation()
+                             followsOutput = true
+                             Haptic.tap()
++                            flushDraft()
+                             if store.send(store.activeDraft, images: pendingImages.map(\.data)) {
+                                 pendingImages = []
+                                 focusComposer(false)
+diff -ruN pa/QingJian/DeepSeekPocket/Views/ReasoningView.swift pb/QingJian/DeepSeekPocket/Views/ReasoningView.swift
+--- a/QingJian/DeepSeekPocket/Views/ReasoningView.swift	2026-11-09 16:05:24.571043799 +0800
++++ b/QingJian/DeepSeekPocket/Views/ReasoningView.swift	2026-11-09 16:05:24.582209369 +0800
+@@ -58,10 +58,13 @@
+     var live: Bool
+     var size: CGFloat = 18
+     @Environment(\.accessibilityReduceMotion) private var reduceMotion
++    // Drawn 30 times a second (not every display frame) and only while on screen:
++    // at 120 Hz it had been a steady cost all through a long answer.
++    @State private var onScreen = false
+     var body: some View {
+         Group {
+             if live && !reduceMotion {
+-                TimelineView(.animation) { timeline in
++                TimelineView(.animation(minimumInterval: 1.0 / 30, paused: !onScreen)) { timeline in
+                     petals(time: timeline.date.timeIntervalSinceReferenceDate)
+                 }
+             } else {
+@@ -69,6 +72,8 @@
+             }
+         }
+         .frame(width: size, height: size)
++        .onAppear { onScreen = true }
++        .onDisappear { onScreen = false }
+         .accessibilityHidden(true)
+     }
+ 
+diff -ruN pa/QingJian/DeepSeekPocket/Views/StreamActivityView.swift pb/QingJian/DeepSeekPocket/Views/StreamActivityView.swift
+--- a/QingJian/DeepSeekPocket/Views/StreamActivityView.swift	2026-11-09 16:05:24.571122296 +0800
++++ b/QingJian/DeepSeekPocket/Views/StreamActivityView.swift	2026-11-09 16:05:24.582269557 +0800
+@@ -12,7 +12,8 @@
+                 (!message.reasoning.isEmpty ? .thinking : (store.generationProgress?.phase ?? .connecting))
+             VStack(alignment: .leading, spacing: 7) {
+                 HStack(spacing: 9) {
+-                    if InterfaceStyle.isSwiss || InterfaceStyle.isNight { PulseDot() } else { ThinkingMark(live: true, size: 16) }
++                    // One flower is enough: the animated one lives in the thinking row.
++                    PulseDot()
+                     // The reasoning header above already says it is thinking and for how long.
+                     if phase == .connecting || phase == .waiting {
+                         Text("\(phase.title) · \(seconds) 秒").font(TypeScale.caption).monospacedDigit()
+diff -ruN pa/QingJian/QingJian.xcodeproj/project.pbxproj pb/QingJian/QingJian.xcodeproj/project.pbxproj
+--- a/QingJian/QingJian.xcodeproj/project.pbxproj	2026-11-09 16:05:24.571216665 +0800
++++ b/QingJian/QingJian.xcodeproj/project.pbxproj	2026-11-09 16:05:24.582472835 +0800
+@@ -110,7 +110,7 @@
+ 		82FA67131BBD396F86E2116A = { isa = "PBXBuildFile"; fileRef = "FD74A26728B90EEDF0289739"; };
+ 		83A2F5A6AC45B5491E1C720F = { isa = "PBXBuildFile"; fileRef = "7904190125DA8DD29BF99CDB"; };
+ 		845ECD744C27640FC0E6C3BE = { isa = "PBXFileReference"; lastKnownFileType = "sourcecode.swift"; path = "DeepSeekPocket/Core/GitHubTools.swift"; sourceTree = "SOURCE_ROOT"; };
+-		86A46D98C12482E1EF3DC46C = { isa = "XCBuildConfiguration"; buildSettings = { PRODUCT_BUNDLE_IDENTIFIER = "com.xiaolong.qingjian"; PRODUCT_NAME = "DeepSeekPocket"; INFOPLIST_FILE = "DeepSeekPocket/Info.plist"; GENERATE_INFOPLIST_FILE = "NO"; MARKETING_VERSION = "1.32.2"; CURRENT_PROJECT_VERSION = "60"; ASSETCATALOG_COMPILER_APPICON_NAME = "AppIcon"; ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = "AccentColor"; TARGETED_DEVICE_FAMILY = "1,2"; CODE_SIGN_STYLE = "Automatic"; LD_RUNPATH_SEARCH_PATHS = ( "$(inherited)", "@executable_path/Frameworks", ); SUPPORTED_PLATFORMS = "iphoneos iphonesimulator"; SUPPORTS_MACCATALYST = "NO"; SWIFT_EMIT_LOC_STRINGS = "YES"; }; name = "Release"; };
++		86A46D98C12482E1EF3DC46C = { isa = "XCBuildConfiguration"; buildSettings = { PRODUCT_BUNDLE_IDENTIFIER = "com.xiaolong.qingjian"; PRODUCT_NAME = "DeepSeekPocket"; INFOPLIST_FILE = "DeepSeekPocket/Info.plist"; GENERATE_INFOPLIST_FILE = "NO"; MARKETING_VERSION = "1.33.0"; CURRENT_PROJECT_VERSION = "61"; ASSETCATALOG_COMPILER_APPICON_NAME = "AppIcon"; ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = "AccentColor"; TARGETED_DEVICE_FAMILY = "1,2"; CODE_SIGN_STYLE = "Automatic"; LD_RUNPATH_SEARCH_PATHS = ( "$(inherited)", "@executable_path/Frameworks", ); SUPPORTED_PLATFORMS = "iphoneos iphonesimulator"; SUPPORTS_MACCATALYST = "NO"; SWIFT_EMIT_LOC_STRINGS = "YES"; }; name = "Release"; };
+ 		8B37FFF4CB7BE1135BD14ACD = { isa = "PBXFileReference"; lastKnownFileType = "sourcecode.swift"; path = "DeepSeekPocket/Core/WebSearch.swift"; sourceTree = "SOURCE_ROOT"; };
+ 		8BDCEEA2EB43FC91018F696F = { isa = "PBXBuildFile"; fileRef = "FF1F92A5772CD6C2220F3CD7"; };
+ 		8C6280633D259F66427E2288 = { isa = "PBXFileReference"; lastKnownFileType = "sourcecode.swift"; path = "DeepSeekPocket/Views/ReasoningView.swift"; sourceTree = "SOURCE_ROOT"; };
+@@ -160,7 +160,7 @@
+ 		BD12731D7BC9B843D8523E65 = { isa = "PBXFileReference"; lastKnownFileType = "folder.assetcatalog"; path = "DeepSeekPocket/Assets.xcassets"; sourceTree = "SOURCE_ROOT"; };
+ 		BF41F4472847DA8EE81FF145 = { isa = "PBXBuildFile"; fileRef = "42CC3A23349A29CD3B9B13B7"; };
+ 		C0C355164654B03A78373B5A = { isa = "PBXBuildFile"; fileRef = "39F9C2B4BC13DE9D1B7A0828"; };
+-		C131AA990408F5A8B287713E = { isa = "XCBuildConfiguration"; buildSettings = { PRODUCT_BUNDLE_IDENTIFIER = "com.xiaolong.qingjian"; PRODUCT_NAME = "DeepSeekPocket"; INFOPLIST_FILE = "DeepSeekPocket/Info.plist"; GENERATE_INFOPLIST_FILE = "NO"; MARKETING_VERSION = "1.32.2"; CURRENT_PROJECT_VERSION = "60"; ASSETCATALOG_COMPILER_APPICON_NAME = "AppIcon"; ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = "AccentColor"; TARGETED_DEVICE_FAMILY = "1,2"; CODE_SIGN_STYLE = "Automatic"; LD_RUNPATH_SEARCH_PATHS = ( "$(inherited)", "@executable_path/Frameworks", ); SUPPORTED_PLATFORMS = "iphoneos iphonesimulator"; SUPPORTS_MACCATALYST = "NO"; SWIFT_EMIT_LOC_STRINGS = "YES"; }; name = "Debug"; };
++		C131AA990408F5A8B287713E = { isa = "XCBuildConfiguration"; buildSettings = { PRODUCT_BUNDLE_IDENTIFIER = "com.xiaolong.qingjian"; PRODUCT_NAME = "DeepSeekPocket"; INFOPLIST_FILE = "DeepSeekPocket/Info.plist"; GENERATE_INFOPLIST_FILE = "NO"; MARKETING_VERSION = "1.33.0"; CURRENT_PROJECT_VERSION = "61"; ASSETCATALOG_COMPILER_APPICON_NAME = "AppIcon"; ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = "AccentColor"; TARGETED_DEVICE_FAMILY = "1,2"; CODE_SIGN_STYLE = "Automatic"; LD_RUNPATH_SEARCH_PATHS = ( "$(inherited)", "@executable_path/Frameworks", ); SUPPORTED_PLATFORMS = "iphoneos iphonesimulator"; SUPPORTS_MACCATALYST = "NO"; SWIFT_EMIT_LOC_STRINGS = "YES"; }; name = "Debug"; };
+ 		C4BF254EBAFEB4755D037451 = { isa = "PBXFileReference"; lastKnownFileType = "sourcecode.swift"; path = "DeepSeekPocket/Views/StreamActivityView.swift"; sourceTree = "SOURCE_ROOT"; };
+ 		C7B5A2A8067AD2778E7DFC27 = { isa = "PBXFileReference"; lastKnownFileType = "sourcecode.swift"; path = "DeepSeekPocket/Views/HighlightColorSettings.swift"; sourceTree = "SOURCE_ROOT"; };
+ 		C7D59EFCCEB862427B91F038 = { isa = "PBXBuildFile"; fileRef = "5A6EB7F92D195E7AEE28EEB7"; };

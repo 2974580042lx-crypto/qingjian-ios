@@ -1,0 +1,169 @@
+diff -ruN pa/QingJian/DeepSeekPocket/Views/ContentView.swift pb/QingJian/DeepSeekPocket/Views/ContentView.swift
+--- a/QingJian/DeepSeekPocket/Views/ContentView.swift	2026-11-09 16:21:11.213539006 +0800
++++ b/QingJian/DeepSeekPocket/Views/ContentView.swift	2026-11-09 16:21:11.236747384 +0800
+@@ -462,7 +462,6 @@
+                     Color.clear.frame(height: 2)
+                 }
+                 .scrollTargetLayout()
+-                .animation(reduceMotion ? nil : .easeOut(duration: 0.2), value: store.activeThread?.messages.count)
+                 .padding(.horizontal, swiss ? 20 : Personal.margin).padding(.top, 10).padding(.bottom, 22)
+             }
+             .accessibilityIdentifier("chat-scroll")
+@@ -501,10 +500,10 @@
+                 if phase == .idle && nearBottom && pendingMessageJump == nil && focusedMessageID == nil { followsOutput = true }
+             }
+             .onChange(of: store.activeThread?.messages.count) { _, _ in
+-                // After sending, glide down to the new message instead of jumping there.
++                // Straight to the new message: a glide here, on top of the list's own
++                // update, left a ghost of the text while sending.
+                 guard shouldFollowOutput else { return }
+-                if reduceMotion { scrollPosition.scrollTo(edge: .bottom) }
+-                else { withAnimation(.easeOut(duration: 0.32)) { scrollPosition.scrollTo(edge: .bottom) } }
++                scrollPosition.scrollTo(edge: .bottom)
+             }
+             .onChange(of: store.activeThread?.messages.last?.content) { _, _ in
+                 if shouldFollowOutput && store.generatingThreadID == store.activeThreadID {
+@@ -713,8 +712,6 @@
+         return ForEach(visibleMessages) { message in
+             // Equatable: only the message that changed redraws while an answer streams.
+             messageRow(message, threadID: threadID, isLast: message.id == lastID, round: rounds[message.id] ?? 1, style: look)
+-                // A new message fades in quietly instead of popping in.
+-                .transition(.opacity)
+                 .background {
+                     if pendingMessageJump?.messageID == message.id, let requestID = pendingMessageJump?.id {
+                         GeometryReader { geometry in
+@@ -1419,7 +1416,6 @@
+         .accessibilityElement(children: .contain).accessibilityIdentifier("chat-composer-panel")
+         .onGeometryChange(for: CGFloat.self) { $0.size.height } action: { composerPanelHeight = $0 }
+         .onChange(of: ghostSource?.id) { _, _ in suggestionIndex = 0 }
+-        .animation(reduceMotion ? nil : .snappy(duration: 0.22), value: ghostText)
+     }
+ }
+ 
+diff -ruN pa/QingJian/DeepSeekPocket/Views/KeyboardChatLayout.swift pb/QingJian/DeepSeekPocket/Views/KeyboardChatLayout.swift
+--- a/QingJian/DeepSeekPocket/Views/KeyboardChatLayout.swift	2026-11-09 16:21:11.214542529 +0800
++++ b/QingJian/DeepSeekPocket/Views/KeyboardChatLayout.swift	2026-11-09 16:21:11.237422261 +0800
+@@ -81,7 +81,7 @@
+         // transcript lives in this separate host, so it is turned off on the scroll view.
+         private weak var transcriptScroll: UIScrollView?
+         private func hideTopEdgeEffect() {
+-            if let scroll = transcriptScroll, scroll.window != nil { scroll.topEdgeEffect.isHidden = true; return }
++            if let scroll = transcriptScroll, scroll.window != nil { return }
+             transcriptScroll = firstScrollView(in: transcriptHost.view)
+             transcriptScroll?.topEdgeEffect.isHidden = true
+         }
+diff -ruN pa/QingJian/DeepSeekPocket/Views/ReasoningView.swift pb/QingJian/DeepSeekPocket/Views/ReasoningView.swift
+--- a/QingJian/DeepSeekPocket/Views/ReasoningView.swift	2026-11-09 16:21:11.215711838 +0800
++++ b/QingJian/DeepSeekPocket/Views/ReasoningView.swift	2026-11-09 16:21:11.237683804 +0800
+@@ -51,50 +51,46 @@
+     }
+ }
+ 
+-/// Sermo's thinking mark: five small terracotta petals round a seed. While it thinks
+-/// the petals turn slowly and breathe one after another; when it is done they settle
+-/// into a still little flower. Motion stops when Reduce Motion is on.
+-struct ThinkingMark: View {
+-    var live: Bool
+-    var size: CGFloat = 18
+-    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+-    // Drawn 30 times a second (not every display frame) and only while on screen:
+-    // at 120 Hz it had been a steady cost all through a long answer.
+-    @State private var onScreen = false
+-    var body: some View {
+-        Group {
+-            if live && !reduceMotion {
+-                TimelineView(.animation(minimumInterval: 1.0 / 30, paused: !onScreen)) { timeline in
+-                    petals(time: timeline.date.timeIntervalSinceReferenceDate)
+-                }
+-            } else {
+-                petals(time: nil)
+-            }
+-        }
+-        .frame(width: size, height: size)
+-        .onAppear { onScreen = true }
+-        .onDisappear { onScreen = false }
+-        .accessibilityHidden(true)
+-    }
+-
+-    private func petals(time: Double?) -> some View {
+-        let dot = size * 0.26
+-        let ring = size * 0.34
+-        let turn = (time ?? 0) * 70
+-        return ZStack {
+-            ForEach(0..<5, id: \.self) { index in
+-                let wave = time.map { 0.72 + 0.28 * (0.5 + 0.5 * sin($0 * 3.2 - Double(index) * 1.25)) } ?? 1
+-                Circle().fill(Ink.seal)
+-                    .frame(width: dot * wave, height: dot * wave)
+-                    .opacity(time == nil ? 0.9 : 0.55 + 0.45 * wave)
+-                    .offset(y: -ring)
+-                    .rotationEffect(.degrees(Double(index) * 72 + turn))
+-            }
+-            Circle().fill(Ink.seal).frame(width: dot * 0.7, height: dot * 0.7)
+-        }
+-    }
+-}
+-
++/// Sermo's thinking mark: five small terracotta petals round a seed. While it thinks
++/// the flower turns slowly and the petals breathe one after another; when it is done
++/// they settle into a still little flower. Motion stops when Reduce Motion is on.
++///
++/// The motion is handed to the system's animation engine once (repeating rotation and
++/// scale), so the view is not redrawn frame by frame: an earlier version recomputed
++/// the flower on every display frame and kept the phone warm through long answers.
++struct ThinkingMark: View {
++    var live: Bool
++    var size: CGFloat = 18
++    @Environment(\.accessibilityReduceMotion) private var reduceMotion
++    @State private var moving = false
++    private var animated: Bool { live && !reduceMotion }
++
++    var body: some View {
++        let dot = size * 0.26
++        let ring = size * 0.34
++        ZStack {
++            ForEach(0..<5, id: \.self) { index in
++                Circle().fill(Ink.seal)
++                    .frame(width: dot, height: dot)
++                    .scaleEffect(animated && moving ? 0.72 : 1)
++                    .opacity(animated && moving ? 0.6 : 0.9)
++                    .animation(animated
++                               ? .easeInOut(duration: 0.9).repeatForever(autoreverses: true).delay(Double(index) * 0.18)
++                               : .easeOut(duration: 0.3), value: moving)
++                    .offset(y: -ring)
++                    .rotationEffect(.degrees(Double(index) * 72))
++            }
++            Circle().fill(Ink.seal).frame(width: dot * 0.7, height: dot * 0.7)
++        }
++        .rotationEffect(.degrees(animated && moving ? 360 : 0))
++        .animation(animated ? .linear(duration: 5.2).repeatForever(autoreverses: false) : .easeOut(duration: 0.3), value: moving)
++        .frame(width: size, height: size)
++        .onAppear { if animated { moving = true } }
++        .onChange(of: animated) { _, now in moving = now }
++        .accessibilityHidden(true)
++    }
++}
++
+ struct ThinkingTarget: Identifiable, Equatable {
+     let threadID: UUID
+     let messageID: UUID
+diff -ruN pa/QingJian/QingJian.xcodeproj/project.pbxproj pb/QingJian/QingJian.xcodeproj/project.pbxproj
+--- a/QingJian/QingJian.xcodeproj/project.pbxproj	2026-11-09 16:21:11.217308918 +0800
++++ b/QingJian/QingJian.xcodeproj/project.pbxproj	2026-11-09 16:21:11.238253951 +0800
+@@ -110,7 +110,7 @@
+ 		82FA67131BBD396F86E2116A = { isa = "PBXBuildFile"; fileRef = "FD74A26728B90EEDF0289739"; };
+ 		83A2F5A6AC45B5491E1C720F = { isa = "PBXBuildFile"; fileRef = "7904190125DA8DD29BF99CDB"; };
+ 		845ECD744C27640FC0E6C3BE = { isa = "PBXFileReference"; lastKnownFileType = "sourcecode.swift"; path = "DeepSeekPocket/Core/GitHubTools.swift"; sourceTree = "SOURCE_ROOT"; };
+-		86A46D98C12482E1EF3DC46C = { isa = "XCBuildConfiguration"; buildSettings = { PRODUCT_BUNDLE_IDENTIFIER = "com.xiaolong.qingjian"; PRODUCT_NAME = "DeepSeekPocket"; INFOPLIST_FILE = "DeepSeekPocket/Info.plist"; GENERATE_INFOPLIST_FILE = "NO"; MARKETING_VERSION = "1.33.0"; CURRENT_PROJECT_VERSION = "61"; ASSETCATALOG_COMPILER_APPICON_NAME = "AppIcon"; ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = "AccentColor"; TARGETED_DEVICE_FAMILY = "1,2"; CODE_SIGN_STYLE = "Automatic"; LD_RUNPATH_SEARCH_PATHS = ( "$(inherited)", "@executable_path/Frameworks", ); SUPPORTED_PLATFORMS = "iphoneos iphonesimulator"; SUPPORTS_MACCATALYST = "NO"; SWIFT_EMIT_LOC_STRINGS = "YES"; }; name = "Release"; };
++		86A46D98C12482E1EF3DC46C = { isa = "XCBuildConfiguration"; buildSettings = { PRODUCT_BUNDLE_IDENTIFIER = "com.xiaolong.qingjian"; PRODUCT_NAME = "DeepSeekPocket"; INFOPLIST_FILE = "DeepSeekPocket/Info.plist"; GENERATE_INFOPLIST_FILE = "NO"; MARKETING_VERSION = "1.34.0"; CURRENT_PROJECT_VERSION = "62"; ASSETCATALOG_COMPILER_APPICON_NAME = "AppIcon"; ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = "AccentColor"; TARGETED_DEVICE_FAMILY = "1,2"; CODE_SIGN_STYLE = "Automatic"; LD_RUNPATH_SEARCH_PATHS = ( "$(inherited)", "@executable_path/Frameworks", ); SUPPORTED_PLATFORMS = "iphoneos iphonesimulator"; SUPPORTS_MACCATALYST = "NO"; SWIFT_EMIT_LOC_STRINGS = "YES"; }; name = "Release"; };
+ 		8B37FFF4CB7BE1135BD14ACD = { isa = "PBXFileReference"; lastKnownFileType = "sourcecode.swift"; path = "DeepSeekPocket/Core/WebSearch.swift"; sourceTree = "SOURCE_ROOT"; };
+ 		8BDCEEA2EB43FC91018F696F = { isa = "PBXBuildFile"; fileRef = "FF1F92A5772CD6C2220F3CD7"; };
+ 		8C6280633D259F66427E2288 = { isa = "PBXFileReference"; lastKnownFileType = "sourcecode.swift"; path = "DeepSeekPocket/Views/ReasoningView.swift"; sourceTree = "SOURCE_ROOT"; };
+@@ -160,7 +160,7 @@
+ 		BD12731D7BC9B843D8523E65 = { isa = "PBXFileReference"; lastKnownFileType = "folder.assetcatalog"; path = "DeepSeekPocket/Assets.xcassets"; sourceTree = "SOURCE_ROOT"; };
+ 		BF41F4472847DA8EE81FF145 = { isa = "PBXBuildFile"; fileRef = "42CC3A23349A29CD3B9B13B7"; };
+ 		C0C355164654B03A78373B5A = { isa = "PBXBuildFile"; fileRef = "39F9C2B4BC13DE9D1B7A0828"; };
+-		C131AA990408F5A8B287713E = { isa = "XCBuildConfiguration"; buildSettings = { PRODUCT_BUNDLE_IDENTIFIER = "com.xiaolong.qingjian"; PRODUCT_NAME = "DeepSeekPocket"; INFOPLIST_FILE = "DeepSeekPocket/Info.plist"; GENERATE_INFOPLIST_FILE = "NO"; MARKETING_VERSION = "1.33.0"; CURRENT_PROJECT_VERSION = "61"; ASSETCATALOG_COMPILER_APPICON_NAME = "AppIcon"; ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = "AccentColor"; TARGETED_DEVICE_FAMILY = "1,2"; CODE_SIGN_STYLE = "Automatic"; LD_RUNPATH_SEARCH_PATHS = ( "$(inherited)", "@executable_path/Frameworks", ); SUPPORTED_PLATFORMS = "iphoneos iphonesimulator"; SUPPORTS_MACCATALYST = "NO"; SWIFT_EMIT_LOC_STRINGS = "YES"; }; name = "Debug"; };
++		C131AA990408F5A8B287713E = { isa = "XCBuildConfiguration"; buildSettings = { PRODUCT_BUNDLE_IDENTIFIER = "com.xiaolong.qingjian"; PRODUCT_NAME = "DeepSeekPocket"; INFOPLIST_FILE = "DeepSeekPocket/Info.plist"; GENERATE_INFOPLIST_FILE = "NO"; MARKETING_VERSION = "1.34.0"; CURRENT_PROJECT_VERSION = "62"; ASSETCATALOG_COMPILER_APPICON_NAME = "AppIcon"; ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = "AccentColor"; TARGETED_DEVICE_FAMILY = "1,2"; CODE_SIGN_STYLE = "Automatic"; LD_RUNPATH_SEARCH_PATHS = ( "$(inherited)", "@executable_path/Frameworks", ); SUPPORTED_PLATFORMS = "iphoneos iphonesimulator"; SUPPORTS_MACCATALYST = "NO"; SWIFT_EMIT_LOC_STRINGS = "YES"; }; name = "Debug"; };
+ 		C4BF254EBAFEB4755D037451 = { isa = "PBXFileReference"; lastKnownFileType = "sourcecode.swift"; path = "DeepSeekPocket/Views/StreamActivityView.swift"; sourceTree = "SOURCE_ROOT"; };
+ 		C7B5A2A8067AD2778E7DFC27 = { isa = "PBXFileReference"; lastKnownFileType = "sourcecode.swift"; path = "DeepSeekPocket/Views/HighlightColorSettings.swift"; sourceTree = "SOURCE_ROOT"; };
+ 		C7D59EFCCEB862427B91F038 = { isa = "PBXBuildFile"; fileRef = "5A6EB7F92D195E7AEE28EEB7"; };
