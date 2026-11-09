@@ -1,3 +1,14 @@
+Sermo 1.35.0 / build 63 — Colab 云端模型
+
+- 模型与服务新增 Colab 独立设置页，顶部模型胶囊支持切换。
+- 从 Google Drive 的 /EasyColab/endpoint.json 自动读取地址、密钥、模型名及更新时间，密钥单独保存在 Keychain。
+- 支持 SSE、reasoning_content 与流式 think 标签、思考开关、默认 16K 上下文和约 120 秒网络等待。
+- 连接失败刷新地址并重试一次，保留原消息，提供用 DeepSeek 重发入口。
+- Colab Token 用量单独记录，价格显示免费。辅助调用默认跟随当前聊天模型，工具调用默认关闭。
+- 基于 1.34.0/build 62，使用现有 GitHub Actions macOS Release 编译打包。
+
+此前交付记录
+
 Sermo 1.34.0 / build 62：省电、去重影（未编译，推送后由 Actions 编译）
 
 - 思考小花改由系统动画引擎驱动（整体慢转 + 花瓣依次呼吸，重复动画只设置一次），不再逐帧重算视图；外观与之前一致，思考结束后静止。
