@@ -1,4 +1,4 @@
-name: Study step 2 validation and IPA
+name: Study step 2 tests and compile
 on:
   workflow_dispatch:
   push:
@@ -37,10 +37,6 @@ jobs:
           set -euo pipefail
           cd QingJian
           xcodebuild -project QingJian.xcodeproj -scheme QingJian -configuration Release -sdk iphoneos -destination 'generic/platform=iOS' -derivedDataPath "$PWD/build/DerivedData" CODE_SIGNING_ALLOWED=NO CODE_SIGNING_REQUIRED=NO CODE_SIGN_IDENTITY='' ARCHS=arm64 ONLY_ACTIVE_ARCH=NO build 2>&1 | tee ../study-step2-build.log
-          mkdir -p build/Payload
-          ditto build/DerivedData/Build/Products/Release-iphoneos/DeepSeekPocket.app build/Payload/DeepSeekPocket.app
-          ditto -c -k --keepParent build/Payload build/Sermo-1.36.0-build65-step2-unsigned.ipa
-          shasum -a 256 build/Sermo-1.36.0-build65-step2-unsigned.ipa > build/SHA256.txt
       - name: Upload validation evidence
         if: always()
         uses: actions/upload-artifact@v4
@@ -50,13 +46,4 @@ jobs:
             study-step2-tests.log
             study-step2-build.log
           if-no-files-found: warn
-          retention-days: 14
-      - name: Upload IPA
-        uses: actions/upload-artifact@v4
-        with:
-          name: Sermo-1.36.0-build65-step2-unsigned
-          path: |
-            QingJian/build/Sermo-1.36.0-build65-step2-unsigned.ipa
-            QingJian/build/SHA256.txt
-          if-no-files-found: error
           retention-days: 14
