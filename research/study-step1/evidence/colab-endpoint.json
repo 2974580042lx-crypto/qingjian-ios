@@ -1,0 +1,9 @@
+{
+  "checked_at": "2026-11-10T09:02:36.143268+00:00",
+  "source": "existing private endpoint file",
+  "endpoint_updated_at": "2026-11-09T22:42:49.365196Z",
+  "request": "GET /models",
+  "runtime_started": false,
+  "status": "endpoint_unavailable",
+  "http_status": 404
+}

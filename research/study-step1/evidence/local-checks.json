@@ -1,0 +1,9 @@
+{
+  "kind": "local_isolated_executor_tests",
+  "runner": "python -m unittest -v test_probe",
+  "passed": 16,
+  "failed": 0,
+  "duration_seconds": 0.636,
+  "scope": "Python prototype and synthetic stream fixtures; not iOS or live-provider coverage",
+  "recovery": "Initial Windows sandbox temp directory could not open SQLite. Workspace-contained temp directory fixed the issue."
+}

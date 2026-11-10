@@ -1,0 +1,438 @@
+{
+  "kind": "live_provider_protocol_probe",
+  "provider": "DeepSeek",
+  "model": "deepseek-flash",
+  "timestamp": "2026-11-10T09:00:45.362303+00:00",
+  "implementation": "Python isolated executor; not iOS runtime validation",
+  "data": "synthetic vocabulary fixture; no personal chat or exam content",
+  "scoping": "application binds expected action and source message for each fixed test turn",
+  "modes": [
+    {
+      "mode": "native",
+      "status": "passed",
+      "steps": [
+        {
+          "source_message_id": "user-1",
+          "user_text": "请读一下测试资料《词义练习》，我想看 adapt 和 adopt 的区别。",
+          "before": [],
+          "model_response": {
+            "content": "我先读取这份资料。",
+            "reasoning": "",
+            "tool_calls": [
+              {
+                "id": "call_00_bHTzmGqKGh6cVABQ26IP2087",
+                "type": "function",
+                "function": {
+                  "name": "study_read_material",
+                  "arguments": "{\"material_id\": \"sample-vocabulary-1\"}"
+                }
+              }
+            ],
+            "finish_reason": "tool_calls",
+            "complete": true,
+            "usage": {
+              "prompt_tokens": 656,
+              "completion_tokens": 49,
+              "total_tokens": 705,
+              "prompt_tokens_details": {
+                "cached_tokens": 0
+              },
+              "prompt_cache_hit_tokens": 0,
+              "prompt_cache_miss_tokens": 656
+            },
+            "elapsed_seconds": 1.328
+          },
+          "application_receipt": {
+            "status": "read",
+            "material_id": "sample-vocabulary-1",
+            "content": "测试自编资料。adapt 表示适应或改编，adopt 表示采纳或收养。例句均为自编。We adapt to change. They adopt a new plan.",
+            "operation_id": "native-turn-1"
+          },
+          "after": [],
+          "model_acknowledgement": {
+            "content": "《词义练习》资料已读取，内容如下：\n\n- **adapt**：表示“适应”或“改编”。例：We adapt to change.\n- **adopt**：表示“采纳”或“收养”。例：They adopt a new plan.\n\n（测试自编资料，例句均为自编。）",
+            "reasoning": "",
+            "tool_calls": [],
+            "finish_reason": "stop",
+            "complete": true,
+            "usage": {
+              "prompt_tokens": 276,
+              "completion_tokens": 65,
+              "total_tokens": 341,
+              "prompt_tokens_details": {
+                "cached_tokens": 0
+              },
+              "prompt_cache_hit_tokens": 0,
+              "prompt_cache_miss_tokens": 276
+            },
+            "elapsed_seconds": 1.641
+          }
+        },
+        {
+          "source_message_id": "user-2",
+          "user_text": "我容易把 adapt 和 adopt 搞混，把这个易混点记到本周总结里。",
+          "before": [],
+          "model_response": {
+            "content": "我来保存这条易混点。",
+            "reasoning": "",
+            "tool_calls": [
+              {
+                "id": "call_00_ceQ0YSs7cy0Vpz1ytZyN2239",
+                "type": "function",
+                "function": {
+                  "name": "study_remember",
+                  "arguments": "{\"content\": \"易混点：adapt 表示“适应”或“改编”（例：We adapt to change.）；adopt 表示“采纳”或“收养”（例：They adopt a new plan.）。两者拼写相近易混，来源资料《词义练习》。\", \"evidence_message_id\": \"user-2\", \"evidence_quote\": \"我容易把 adapt 和 adopt 搞混，把这个易混点记到本周总结里。\"}"
+                }
+              }
+            ],
+            "finish_reason": "tool_calls",
+            "complete": true,
+            "usage": {
+              "prompt_tokens": 927,
+              "completion_tokens": 156,
+              "total_tokens": 1083,
+              "prompt_tokens_details": {
+                "cached_tokens": 640
+              },
+              "prompt_cache_hit_tokens": 640,
+              "prompt_cache_miss_tokens": 287
+            },
+            "elapsed_seconds": 1.719
+          },
+          "application_receipt": {
+            "status": "committed",
+            "memory": {
+              "project_id": "step1-english",
+              "id": "f857c6c0-00ec-4356-935d-e84608f737b0",
+              "revision": 1,
+              "content": "易混点：adapt 表示“适应”或“改编”（例：We adapt to change.）；adopt 表示“采纳”或“收养”（例：They adopt a new plan.）。两者拼写相近易混，来源资料《词义练习》。",
+              "evidence_message_id": "user-2",
+              "evidence_quote": "我容易把 adapt 和 adopt 搞混，把这个易混点记到本周总结里。"
+            },
+            "operation_id": "native-turn-2"
+          },
+          "after": [
+            {
+              "project_id": "step1-english",
+              "id": "f857c6c0-00ec-4356-935d-e84608f737b0",
+              "revision": 1,
+              "content": "易混点：adapt 表示“适应”或“改编”（例：We adapt to change.）；adopt 表示“采纳”或“收养”（例：They adopt a new plan.）。两者拼写相近易混，来源资料《词义练习》。",
+              "evidence_message_id": "user-2",
+              "evidence_quote": "我容易把 adapt 和 adopt 搞混，把这个易混点记到本周总结里。"
+            }
+          ],
+          "model_acknowledgement": {
+            "content": "已保存到本周总结，记录 ID 为 `f857c6c0-00ec-4356-935d-e84608f737b0`（版本 1）：\n\n**易混点**：adapt 表示“适应”或“改编”（例：We adapt to change.）；adopt 表示“采纳”或“收养”（例：They adopt a new plan.）。两者拼写相近易混，来源资料《词义练习》。",
+            "reasoning": "",
+            "tool_calls": [],
+            "finish_reason": "stop",
+            "complete": true,
+            "usage": {
+              "prompt_tokens": 749,
+              "completion_tokens": 97,
+              "total_tokens": 846,
+              "prompt_tokens_details": {
+                "cached_tokens": 256
+              },
+              "prompt_cache_hit_tokens": 256,
+              "prompt_cache_miss_tokens": 493
+            },
+            "elapsed_seconds": 1.375
+          }
+        },
+        {
+          "source_message_id": "user-3",
+          "user_text": "更正一下，刚才我说错了。我其实容易混淆的是 affect 和 effect。请改正刚才那条记录。",
+          "before": [
+            {
+              "project_id": "step1-english",
+              "id": "f857c6c0-00ec-4356-935d-e84608f737b0",
+              "revision": 1,
+              "content": "易混点：adapt 表示“适应”或“改编”（例：We adapt to change.）；adopt 表示“采纳”或“收养”（例：They adopt a new plan.）。两者拼写相近易混，来源资料《词义练习》。",
+              "evidence_message_id": "user-2",
+              "evidence_quote": "我容易把 adapt 和 adopt 搞混，把这个易混点记到本周总结里。"
+            }
+          ],
+          "model_response": {
+            "content": "我来更正这条记录。",
+            "reasoning": "",
+            "tool_calls": [
+              {
+                "id": "call_00_WM6dRfyAXHSPu5RWByhJ6564",
+                "type": "function",
+                "function": {
+                  "name": "study_correct",
+                  "arguments": "{\"memory_id\": \"f857c6c0-00ec-4356-935d-e84608f737b0\", \"expected_revision\": 1, \"content\": \"易混点：用户容易混淆的是 affect 和 effect（原记录为 adapt/adopt，已由用户更正）。\", \"evidence_message_id\": \"user-3\", \"evidence_quote\": \"我其实容易混淆的是 affect 和 effect。请改正刚才那条记录。\"}"
+                }
+              }
+            ],
+            "finish_reason": "tool_calls",
+            "complete": true,
+            "usage": {
+              "prompt_tokens": 1577,
+              "completion_tokens": 174,
+              "total_tokens": 1751,
+              "prompt_tokens_details": {
+                "cached_tokens": 1024
+              },
+              "prompt_cache_hit_tokens": 1024,
+              "prompt_cache_miss_tokens": 553
+            },
+            "elapsed_seconds": 1.672
+          },
+          "application_receipt": {
+            "status": "committed",
+            "memory": {
+              "project_id": "step1-english",
+              "id": "f857c6c0-00ec-4356-935d-e84608f737b0",
+              "revision": 2,
+              "content": "易混点：用户容易混淆的是 affect 和 effect（原记录为 adapt/adopt，已由用户更正）。",
+              "evidence_message_id": "user-3",
+              "evidence_quote": "我其实容易混淆的是 affect 和 effect。请改正刚才那条记录。"
+            },
+            "operation_id": "native-turn-3"
+          },
+          "after": [
+            {
+              "project_id": "step1-english",
+              "id": "f857c6c0-00ec-4356-935d-e84608f737b0",
+              "revision": 2,
+              "content": "易混点：用户容易混淆的是 affect 和 effect（原记录为 adapt/adopt，已由用户更正）。",
+              "evidence_message_id": "user-3",
+              "evidence_quote": "我其实容易混淆的是 affect 和 effect。请改正刚才那条记录。"
+            }
+          ],
+          "model_acknowledgement": {
+            "content": "已更正，记录 ID 仍为 `f857c6c0-00ec-4356-935d-e84608f737b0`，现在版本是 2：\n\n**易混点**：用户容易混淆的是 affect 和 effect（原记录为 adapt/adopt，已由用户更正）。\n\n另外，《词义练习》资料里只有 adapt 与 adopt 的释义，没有 affect 与 effect 的内容。需要我另行补充这两个词的说明吗？",
+            "reasoning": "",
+            "tool_calls": [],
+            "finish_reason": "stop",
+            "complete": true,
+            "usage": {
+              "prompt_tokens": 1381,
+              "completion_tokens": 100,
+              "total_tokens": 1481,
+              "prompt_tokens_details": {
+                "cached_tokens": 768
+              },
+              "prompt_cache_hit_tokens": 768,
+              "prompt_cache_miss_tokens": 613
+            },
+            "elapsed_seconds": 1.61
+          }
+        }
+      ],
+      "final_memories": [
+        {
+          "project_id": "step1-english",
+          "id": "f857c6c0-00ec-4356-935d-e84608f737b0",
+          "revision": 2,
+          "content": "易混点：用户容易混淆的是 affect 和 effect（原记录为 adapt/adopt，已由用户更正）。",
+          "evidence_message_id": "user-3",
+          "evidence_quote": "我其实容易混淆的是 affect 和 effect。请改正刚才那条记录。"
+        }
+      ],
+      "event_count": 2
+    },
+    {
+      "mode": "structured",
+      "status": "passed",
+      "steps": [
+        {
+          "source_message_id": "user-1",
+          "user_text": "请读一下测试资料《词义练习》，我想看 adapt 和 adopt 的区别。",
+          "before": [],
+          "model_response": {
+            "content": "{\"action\":\"study_read_material\",\"arguments\":{\"material_id\":\"sample-vocabulary-1\"}}",
+            "reasoning": "",
+            "tool_calls": [],
+            "finish_reason": "stop",
+            "complete": true,
+            "usage": {
+              "prompt_tokens": 508,
+              "completion_tokens": 21,
+              "total_tokens": 529,
+              "prompt_tokens_details": {
+                "cached_tokens": 0
+              },
+              "prompt_cache_hit_tokens": 0,
+              "prompt_cache_miss_tokens": 508
+            },
+            "elapsed_seconds": 1.062
+          },
+          "application_receipt": {
+            "status": "read",
+            "material_id": "sample-vocabulary-1",
+            "content": "测试自编资料。adapt 表示适应或改编，adopt 表示采纳或收养。例句均为自编。We adapt to change. They adopt a new plan.",
+            "operation_id": "structured-turn-1"
+          },
+          "after": [],
+          "model_acknowledgement": {
+            "content": "已为你读完《词义练习》：adapt 是适应或改编，adopt 是采纳或收养。",
+            "reasoning": "",
+            "tool_calls": [],
+            "finish_reason": "stop",
+            "complete": true,
+            "usage": {
+              "prompt_tokens": 191,
+              "completion_tokens": 23,
+              "total_tokens": 214,
+              "prompt_tokens_details": {
+                "cached_tokens": 0
+              },
+              "prompt_cache_hit_tokens": 0,
+              "prompt_cache_miss_tokens": 191
+            },
+            "elapsed_seconds": 1.063
+          }
+        },
+        {
+          "source_message_id": "user-2",
+          "user_text": "我容易把 adapt 和 adopt 搞混，把这个易混点记到本周总结里。",
+          "before": [],
+          "model_response": {
+            "content": "{\"action\":\"study_remember\",\"arguments\":{\"content\":\"易混点：adapt 表示适应或改编，adopt 表示采纳或收养。\",\"evidence_message_id\":\"user-2\",\"evidence_quote\":\"我容易把 adapt 和 adopt 搞混，把这个易混点记到本周总结里。\"}}",
+            "reasoning": "",
+            "tool_calls": [],
+            "finish_reason": "stop",
+            "complete": true,
+            "usage": {
+              "prompt_tokens": 706,
+              "completion_tokens": 65,
+              "total_tokens": 771,
+              "prompt_tokens_details": {
+                "cached_tokens": 512
+              },
+              "prompt_cache_hit_tokens": 512,
+              "prompt_cache_miss_tokens": 194
+            },
+            "elapsed_seconds": 1.125
+          },
+          "application_receipt": {
+            "status": "committed",
+            "memory": {
+              "project_id": "step1-english",
+              "id": "e72a4d1a-9d36-4ca3-9cf2-8b219cd013db",
+              "revision": 1,
+              "content": "易混点：adapt 表示适应或改编，adopt 表示采纳或收养。",
+              "evidence_message_id": "user-2",
+              "evidence_quote": "我容易把 adapt 和 adopt 搞混，把这个易混点记到本周总结里。"
+            },
+            "operation_id": "structured-turn-2"
+          },
+          "after": [
+            {
+              "project_id": "step1-english",
+              "id": "e72a4d1a-9d36-4ca3-9cf2-8b219cd013db",
+              "revision": 1,
+              "content": "易混点：adapt 表示适应或改编，adopt 表示采纳或收养。",
+              "evidence_message_id": "user-2",
+              "evidence_quote": "我容易把 adapt 和 adopt 搞混，把这个易混点记到本周总结里。"
+            }
+          ],
+          "model_acknowledgement": {
+            "content": "已把 adapt 和 adopt 的易混点记入本周总结。",
+            "reasoning": "",
+            "tool_calls": [],
+            "finish_reason": "stop",
+            "complete": true,
+            "usage": {
+              "prompt_tokens": 495,
+              "completion_tokens": 16,
+              "total_tokens": 511,
+              "prompt_tokens_details": {
+                "cached_tokens": 128
+              },
+              "prompt_cache_hit_tokens": 128,
+              "prompt_cache_miss_tokens": 367
+            },
+            "elapsed_seconds": 0.953
+          }
+        },
+        {
+          "source_message_id": "user-3",
+          "user_text": "更正一下，刚才我说错了。我其实容易混淆的是 affect 和 effect。请改正刚才那条记录。",
+          "before": [
+            {
+              "project_id": "step1-english",
+              "id": "e72a4d1a-9d36-4ca3-9cf2-8b219cd013db",
+              "revision": 1,
+              "content": "易混点：adapt 表示适应或改编，adopt 表示采纳或收养。",
+              "evidence_message_id": "user-2",
+              "evidence_quote": "我容易把 adapt 和 adopt 搞混，把这个易混点记到本周总结里。"
+            }
+          ],
+          "model_response": {
+            "content": "{\"action\":\"study_correct\",\"arguments\":{\"memory_id\":\"e72a4d1a-9d36-4ca3-9cf2-8b219cd013db\",\"expected_revision\":1,\"content\":\"易混点：我容易混淆 affect 和 effect。\",\"evidence_message_id\":\"user-3\",\"evidence_quote\":\"更正一下，刚才我说错了。我其实容易混淆的是 affect 和 effect。请改正刚才那条记录。\"}}",
+            "reasoning": "",
+            "tool_calls": [],
+            "finish_reason": "stop",
+            "complete": true,
+            "usage": {
+              "prompt_tokens": 1115,
+              "completion_tokens": 96,
+              "total_tokens": 1211,
+              "prompt_tokens_details": {
+                "cached_tokens": 768
+              },
+              "prompt_cache_hit_tokens": 768,
+              "prompt_cache_miss_tokens": 347
+            },
+            "elapsed_seconds": 1.422
+          },
+          "application_receipt": {
+            "status": "committed",
+            "memory": {
+              "project_id": "step1-english",
+              "id": "e72a4d1a-9d36-4ca3-9cf2-8b219cd013db",
+              "revision": 2,
+              "content": "易混点：我容易混淆 affect 和 effect。",
+              "evidence_message_id": "user-3",
+              "evidence_quote": "更正一下，刚才我说错了。我其实容易混淆的是 affect 和 effect。请改正刚才那条记录。"
+            },
+            "operation_id": "structured-turn-3"
+          },
+          "after": [
+            {
+              "project_id": "step1-english",
+              "id": "e72a4d1a-9d36-4ca3-9cf2-8b219cd013db",
+              "revision": 2,
+              "content": "易混点：我容易混淆 affect 和 effect。",
+              "evidence_message_id": "user-3",
+              "evidence_quote": "更正一下，刚才我说错了。我其实容易混淆的是 affect 和 effect。请改正刚才那条记录。"
+            }
+          ],
+          "model_acknowledgement": {
+            "content": "已更正本周总结记录：你容易混淆的是 affect 和 effect。",
+            "reasoning": "",
+            "tool_calls": [],
+            "finish_reason": "stop",
+            "complete": true,
+            "usage": {
+              "prompt_tokens": 930,
+              "completion_tokens": 15,
+              "total_tokens": 945,
+              "prompt_tokens_details": {
+                "cached_tokens": 384
+              },
+              "prompt_cache_hit_tokens": 384,
+              "prompt_cache_miss_tokens": 546
+            },
+            "elapsed_seconds": 1.188
+          }
+        }
+      ],
+      "final_memories": [
+        {
+          "project_id": "step1-english",
+          "id": "e72a4d1a-9d36-4ca3-9cf2-8b219cd013db",
+          "revision": 2,
+          "content": "易混点：我容易混淆 affect 和 effect。",
+          "evidence_message_id": "user-3",
+          "evidence_quote": "更正一下，刚才我说错了。我其实容易混淆的是 affect 和 effect。请改正刚才那条记录。"
+        }
+      ],
+      "event_count": 2
+    }
+  ]
+}

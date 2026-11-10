@@ -1,0 +1,60 @@
+{
+  "checked_at": "2026-11-10T09:03:36.421765+00:00",
+  "network_calls": 12,
+  "prompt_tokens": 9511,
+  "completion_tokens": 877,
+  "protocols": [
+    {
+      "mode": "native",
+      "passed": true,
+      "reopened_database_valid": true,
+      "active_memories": 1,
+      "revision": 2,
+      "historical_events": 2,
+      "operations": 3,
+      "turns": [
+        {
+          "operation": "read",
+          "proposal_seconds": 1.328,
+          "roundtrip_seconds": 2.969
+        },
+        {
+          "operation": "committed",
+          "proposal_seconds": 1.719,
+          "roundtrip_seconds": 3.094
+        },
+        {
+          "operation": "committed",
+          "proposal_seconds": 1.672,
+          "roundtrip_seconds": 3.282
+        }
+      ]
+    },
+    {
+      "mode": "structured",
+      "passed": true,
+      "reopened_database_valid": true,
+      "active_memories": 1,
+      "revision": 2,
+      "historical_events": 2,
+      "operations": 3,
+      "turns": [
+        {
+          "operation": "read",
+          "proposal_seconds": 1.062,
+          "roundtrip_seconds": 2.125
+        },
+        {
+          "operation": "committed",
+          "proposal_seconds": 1.125,
+          "roundtrip_seconds": 2.078
+        },
+        {
+          "operation": "committed",
+          "proposal_seconds": 1.422,
+          "roundtrip_seconds": 2.61
+        }
+      ]
+    }
+  ]
+}

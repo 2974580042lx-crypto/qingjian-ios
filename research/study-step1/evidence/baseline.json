@@ -1,0 +1,23 @@
+{
+  "timestamp": "2026-11-10T09:00:02.571693+00:00",
+  "baseline_commit": "5fc1e029f0d86e341970cb8c720efb93af57d57b",
+  "remote_main_verified_equal": true,
+  "branch": "codex/study-step1-20261110",
+  "app_version": "1.35.1",
+  "app_build": 64,
+  "reconstructed_files": 135,
+  "manifest_matches": true,
+  "archives": {
+    "QingJian-iOS-source.zip": "cb5332b71990c74ff38670cbb7d6213d55b49ecafa6255cd75869f573b2ff460",
+    "source-overlay.zip": "8df3696864672a24f8bbf1d2563472922b933064a6036dd67c1c330d2f18df83",
+    "source-manifest.json": "a1b056e66dc2ae9a7ef7acd671972c9fcb88a6ab4c10c6df70f46c36ba33387e"
+  },
+  "source_changes": [],
+  "workflow": {
+    "runner": "macos-15",
+    "build": "Release iphoneos unsigned",
+    "existing_tests_enabled": false,
+    "artifact_name_stale": "Sermo-1.10.0-build34-20261021-1426",
+    "step1_ci_requested": false
+  }
+}
