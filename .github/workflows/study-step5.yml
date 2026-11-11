@@ -1,0 +1,50 @@
+name: Study projects and review acceptance
+on:
+  push:
+    branches: ['codex/study-step5-20261111']
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: study-step5-${{ github.ref }}
+  cancel-in-progress: true
+jobs:
+  validate:
+    runs-on: macos-15
+    timeout-minutes: 35
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          persist-credentials: false
+      - run: python3 apply-source-overlay.py
+      - name: Select Xcode
+        run: |
+          for candidate in /Applications/Xcode_26.3.app /Applications/Xcode_26.2.app /Applications/Xcode_26.1.1.app /Applications/Xcode_26.0.1.app; do
+            if [[ -d "$candidate/Contents/Developer" ]]; then
+              echo "DEVELOPER_DIR=$candidate/Contents/Developer" >> "$GITHUB_ENV"
+              break
+            fi
+          done
+      - name: Synthetic Swift tests
+        shell: bash
+        env:
+          SERMO_STEP5_EVIDENCE_DIR: ${{ runner.temp }}/sermo-step5-evidence
+        run: |
+          set -euo pipefail
+          cd QingJian
+          swift test --skip StudyLiveModelTests 2>&1 | tee ../study-step5-tests.log
+      - name: Compile iOS client
+        shell: bash
+        run: |
+          set -euo pipefail
+          cd QingJian
+          xcodebuild -project QingJian.xcodeproj -scheme QingJian -configuration Release -sdk iphoneos -destination 'generic/platform=iOS' -derivedDataPath "$PWD/build/DerivedData" CODE_SIGNING_ALLOWED=NO CODE_SIGNING_REQUIRED=NO CODE_SIGN_IDENTITY='' ARCHS=arm64 ONLY_ACTIVE_ARCH=NO build 2>&1 | tee ../study-step5-build.log
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: study-step5-evidence
+          path: |
+            study-step5-tests.log
+            study-step5-build.log
+            ${{ runner.temp }}/sermo-step5-evidence/
+          retention-days: 14
