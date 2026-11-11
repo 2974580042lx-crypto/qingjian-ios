@@ -84,7 +84,7 @@
   "QingJian/DeepSeekPocket/Services/ImageStore.swift": "4ef528275c840f079aaab7f29756a092b5f994244be7e674788b9cffa351e269",
   "QingJian/DeepSeekPocket/Services/KeychainStore.swift": "8df04838c80406e52f4ec1288f6888ecd1254a00ff7578423f27bef356e44a50",
   "QingJian/DeepSeekPocket/Services/OpenAISpeech.swift": "28773e1fa5cd63fd59643297436377b7f5319aadb72efdc29eb1154e3941db5d",
-  "QingJian/DeepSeekPocket/Services/StudyBackupController.swift": "2158b4fb33ce226ea47712e9c49cc1c1bc95ce2914e32bbfd3482c7a68a7606e",
+  "QingJian/DeepSeekPocket/Services/StudyBackupController.swift": "bfedd35c7bc3d4ad90d692d076716c93099b9fc8016f5c6f50c733a84b0c9b88",
   "QingJian/DeepSeekPocket/Services/SubscriptionHTTP.swift": "4271df378491bdac394114e679b01228b5761e75f729290c42bae1477ff83fae",
   "QingJian/DeepSeekPocket/Services/SubscriptionLoopback.swift": "74c168f654264759cee8bbe6c0c78e55d286d61d942487758d21aae5ae40f807",
   "QingJian/DeepSeekPocket/Services/SubscriptionStore.swift": "4ab4cc8e924edc051d842f61376db9cf153e7a70513a17d7674e6bfd37b87634",
