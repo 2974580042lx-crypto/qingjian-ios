@@ -45,7 +45,7 @@
   "QingJian/DeepSeekPocket/Core/StudyMemory.swift": "ff398506151a74876d98fd35b68c53652f35a645180d8dfa6eab60914ad46ae8",
   "QingJian/DeepSeekPocket/Core/StudyMemoryStore.swift": "a2a7edae3c035f01079af5e9ac7dda3e0af2a032ee4a0bbfd6820c9aedd03878",
   "QingJian/DeepSeekPocket/Core/StudyOutputGuard.swift": "dc4dfc6699cc002ee6be69d2cb950f1cd75b21e95f17043796831ea930a1aa1e",
-  "QingJian/DeepSeekPocket/Core/StudyReading.swift": "794b5e833a3b0e28a42fa7f36c1bc19b5efecc4449fc8695bb805a4baa5e0460",
+  "QingJian/DeepSeekPocket/Core/StudyReading.swift": "9098416bcc52ac424b511e917bae2c1ae85050e0ced40ccb53c85ac060241a75",
   "QingJian/DeepSeekPocket/Core/StudyReadingTools.swift": "20b1bb39888ba2cc32c8cc1031de10fe9db34a5e40e37a034d025c617a7d1e7b",
   "QingJian/DeepSeekPocket/Core/StudyToolExecutor.swift": "decde19732e358fc60d8bcf0b8b7bb0ef44ce585ba6134fe83819c5649d688f3",
   "QingJian/DeepSeekPocket/Core/StudyTools.swift": "5b16e585dbd73736c729dabf18b3382fbe0ef3acfd9170eb38d67d668fbfdc14",
@@ -137,7 +137,7 @@
   "QingJian/Tests/StudyLiveModelTests.swift": "bf2c7b7013e66a1ae9cb2296aaefb94e84029fe651770d3ecef725a0d7002e2a",
   "QingJian/Tests/StudyMemoryTests.swift": "b152ec2a47f6dbeaa27b8836839a051e54b758b701ec7b1c8b2b2b747dbae44d",
   "QingJian/Tests/StudyOutputGuardTests.swift": "9555e02b5187f8b12b21405c34a30fb558401334cdee770531a0b1fd0e858307",
-  "QingJian/Tests/StudyReadingTests.swift": "12ee5fb2f08fefdb42f72cb90c2430056bc21b93ed5b2ea37495ab41095eefaf",
+  "QingJian/Tests/StudyReadingTests.swift": "38eb7d7eb3d494c35569266de1e4f2ce5a4ed7ef3641b5a8a0d23f5ef548d50b",
   "QingJian/Tests/StudyToolExecutorTests.swift": "2e4bcb6f526257292f3a820b803a6d5909e9ecc9986168a78162c0e6be77fe59",
   "QingJian/Tests/StudyWordTests.swift": "a21f3adfa7922209e977b2437aeb36774abf63174f31fe151af93c193e8385be",
   "QingJian/Tests/SubscriptionTests.swift": "638427e6243d1c6d1482d6e283e7300f447f55b299300952f5189242c16ffb11",
@@ -150,5 +150,6 @@
   "QingJian/scripts/build-ipa.sh": "3c80b25e8b422dba45292f1d1cd1d408d46189cd984b4e5f6a1817b897030e7c",
   "QingJian/scripts/capture-previews.sh": "96d78d7526cfa8db00d8876e4d068c24141f39f6270ddac778bd88237578ef76",
   "QingJian/scripts/check-project.py": "45413d8f97514ec495b6ef8ceb16b83f8f706062f7267d2e844c7a628fb595a5",
-  "QingJian/scripts/generate-project.py": "8bb529f78da29e906a22ec90a6e08491c2960625b930f6736b38a7565d529123"
+  "QingJian/scripts/generate-project.py": "8bb529f78da29e906a22ec90a6e08491c2960625b930f6736b38a7565d529123",
+  "QingJian/scripts/prepare-study-readings.py": "2e1b624df2fcd5414543c45ecc997a504dfb45ae6c85716d153c9c519ede342f"
 }
