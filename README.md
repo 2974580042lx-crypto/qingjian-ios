@@ -1,3 +1,16 @@
+# Sermo 1.36.0 / build 66 — 聊天学习源码
+
+**升级异常调查中：已收到覆盖升级后旧记录不可见的报告，原因和恢复方案尚未确认。本次同步主分支供源码审阅，不代表已通过真实升级安全验收。**
+
+- [直接浏览完整源码](QingJian/)
+- [当前状态、改动范围与数据问题审阅入口](STUDY_REVIEW_STATUS.md)
+- [按需操作手册设计草案（尚未接入运行时）](QingJian/AI_OPERATION_MANUAL_PLAN.md)
+
+在现有软件上新增三个聊天学习项目，保留原有功能与数据是前提。私人学习资料、API Key、订阅凭据和手机数据不放入公开源码。
+
+展开源码与原有压缩包及manifest对应。`python apply-source-overlay.py` 会核验已有源码；没有源码目录时才从压缩包重建。修改源码后需运行 `python rebuild-source-overlay.py` 同步清单和overlay。
+
+以下保留此前版本记录。
 Sermo 1.35.1 / build 64 — 修复 Colab 云盘刷新
 
 - 修复下载 endpoint.json 时遗漏路径分隔符导致的请求失败。

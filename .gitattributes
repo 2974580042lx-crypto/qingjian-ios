@@ -1,0 +1,2 @@
+# Preserve the exact bytes verified by source-manifest.json on every platform.
+QingJian/** -text

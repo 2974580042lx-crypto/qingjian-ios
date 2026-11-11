@@ -1,6 +1,7 @@
 """Reconstruct and verify the exact user-supplied source tree before building."""
 import hashlib
 import json
+import sys
 from pathlib import Path, PurePosixPath
 import zipfile
 
@@ -30,7 +31,15 @@ def extract(archive):
 
 archive = ROOT / 'QingJian-iOS-source.zip'
 assert hashlib.sha256(archive.read_bytes()).hexdigest() == EXPECTED_BASELINE, 'Baseline ZIP mismatch'
-assert not (ROOT / 'QingJian').exists(), 'Source directory must be absent before reconstruction'
+if (ROOT / 'QingJian').exists():
+    # The readable source is now tracked for reviews. Verify it without replacing
+    # any checked-out file; never silently overwrite a developer's local edits.
+    expected = json.loads((ROOT / 'source-manifest.json').read_text())
+    actual = {p.relative_to(ROOT).as_posix(): hashlib.sha256(p.read_bytes()).hexdigest()
+              for p in (ROOT / 'QingJian').rglob('*') if p.is_file()}
+    assert actual == expected, 'Checked-out source differs from source-manifest.json; nothing was overwritten'
+    print(f'Verified readable source contents: {len(actual)} files, Sermo 1.36.0 build 66.')
+    sys.exit(0)
 extract(archive)
 for name in json.loads((ROOT / 'source-deletions.json').read_text()):
     safe_path(name).unlink()

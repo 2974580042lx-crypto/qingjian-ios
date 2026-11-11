@@ -1,0 +1,37 @@
+name: Build iPhone IPA
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - 'DeepSeekPocket/**'
+      - 'QingJian.xcodeproj/**'
+      - 'Tests/**'
+      - 'scripts/**'
+      - 'Package.swift'
+      - '.github/workflows/build-ios.yml'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: qingjian-build-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build:
+    runs-on: macos-15
+    timeout-minutes: 20
+    steps:
+      - name: Checkout project
+        uses: actions/checkout@v6
+      - name: Build, test and package unsigned IPA
+        run: bash scripts/build-ipa.sh
+      - name: Downloadable IPA
+        uses: actions/upload-artifact@v4
+        with:
+          name: QingJian-unsigned-IPA
+          path: build/QingJian-unsigned.ipa
+          if-no-files-found: error
+          retention-days: 7
