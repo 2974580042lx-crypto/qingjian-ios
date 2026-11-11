@@ -139,7 +139,7 @@
   "QingJian/Tests/ReplySuggestionTests.swift": "24401169b0a0641cc47ccd4334388568883c3e9bb500efbac1ee78313bef826b",
   "QingJian/Tests/StreamTransportTests.swift": "5de70496d7a7fe37247f834189cafb0ee4e2610452b6e52b964d9a3b4c1191f3",
   "QingJian/Tests/StudyLessonTests.swift": "7caeae1f2063adae381534eeeccd4c7d3dae4bd324b7dc7053adc1d71a6d1e80",
-  "QingJian/Tests/StudyLiveModelTests.swift": "83f6f2619af2565aaf79804e054bec2beba1d91c1e0d911eb0e0396b656097ea",
+  "QingJian/Tests/StudyLiveModelTests.swift": "31ad47513e13834fb6f61d8d94d782e7751f3866a4659fe0cd49dc9c453f570a",
   "QingJian/Tests/StudyMemoryTests.swift": "b152ec2a47f6dbeaa27b8836839a051e54b758b701ec7b1c8b2b2b747dbae44d",
   "QingJian/Tests/StudyOutputGuardTests.swift": "b5440846f0ce4137b317b7146ea87036c8039e9e7bbc1c001516ffbc8c3b1806",
   "QingJian/Tests/StudyReadingTests.swift": "38eb7d7eb3d494c35569266de1e4f2ce5a4ed7ef3641b5a8a0d23f5ef548d50b",
