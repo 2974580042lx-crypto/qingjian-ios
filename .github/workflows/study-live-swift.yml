@@ -7,6 +7,12 @@ on:
         type: boolean
         default: false
         required: true
+      scenario:
+        description: Select the synthetic live scenario
+        type: choice
+        options: [vocabulary, reading]
+        default: vocabulary
+        required: true
   push:
     branches: ['codex/study-step3-live-20261111']
 permissions:
@@ -52,7 +58,7 @@ jobs:
             client-build.log
           retention-days: 14
   live:
-    if: github.event_name == 'workflow_dispatch' && inputs.run_live && github.ref == 'refs/heads/codex/study-step3-live-20261111'
+    if: github.event_name == 'workflow_dispatch' && inputs.run_live && (github.ref == 'refs/heads/codex/study-step3-live-20261111' || github.ref == 'refs/heads/codex/study-step4-live-20261111')
     needs: validate
     runs-on: macos-15
     timeout-minutes: 15
@@ -74,6 +80,7 @@ jobs:
       - name: Run two independent Swift client processes
         shell: bash
         env:
+          SERMO_LIVE_SCENARIO: ${{ inputs.scenario }}
           SERMO_RUN_LIVE: '1'
           SERMO_STUDY_LIVE_DEEPSEEK_KEY: ${{ secrets.SERMO_STUDY_LIVE_DEEPSEEK_KEY }}
           SERMO_LIVE_EVIDENCE_DIR: ${{ github.workspace }}/live-evidence
@@ -86,8 +93,13 @@ jobs:
             exit 1
           fi
           cd QingJian
-          swift test --skip-build --filter StudyLiveModelTests/testPart1LearnRecordAndExit 2>&1 | tee "$SERMO_LIVE_EVIDENCE_DIR/part1-run.log"
-          swift test --skip-build --filter StudyLiveModelTests/testPart2RestartResumeFindAndCorrect 2>&1 | tee "$SERMO_LIVE_EVIDENCE_DIR/part2-run.log"
+          if [[ "$SERMO_LIVE_SCENARIO" == "reading" ]]; then
+            swift test --skip-build --filter StudyLiveModelTests/testReadingPart1ReadInterruptReturnAndPause 2>&1 | tee "$SERMO_LIVE_EVIDENCE_DIR/reading-part1-run.log"
+            swift test --skip-build --filter StudyLiveModelTests/testReadingPart2NewWindowResumeAndAnswer 2>&1 | tee "$SERMO_LIVE_EVIDENCE_DIR/reading-part2-run.log"
+          else
+            swift test --skip-build --filter StudyLiveModelTests/testPart1LearnRecordAndExit 2>&1 | tee "$SERMO_LIVE_EVIDENCE_DIR/part1-run.log"
+            swift test --skip-build --filter StudyLiveModelTests/testPart2RestartResumeFindAndCorrect 2>&1 | tee "$SERMO_LIVE_EVIDENCE_DIR/part2-run.log"
+          fi
       - uses: actions/upload-artifact@v4
         if: always()
         with:
