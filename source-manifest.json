@@ -144,7 +144,7 @@
   "QingJian/Tests/ReasoningTranslationTests.swift": "6fcf604932c6aba55c37793488851434718cac5164cc6cb4e31361037d2be31b",
   "QingJian/Tests/ReplySuggestionTests.swift": "24401169b0a0641cc47ccd4334388568883c3e9bb500efbac1ee78313bef826b",
   "QingJian/Tests/StreamTransportTests.swift": "5de70496d7a7fe37247f834189cafb0ee4e2610452b6e52b964d9a3b4c1191f3",
-  "QingJian/Tests/StudyBackupTests.swift": "41321df72c7f7964f48cdeab6c055973673d85d354d2df7d296bda24b90a52d5",
+  "QingJian/Tests/StudyBackupTests.swift": "e6d3916d3d9cb343a2413789f1d563ead0375a960a7608b8154b76912c048088",
   "QingJian/Tests/StudyLessonTests.swift": "7caeae1f2063adae381534eeeccd4c7d3dae4bd324b7dc7053adc1d71a6d1e80",
   "QingJian/Tests/StudyLiveModelTests.swift": "31ad47513e13834fb6f61d8d94d782e7751f3866a4659fe0cd49dc9c453f570a",
   "QingJian/Tests/StudyMemoryTests.swift": "b152ec2a47f6dbeaa27b8836839a051e54b758b701ec7b1c8b2b2b747dbae44d",
