@@ -10,7 +10,7 @@ concurrency:
   cancel-in-progress: true
 jobs:
   deliver:
-    runs-on: macos-15
+    runs-on: macos-15-intel
     timeout-minutes: 40
     steps:
       - uses: actions/checkout@v6
@@ -63,3 +63,4 @@ jobs:
             study-step7-build.log
             ${{ runner.temp }}/sermo-step7-evidence/
           retention-days: 30
+
