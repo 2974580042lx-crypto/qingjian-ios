@@ -1,0 +1,65 @@
+name: Sermo study delivery 1.36.0 build 66
+on:
+  workflow_dispatch:
+  push:
+    branches: ['codex/study-step7-20261112']
+permissions:
+  contents: read
+concurrency:
+  group: study-delivery-${{ github.ref }}
+  cancel-in-progress: true
+jobs:
+  deliver:
+    runs-on: macos-15
+    timeout-minutes: 40
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          persist-credentials: false
+      - run: python3 apply-source-overlay.py
+      - name: Select Xcode
+        run: |
+          for candidate in /Applications/Xcode_26.3.app /Applications/Xcode_26.2.app /Applications/Xcode_26.1.1.app /Applications/Xcode_26.0.1.app; do
+            if [[ -d "$candidate/Contents/Developer" ]]; then
+              echo "DEVELOPER_DIR=$candidate/Contents/Developer" >> "$GITHUB_ENV"
+              break
+            fi
+          done
+      - name: Synthetic regression tests
+        shell: bash
+        env:
+          SERMO_STEP7_EVIDENCE_DIR: ${{ runner.temp }}/sermo-step7-evidence
+        run: |
+          set -euo pipefail
+          cd QingJian
+          swift test --skip StudyLiveModelTests 2>&1 | tee ../study-step7-tests.log
+      - name: Build and package unsigned IPA
+        shell: bash
+        run: |
+          set -euo pipefail
+          cd QingJian
+          xcodebuild -project QingJian.xcodeproj -scheme QingJian -configuration Release -sdk iphoneos -destination 'generic/platform=iOS' -derivedDataPath "$PWD/build/DerivedData" CODE_SIGNING_ALLOWED=NO CODE_SIGNING_REQUIRED=NO CODE_SIGN_IDENTITY='' ARCHS=arm64 ONLY_ACTIVE_ARCH=NO build 2>&1 | tee ../study-step7-build.log
+          APP_PATH="$PWD/build/DerivedData/Build/Products/Release-iphoneos/DeepSeekPocket.app"
+          test -d "$APP_PATH"
+          test ! -e "$APP_PATH/embedded.mobileprovision"
+          mkdir -p build/Payload
+          ditto "$APP_PATH" build/Payload/DeepSeekPocket.app
+          ditto -c -k --keepParent build/Payload build/Sermo-1.36.0-build66-unsigned.ipa
+          shasum -a 256 build/Sermo-1.36.0-build66-unsigned.ipa > build/IPA-SHA256.txt
+      - uses: actions/upload-artifact@v4
+        with:
+          name: Sermo-1.36.0-build66-unsigned-IPA
+          path: |
+            QingJian/build/Sermo-1.36.0-build66-unsigned.ipa
+            QingJian/build/IPA-SHA256.txt
+          if-no-files-found: error
+          retention-days: 30
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: study-step7-evidence
+          path: |
+            study-step7-tests.log
+            study-step7-build.log
+            ${{ runner.temp }}/sermo-step7-evidence/
+          retention-days: 30
