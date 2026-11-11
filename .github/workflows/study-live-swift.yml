@@ -10,7 +10,7 @@ on:
       scenario:
         description: Select the synthetic live scenario
         type: choice
-        options: [vocabulary, reading]
+        options: [vocabulary, reading, lessons]
         default: vocabulary
         required: true
   push:
@@ -58,7 +58,7 @@ jobs:
             client-build.log
           retention-days: 14
   live:
-    if: github.event_name == 'workflow_dispatch' && inputs.run_live && (github.ref == 'refs/heads/codex/study-step3-live-20261111' || github.ref == 'refs/heads/codex/study-step4-live-20261111')
+    if: github.event_name == 'workflow_dispatch' && inputs.run_live && (github.ref == 'refs/heads/codex/study-step3-live-20261111' || github.ref == 'refs/heads/codex/study-step4-live-20261111' || github.ref == 'refs/heads/codex/study-step5-live-20261111')
     needs: validate
     runs-on: macos-15
     timeout-minutes: 15
@@ -93,7 +93,10 @@ jobs:
             exit 1
           fi
           cd QingJian
-          if [[ "$SERMO_LIVE_SCENARIO" == "reading" ]]; then
+          if [[ "$SERMO_LIVE_SCENARIO" == "lessons" ]]; then
+            swift test --skip-build --filter StudyLiveModelTests/testLessonsPart1HistoryFirstPassAndPause 2>&1 | tee "$SERMO_LIVE_EVIDENCE_DIR/lessons-part1-run.log"
+            swift test --skip-build --filter StudyLiveModelTests/testLessonsPart2ResumePoliticsCorrectAndStaleReport 2>&1 | tee "$SERMO_LIVE_EVIDENCE_DIR/lessons-part2-run.log"
+          elif [[ "$SERMO_LIVE_SCENARIO" == "reading" ]]; then
             swift test --skip-build --filter StudyLiveModelTests/testReadingPart1ReadInterruptReturnAndPause 2>&1 | tee "$SERMO_LIVE_EVIDENCE_DIR/reading-part1-run.log"
             swift test --skip-build --filter StudyLiveModelTests/testReadingPart2NewWindowResumeAndAnswer 2>&1 | tee "$SERMO_LIVE_EVIDENCE_DIR/reading-part2-run.log"
           else
