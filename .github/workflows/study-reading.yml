@@ -27,6 +27,8 @@ jobs:
           done
       - name: Synthetic Swift tests
         shell: bash
+        env:
+          SERMO_READING_EVIDENCE_DIR: ${{ runner.temp }}/sermo-reading-evidence
         run: |
           set -euo pipefail
           cd QingJian
@@ -44,4 +46,5 @@ jobs:
           path: |
             study-reading-tests.log
             study-reading-build.log
+            ${{ runner.temp }}/sermo-reading-evidence/
           retention-days: 14
