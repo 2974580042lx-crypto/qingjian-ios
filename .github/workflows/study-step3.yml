@@ -1,0 +1,49 @@
+name: Study step 3 tests and compile
+on:
+  workflow_dispatch:
+  push:
+    branches: ['codex/study-step3-20261110']
+permissions:
+  contents: read
+concurrency:
+  group: study-step3-${{ github.ref }}
+  cancel-in-progress: true
+jobs:
+  validate:
+    runs-on: macos-15
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v6
+      - name: Reconstruct verified source
+        run: python3 apply-source-overlay.py
+      - name: Select Xcode
+        run: |
+          for candidate in /Applications/Xcode_26.3.app /Applications/Xcode_26.2.app /Applications/Xcode_26.1.1.app /Applications/Xcode_26.0.1.app; do
+            if [[ -d "$candidate/Contents/Developer" ]]; then
+              echo "DEVELOPER_DIR=$candidate/Contents/Developer" >> "$GITHUB_ENV"
+              break
+            fi
+          done
+      - name: Validate project and run Swift core tests
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 QingJian/scripts/check-project.py
+          cd QingJian
+          swift test 2>&1 | tee ../study-step3-tests.log
+      - name: Compile iOS Release
+        shell: bash
+        run: |
+          set -euo pipefail
+          cd QingJian
+          xcodebuild -project QingJian.xcodeproj -scheme QingJian -configuration Release -sdk iphoneos -destination 'generic/platform=iOS' -derivedDataPath "$PWD/build/DerivedData" CODE_SIGNING_ALLOWED=NO CODE_SIGNING_REQUIRED=NO CODE_SIGN_IDENTITY='' ARCHS=arm64 ONLY_ACTIVE_ARCH=NO build 2>&1 | tee ../study-step3-build.log
+      - name: Upload validation evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: Sermo-study-step3-evidence
+          path: |
+            study-step3-tests.log
+            study-step3-build.log
+          if-no-files-found: warn
+          retention-days: 14
