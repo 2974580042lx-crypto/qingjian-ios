@@ -1,0 +1,97 @@
+name: Swift study live acceptance
+on:
+  workflow_dispatch:
+    inputs:
+      run_live:
+        description: Run the bounded DeepSeek test with the dedicated Secret
+        type: boolean
+        default: false
+        required: true
+  push:
+    branches: ['codex/study-step3-live-20261111']
+permissions:
+  contents: read
+concurrency:
+  group: study-live-${{ github.ref }}
+  cancel-in-progress: false
+jobs:
+  validate:
+    runs-on: macos-15
+    timeout-minutes: 35
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          persist-credentials: false
+      - run: python3 apply-source-overlay.py
+      - name: Select Xcode
+        run: |
+          for candidate in /Applications/Xcode_26.3.app /Applications/Xcode_26.2.app /Applications/Xcode_26.1.1.app /Applications/Xcode_26.0.1.app; do
+            if [[ -d "$candidate/Contents/Developer" ]]; then
+              echo "DEVELOPER_DIR=$candidate/Contents/Developer" >> "$GITHUB_ENV"
+              break
+            fi
+          done
+      - name: Offline regression tests
+        shell: bash
+        run: |
+          set -euo pipefail
+          cd QingJian
+          swift test --skip StudyLiveModelTests 2>&1 | tee ../swift-offline-tests.log
+      - name: Compile client
+        shell: bash
+        run: |
+          set -euo pipefail
+          cd QingJian
+          xcodebuild -project QingJian.xcodeproj -scheme QingJian -configuration Release -sdk iphoneos -destination 'generic/platform=iOS' -derivedDataPath "$PWD/build/DerivedData" CODE_SIGNING_ALLOWED=NO CODE_SIGNING_REQUIRED=NO CODE_SIGN_IDENTITY='' ARCHS=arm64 ONLY_ACTIVE_ARCH=NO build 2>&1 | tee ../client-build.log
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: swift-study-offline-evidence
+          path: |
+            swift-offline-tests.log
+            client-build.log
+          retention-days: 14
+  live:
+    if: github.event_name == 'workflow_dispatch' && inputs.run_live && github.ref == 'refs/heads/codex/study-step3-live-20261111'
+    needs: validate
+    runs-on: macos-15
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          persist-credentials: false
+      - run: python3 apply-source-overlay.py
+      - name: Select Xcode
+        run: |
+          for candidate in /Applications/Xcode_26.3.app /Applications/Xcode_26.2.app /Applications/Xcode_26.1.1.app /Applications/Xcode_26.0.1.app; do
+            if [[ -d "$candidate/Contents/Developer" ]]; then
+              echo "DEVELOPER_DIR=$candidate/Contents/Developer" >> "$GITHUB_ENV"
+              break
+            fi
+          done
+      - name: Build tests without credentials
+        run: cd QingJian && swift test --skip StudyLiveModelTests
+      - name: Run two independent Swift client processes
+        shell: bash
+        env:
+          SERMO_RUN_LIVE: '1'
+          SERMO_STUDY_LIVE_DEEPSEEK_KEY: ${{ secrets.SERMO_STUDY_LIVE_DEEPSEEK_KEY }}
+          SERMO_LIVE_EVIDENCE_DIR: ${{ github.workspace }}/live-evidence
+        run: |
+          set -euo pipefail
+          ulimit -c 0
+          mkdir -p "$SERMO_LIVE_EVIDENCE_DIR"
+          if [[ -z "$SERMO_STUDY_LIVE_DEEPSEEK_KEY" ]]; then
+            printf '%s\n' '{"status":"blocked","reason":"missing dedicated DeepSeek Secret"}' > "$SERMO_LIVE_EVIDENCE_DIR/status.json"
+            exit 1
+          fi
+          cd QingJian
+          swift test --skip-build --filter StudyLiveModelTests/testPart1LearnRecordAndExit 2>&1 | tee "$SERMO_LIVE_EVIDENCE_DIR/part1-run.log"
+          swift test --skip-build --filter StudyLiveModelTests/testPart2RestartResumeFindAndCorrect 2>&1 | tee "$SERMO_LIVE_EVIDENCE_DIR/part2-run.log"
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: swift-study-live-synthetic-evidence
+          path: live-evidence/
+          if-no-files-found: warn
+          retention-days: 14
