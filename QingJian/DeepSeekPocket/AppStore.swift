@@ -2729,7 +2729,7 @@ final class AppStore: ObservableObject {
     }
 
     func localDataDiagnostics() -> LocalDataDiagnostics {
-        let fileStats = persistence?.fileStats() ?? (0, nil)
+        let fileStats: (size: Int64, modified: Date?) = persistence?.fileStats() ?? (size: 0, modified: nil)
         let studyURL = try? Self.studyDatabaseURL()
         let studySize = Int64((try? studyURL?.resourceValues(forKeys: [.fileSizeKey]).fileSize) ?? 0)
         let studyRows = (try? studyMemory?.exportAllStudyData().rows.count) ?? 0

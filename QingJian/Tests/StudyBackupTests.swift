@@ -344,9 +344,10 @@ final class StudyBackupTests: XCTestCase {
         XCTAssertEqual(roundTrip.images.count, 1)
         XCTAssertEqual(roundTrip.preferences?["qingjian.profile.name"], "小龙")
 
-        // Tamper with compressed payload bytes and verify SHA-256 rejection
+        // Tamper with compressed payload bytes right after the header line and verify rejection
         var tampered = encoded
-        tampered[tampered.count - 1] ^= 0xFF
+        let bodyStart = try XCTUnwrap(tampered.firstIndex(of: 0x0A)) + 1
+        tampered[bodyStart] ^= 0xFF
         XCTAssertThrowsError(try UnifiedBackupCodec.decode(tampered))
 
         // Verify decodeAny also recognizes legacy StudyBackupEnvelope and legacy AppSnapshot JSON
