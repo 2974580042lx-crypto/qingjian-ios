@@ -1020,7 +1020,7 @@ struct ProjectDesignerView: View {
                         .padding(12).background(Ink.raised, in: InkRounded(radius: 16))
                 }
                 VStack(alignment: .leading, spacing: 4) {
-                    if project?.studySubject == nil {
+                    if projectID.flatMap({ store.project($0) })?.studySubject == nil {
                         Toggle("跨对话备忘", isOn: binding.autoMemory)
                         if usesChatGPT {
                             Text("ChatGPT 项目关掉这里即停止自动整理。").font(TypeScale.tiny).foregroundStyle(Ink.ink3)
