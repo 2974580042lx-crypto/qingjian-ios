@@ -33,6 +33,7 @@ struct UnifiedBackupPayload: Codable, Sendable {
     var images: [StudyBackupImage]
     var omittedImages: [StudyOmittedImage]? = nil
     var preferences: [String: String]? = nil
+    var operationManual: OperationManualBook? = nil
 
     var isComplete: Bool { omittedImages?.isEmpty != false }
 }
@@ -128,6 +129,13 @@ enum DecodedBackupPackage: Sendable {
         case .legacyShelf, .legacyChat: return 0
         }
     }
+
+    var manualChapterCount: Int {
+        switch self {
+        case .unified(let p): return p.operationManual?.chapters.count ?? 0
+        case .legacyStudy, .legacyShelf, .legacyChat: return 0
+        }
+    }
 }
 
 struct UnifiedRestorePreview: Identifiable, Sendable {
@@ -197,6 +205,7 @@ enum UnifiedBackupCodec {
         booksMetadata: [Book],
         personas: [PersonaCard],
         preferences: [String: String]? = nil,
+        operationManual: OperationManualBook? = nil,
         imageBudgetBytes: Int = maximumImageBudgetBytes,
         imageSize: (String) throws -> Int,
         imageLoader: (String) throws -> Data
@@ -245,7 +254,8 @@ enum UnifiedBackupCodec {
             personas: personas,
             images: images,
             omittedImages: omitted.isEmpty ? nil : omitted,
-            preferences: preferences
+            preferences: preferences,
+            operationManual: operationManual
         )
     }
 

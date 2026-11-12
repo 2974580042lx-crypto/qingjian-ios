@@ -240,6 +240,15 @@ struct SettingsView: View {
                             .font(TypeScale.caption).foregroundStyle(Ink.ink3)
                     } header: { Text("系统指令库") }
                     Section {
+                        NavigationLink {
+                            OperationManualView()
+                        } label: {
+                            Label("内置文档规范 · 已启用 \(store.operationManual.enabledCount) / \(store.operationManual.chapters.count) 章", systemImage: "book.pages")
+                        }
+                        Text("管理学习项目与外部工具的后台按需查阅规范。普通聊天不占字数，也不限制你的人设与语气；修改后自动随完整备份保存。")
+                            .font(TypeScale.caption).foregroundStyle(Ink.ink3)
+                    } header: { Text("内置文档规范（按需查阅）") }
+                    Section {
                         Button {
                             withAnimation(.snappy(duration: 0.25)) { promptExpanded.toggle() }
                         } label: {
@@ -852,6 +861,9 @@ struct UnifiedRestorePreviewSheet: View {
                     LabeledContent("项目数量", value: "\(preview.package.projectCount) 个")
                     if preview.package.presetCount > 0 {
                         LabeledContent("自定义指令库", value: "\(preview.package.presetCount) 份")
+                    }
+                    if preview.package.manualChapterCount > 0 {
+                        LabeledContent("内置文档规范", value: "\(preview.package.manualChapterCount) 章")
                     }
                     if preview.package.studyRowCount > 0 {
                         LabeledContent("学习数据库记录", value: "\(preview.package.studyRowCount) 行")

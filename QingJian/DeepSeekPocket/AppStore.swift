@@ -41,6 +41,8 @@ final class AppStore: ObservableObject {
     @Published private(set) var translationIssue: (threadID: UUID, messageID: UUID, text: String)?
     @Published private(set) var projects: [ChatProject] = []
     @Published private(set) var systemPromptPresets: [SystemPromptPreset] = []
+    @Published private(set) var operationManual: OperationManualBook = .defaultBook()
+    private var manualStore: OperationManualStore?
     @Published private(set) var usage = UsageLedger()
     // Locked projects opened with Face ID in this session; cleared when the app leaves the foreground.
     @Published private(set) var unlockedProjectIDs: Set<UUID> = []
@@ -532,6 +534,10 @@ final class AppStore: ObservableObject {
         if threads.isEmpty { threads = [ChatThread()] }
         // Every launch opens on a fresh page in the project last picked for new chats
         // (none, or a locked one, means outside any project); earlier conversations stay in the sidebar.
+        if let mStore = try? OperationManualStore.defaultStore() {
+            manualStore = mStore
+            operationManual = mStore.load()
+        }
         ensureManualProject()
         // Never auto-write a ~30 KB empty shell to disk on a fresh/missing-file launch before user interaction.
         initializeStudyMemory(persistIfSeeded: hasExistingLocalStoreFile)
@@ -575,6 +581,10 @@ final class AppStore: ObservableObject {
         books.reloadIfNeeded()
         subscription.reloadIfNeeded()
         if apiKey.isEmpty, let key = try? KeychainStore.read(), !key.isEmpty { apiKey = key }
+        if manualStore == nil, let mStore = try? OperationManualStore.defaultStore() {
+            manualStore = mStore
+            operationManual = mStore.load()
+        }
         guard !canPersist else {
             if studyMemory == nil { initializeStudyMemory(persistIfSeeded: hasExistingLocalStoreFile) }
             return
@@ -803,6 +813,71 @@ final class AppStore: ObservableObject {
         systemPromptPresets.removeAll { $0.id == id }
         if !persistNow() { systemPromptPresets = old; return false }
         return true
+    }
+
+    // MARK: Built-in on-demand operation manual (Stage D)
+
+    func setManualChapterEnabled(_ enabled: Bool, id: String) {
+        var next = operationManual
+        guard next.setEnabled(enabled, chapterID: id) else { return }
+        if persistOperationManual(next) {
+            operationManual = next
+        }
+    }
+
+    func saveManualChapter(_ chapter: OperationManualChapter, creatingNew: Bool) -> Result<Void, Error> {
+        var next = operationManual
+        do {
+            try next.saveChapter(chapter, creatingNew: creatingNew)
+            guard persistOperationManual(next) else {
+                return .failure(ChatError.server("规范保存失败，请检查本机存储权限。"))
+            }
+            operationManual = next
+            noticeMessage = creatingNew ? "已添加规范章节「\(chapter.title)」。" : "已保存规范章节「\(chapter.title)」。"
+            return .success(())
+        } catch {
+            return .failure(error)
+        }
+    }
+
+    @discardableResult
+    func resetManualChapter(id: String) -> Bool {
+        var next = operationManual
+        guard next.resetBuiltInChapter(id: id), persistOperationManual(next) else { return false }
+        operationManual = next
+        noticeMessage = "已恢复本章默认规范。"
+        return true
+    }
+
+    @discardableResult
+    func resetAllBuiltInManualChapters() -> Bool {
+        var next = operationManual
+        next.resetAllBuiltInChapters()
+        guard persistOperationManual(next) else { return false }
+        operationManual = next
+        noticeMessage = "全部内置章节已恢复默认。"
+        return true
+    }
+
+    @discardableResult
+    func deleteCustomManualChapter(id: String) -> Bool {
+        var next = operationManual
+        guard next.deleteCustomChapter(id: id), persistOperationManual(next) else { return false }
+        operationManual = next
+        noticeMessage = "已删除自建规范章节。"
+        return true
+    }
+
+    private func persistOperationManual(_ book: OperationManualBook) -> Bool {
+        if isPreview { return true }
+        do {
+            if manualStore == nil { manualStore = try OperationManualStore.defaultStore() }
+            try manualStore?.save(book)
+            return true
+        } catch {
+            errorMessage = "内置文档规范保存失败：\(error.localizedDescription)"
+            return false
+        }
     }
 
     @discardableResult
@@ -1388,21 +1463,35 @@ final class AppStore: ObservableObject {
         let discussion = threads[ti].bookDiscussion
         let chatProject = discussion == nil ? project(threads[ti].projectID) : nil
         var specs: [ToolSpec] = [], notes: [String] = []
+        let hasStudyTools = chatProject?.studySubject != nil && (provider == .deepSeek || provider == .chatGPT || (provider == .colab && settings.colabOptions.tools))
+        let useDrive = (provider == .deepSeek || (provider == .colab && settings.colabOptions.tools)) && chatProject?.usesDriveTools == true
+        let useGitHub = (provider == .deepSeek || (provider == .colab && settings.colabOptions.tools)) && chatProject?.usesGitHubTools == true
+        let useWeb = provider == .deepSeek && chatProject?.usesWebTools == true
         if chatProject?.studySubject != nil {
             do { notes.append(try studyContext(for: threads[ti])) }
             catch { studyIssue = error.localizedDescription; errorMessage = error.localizedDescription; return false }
-            if provider == .deepSeek || provider == .chatGPT || (provider == .colab && settings.colabOptions.tools) {
-                specs += StudyTools.specs; notes.append(StudyTools.note)
-                if let subject = chatProject?.studySubject { specs += StudyLessonTools.specs(for: subject); notes.append(StudyLessonTools.note(for: subject)) }
+            if hasStudyTools {
+                specs += StudyTools.specs
+                if let subject = chatProject?.studySubject { specs += StudyLessonTools.specs(for: subject) }
                 if chatProject?.studySubject == .english {
                     specs += StudyWordTools.specs + StudyReadingTools.specs
-                    notes.append(StudyWordTools.note); notes.append(StudyReadingTools.note)
                 }
             }
         }
-        if provider == .deepSeek || (provider == .colab && settings.colabOptions.tools), chatProject?.usesDriveTools == true { specs += DriveTools.specs; notes.append(DriveTools.systemNote) }
-        if provider == .deepSeek || (provider == .colab && settings.colabOptions.tools), chatProject?.usesGitHubTools == true { specs += GitHubTools.specs; notes.append(GitHubTools.systemNote) }
-        if provider == .deepSeek, chatProject?.usesWebTools == true { specs += WebTools.specs; notes.append(WebTools.systemNote) }
+        if useDrive { specs += DriveTools.specs; notes.append(DriveTools.systemNote) }
+        if useGitHub { specs += GitHubTools.specs; notes.append(GitHubTools.systemNote) }
+        if useWeb { specs += WebTools.specs; notes.append(WebTools.systemNote) }
+        if !specs.isEmpty,
+           let manualBundle = OperationManualTools.systemPromptNote(
+               book: operationManual,
+               studySubject: hasStudyTools ? chatProject?.studySubject : nil,
+               usesDrive: useDrive,
+               usesGitHub: useGitHub,
+               usesWeb: useWeb
+           ) {
+            if manualBundle.includeTools { specs += OperationManualTools.specs }
+            notes.append(manualBundle.note)
+        }
         let usesTools = !specs.isEmpty
         // {{时间}} and the other placeholders are filled in here, for this request only.
         let now = Date()
@@ -1585,6 +1674,20 @@ final class AppStore: ObservableObject {
             try requireToolAccess(call, threadID: threadID)
             let result = try await tool.perform()
             activity.status = .done
+            if tool.kind == "manual", let thread = threads.first(where: { $0.id == threadID }) {
+                let flags = manualToolScope(for: thread)
+                if let info = try? OperationManualTools.execute(
+                    call,
+                    book: operationManual,
+                    studySubject: flags.studySubject,
+                    usesDrive: flags.usesDrive,
+                    usesGitHub: flags.usesGitHub,
+                    usesWeb: flags.usesWeb
+                ) {
+                    activity.title = info.completedTitle
+                    activity.detail = info.detail
+                }
+            }
             if tool.kind == "study" {
                 activity.title = StudyLessonTools.titles[call.name] ?? StudyReadingTools.titles[call.name] ?? StudyTools.completedTitles[call.name] ?? "学习操作已完成"
                 if call.name == "study_weekly_report", let report = try? StudyCoding.decode(StudyWeeklyResult.self, from: Data(result.utf8)) {
@@ -1625,8 +1728,40 @@ final class AppStore: ObservableObject {
         let perform: () async throws -> String
     }
 
+    private func manualToolScope(for thread: ChatThread) -> (studySubject: StudySubject?, usesDrive: Bool, usesGitHub: Bool, usesWeb: Bool) {
+        let proj = thread.bookDiscussion == nil && thread.story == nil && !isHidden(thread) ? project(thread.projectID) : nil
+        let provider = thread.messages.last?.provider ?? self.provider(for: thread)
+        let colabTools = settings(for: thread).colabOptions.tools
+        let studyOK = proj?.studySubject != nil && (provider == .deepSeek || provider == .chatGPT || (provider == .colab && colabTools))
+        let extOK = provider == .deepSeek || (provider == .colab && colabTools)
+        return (
+            studySubject: studyOK ? proj?.studySubject : nil,
+            usesDrive: extOK && proj?.usesDriveTools == true,
+            usesGitHub: extOK && proj?.usesGitHubTools == true,
+            usesWeb: provider == .deepSeek && proj?.usesWebTools == true
+        )
+    }
+
     private func prepare(_ call: ToolCall, threadID: UUID, answerID: UUID) throws -> PreparedTool {
         try requireToolAccess(call, threadID: threadID)
+        if OperationManualTools.names.contains(call.name) {
+            guard let thread = threads.first(where: { $0.id == threadID }) else {
+                throw ToolError.disabledTool(call.name)
+            }
+            let flags = manualToolScope(for: thread)
+            let result = try OperationManualTools.execute(
+                call,
+                book: operationManual,
+                studySubject: flags.studySubject,
+                usesDrive: flags.usesDrive,
+                usesGitHub: flags.usesGitHub,
+                usesWeb: flags.usesWeb
+            )
+            let runningTitle = call.name == "manual_search" ? "检索内置规范目录" : "查阅内置文档规范"
+            return PreparedTool(title: runningTitle, kind: "manual", confirm: nil, perform: {
+                result.output
+            })
+        }
         if StudyTools.names.contains(call.name) {
             let action = try StudyToolAction(call)
             return PreparedTool(title: "处理项目学习记录", kind: "study", confirm: nil, perform: { [weak self] in
@@ -1674,6 +1809,19 @@ final class AppStore: ObservableObject {
     private func requireToolAccess(_ call: ToolCall, threadID: UUID) throws {
         guard let thread = threads.first(where: { $0.id == threadID }) else {
             throw ToolError.disabledTool(call.name)
+        }
+        if OperationManualTools.names.contains(call.name) {
+            let flags = manualToolScope(for: thread)
+            let active = operationManual.activeChapters(
+                studySubject: flags.studySubject,
+                usesDrive: flags.usesDrive,
+                usesGitHub: flags.usesGitHub,
+                usesWeb: flags.usesWeb
+            )
+            guard !active.isEmpty else {
+                throw ToolError.disabledTool(call.name)
+            }
+            return
         }
         if StudyTools.names.contains(call.name) {
             _ = try studyScope(for: thread)
@@ -1730,7 +1878,7 @@ final class AppStore: ObservableObject {
     // the app's own folder; into the picked folder too when there is one.
     func autoBackupIfNeeded(force: Bool = false) {
         guard !isPreview, canPersist, !backupRunning else { return }
-        let hasRealData = threads.contains(where: { !$0.messages.isEmpty }) || !usage.days.isEmpty || !systemPromptPresets.isEmpty || !books.books.isEmpty
+        let hasRealData = threads.contains(where: { !$0.messages.isEmpty }) || !usage.days.isEmpty || !systemPromptPresets.isEmpty || !books.books.isEmpty || operationManual.hasUserChanges
         if !force && !hasRealData { return }
         if !force, let last = lastAutoBackup, Calendar.current.isDateInToday(last) { return }
         let snap = snapshot
@@ -1738,6 +1886,7 @@ final class AppStore: ObservableObject {
         let booksMeta = books.books
         let personas = books.personas
         let prefs = UnifiedBackupCodec.collectPreferences()
+        let manual = operationManual
         let imagesDir = try? ImageStore.directory()
         backupRunning = true
         Task {
@@ -1749,6 +1898,7 @@ final class AppStore: ObservableObject {
                         booksMetadata: booksMeta,
                         personas: personas,
                         preferences: prefs,
+                        operationManual: manual,
                         imageBudgetBytes: 24 * 1024 * 1024,
                         imageSize: { name in
                             guard let dir = imagesDir else { return -1 }
@@ -2803,6 +2953,7 @@ final class AppStore: ObservableObject {
         let booksMeta = books.books
         let personas = books.personas
         let prefs = UnifiedBackupCodec.collectPreferences()
+        let manual = operationManual
         do {
             let imagesDir = try ImageStore.directory()
             return try await Task.detached(priority: .userInitiated) {
@@ -2812,6 +2963,7 @@ final class AppStore: ObservableObject {
                     booksMetadata: booksMeta,
                     personas: personas,
                     preferences: prefs,
+                    operationManual: manual,
                     imageBudgetBytes: UnifiedBackupCodec.maximumImageBudgetBytes,
                     imageSize: { name in
                         (try? imagesDir.appendingPathComponent(name).resourceValues(forKeys: [.fileSizeKey]).fileSize) ?? -1
@@ -2977,7 +3129,7 @@ final class AppStore: ObservableObject {
         guard canRestoreStudyBackup else { return }
         unifiedBackupBusy = true
         defer { unifiedBackupBusy = false }
-        let oldThreads = threads, oldProjects = projects, oldUsage = usage, oldPresets = systemPromptPresets, oldSettings = settings, oldActive = activeThreadID, oldInstalled = installedStudySubjects
+        let oldThreads = threads, oldProjects = projects, oldUsage = usage, oldPresets = systemPromptPresets, oldSettings = settings, oldActive = activeThreadID, oldInstalled = installedStudySubjects, oldManual = operationManual
         do {
             _ = try persistence?.createSafetyCopy(prefix: "before-restore")
             let imagesDir = try ImageStore.directory()
@@ -3007,8 +3159,13 @@ final class AppStore: ObservableObject {
                 if activeThreadID == nil || !threads.contains(where: { $0.id == activeThreadID }) {
                     activeThreadID = threads.first?.id
                 }
+                if let incomingManual = payload.operationManual {
+                    let nextManual = operationManual.mergedFromBackup(incomingManual, mode: .replace)
+                    if persistOperationManual(nextManual) { operationManual = nextManual }
+                }
                 guard persistNow(allowShrink: true) else {
                     threads = oldThreads; projects = oldProjects; usage = oldUsage; systemPromptPresets = oldPresets; settings = oldSettings; activeThreadID = oldActive; installedStudySubjects = oldInstalled
+                    if operationManual != oldManual { _ = persistOperationManual(oldManual); operationManual = oldManual }
                     throw ChatError.invalidBackup("恢复后写入本机文件失败，已回退。")
                 }
                 let omittedNote = payload.isComplete ? "" : "（另有 \(payload.omittedImages?.count ?? 0) 张超额图片未包含在备份包中）"
@@ -3053,8 +3210,13 @@ final class AppStore: ObservableObject {
                 if activeThreadID == nil || !threads.contains(where: { $0.id == activeThreadID }) {
                     activeThreadID = threads.first?.id
                 }
+                if let incomingManual = payload.operationManual {
+                    let nextManual = operationManual.mergedFromBackup(incomingManual, mode: .merge)
+                    if persistOperationManual(nextManual) { operationManual = nextManual }
+                }
                 guard persistNow(allowShrink: true) else {
                     threads = oldThreads; projects = oldProjects; usage = oldUsage; systemPromptPresets = oldPresets; settings = oldSettings; activeThreadID = oldActive; installedStudySubjects = oldInstalled
+                    if operationManual != oldManual { _ = persistOperationManual(oldManual); operationManual = oldManual }
                     throw ChatError.invalidBackup("合并保存失败，已回退。")
                 }
                 noticeMessage = "已合并恢复备份中的对话、项目、学习库、图片与 \(payload.booksMetadata.count) 本书架档案；恢复前状态已另存安全快照。"
