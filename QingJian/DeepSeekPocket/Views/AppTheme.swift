@@ -536,7 +536,7 @@ enum Personal {
         UserDefaults.standard.set(on ? "1" : "0", forKey: boldAccentKey)
         StyleAppearance.shared.bump()
     }
-    static var boldUsesAccent: Bool { stored(boldAccentKey) == "1" }
+    static var boldUsesAccent: Bool { stored(boldAccentKey) != "0" }
     /// Line spacing inside a paragraph and the gap between paragraphs.
     static var lineSpacing: CGFloat {
         switch stored(spacingKey) { case "compact": return 4.5; case "loose": return 10.5; default: return 7.5 }

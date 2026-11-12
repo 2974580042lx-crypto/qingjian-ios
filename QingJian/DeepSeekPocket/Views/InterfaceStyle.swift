@@ -335,7 +335,7 @@ struct PersonalizationView: View {
                 choice("行距", key: Personal.spacingKey, fallback: "standard",
                        options: [("compact", "紧凑"), ("standard", "标准"), ("loose", "宽松")])
             } header: { Text("文字") } footer: {
-                Text("「正文稍粗」用于系统字体与自定义字体；「加粗使用强调色」默认关闭，以保持与电脑版 Claude 一致的深墨黑加粗，反引号重点词仍保持陶土色标签。行距会连同段距一起变。")
+                Text("「正文稍粗」用于系统字体与自定义字体；「加粗使用强调色」默认开启，若想对齐纯墨黑加粗可在此关闭，反引号重点词仍保持陶土色标签。行距会连同段距一起变。")
             }
             Section {
                 SwatchRow(title: "正文颜色", key: Personal.textKey, presets: Personal.textPresets, fallback: "black")
