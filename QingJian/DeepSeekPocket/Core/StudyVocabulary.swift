@@ -205,7 +205,7 @@ extension StudyMemoryStore {
         let cardByID = Dictionary(uniqueKeysWithValues: (pack?.cards ?? []).map { ($0.id, $0) })
         let practiced = progress.filter { $0.reviewCount > 0 }.sorted { ($0.lastReviewedAt ?? .distantPast) > ($1.lastReviewedAt ?? .distantPast) }
         let calendar = Calendar.current
-        let todayCount = practiced.filter { $0.lastReviewedAt.map { calendar.isDateInToday($0) } == true }.count
+        let todayCount = practiced.filter { $0.lastReviewedAt.map { calendar.isDate($0, inSameDayAs: now) } == true }.count
         let dueCount = practiced.filter { $0.due <= now }.count
         let recent: [StudyWordView] = practiced.prefix(30).compactMap { p in
             guard let word = cardByID[p.wordID] else { return nil }
