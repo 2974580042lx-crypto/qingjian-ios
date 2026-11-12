@@ -181,9 +181,9 @@ struct ChatProject: Identifiable, Codable, Equatable, Sendable {
     var studySubject: StudySubject?
 
     var service: AIProvider { provider ?? .deepSeek }
-    var usesDriveTools: Bool { service != .chatGPT && driveTools == true }
-    var usesGitHubTools: Bool { service != .chatGPT && githubTools == true }
-    var usesWebTools: Bool { service == .deepSeek && webTools == true }
+    var usesDriveTools: Bool { driveTools == true }
+    var usesGitHubTools: Bool { githubTools == true }
+    var usesWebTools: Bool { webTools == true }
     var remembers: Bool { studySubject == nil && (service == .chatGPT ? autoMemory != false : autoMemory == true) }
     var includedCharacters: Int { documents.filter(\.isIncluded).reduce(0) { $0 + $1.text.count } }
 

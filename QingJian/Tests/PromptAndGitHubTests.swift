@@ -28,6 +28,7 @@ final class PromptAndGitHubTests: XCTestCase {
         XCTAssertTrue(late?.contains("过去了 9 小时") == true)
         XCTAssertTrue(late?.contains("22:05") == true)
         XCTAssertTrue(PromptVariables.elapsedNote(since: nil, context: context)?.contains("现在是") == true)
+        XCTAssertTrue(PromptVariables.currentTimeNote(context).contains("2026年10月17日 星期六 22:05"))
         XCTAssertEqual(PromptVariables.duration(3 * 86_400), " 3 天")
     }
 
@@ -142,5 +143,19 @@ final class WebPageTests: XCTestCase {
         let encoding = String.Encoding(rawValue: CFStringConvertEncodingToNSStringEncoding(CFStringEncoding(CFStringEncodings.GB_18030_2000.rawValue)))
         let data = "<meta charset=\"gbk\"><p>中文网页</p>".data(using: encoding)!
         XCTAssertTrue(WebText.decode(data, contentType: "text/html").contains("中文网页"))
+    }
+
+    func testExtractsURLsAndParsesGitHubRepoAndBlobTargets() {
+        let prompt = "帮我看看这个仓库 https://github.com/xiaolong/qingjian-ios，还有这个文件 https://github.com/xiaolong/qingjian-ios/blob/main/README.md。"
+        let urls = WebText.extractURLs(from: prompt)
+        XCTAssertEqual(urls.map(\.absoluteString), [
+            "https://github.com/xiaolong/qingjian-ios",
+            "https://github.com/xiaolong/qingjian-ios/blob/main/README.md"
+        ])
+        let repoTarget = WebText.parseGitHubURL(urls[0])
+        XCTAssertEqual(repoTarget, WebText.GitHubTarget(owner: "xiaolong", repo: "qingjian-ios", ref: nil, path: nil, isBlob: false))
+        let blobTarget = WebText.parseGitHubURL(urls[1])
+        XCTAssertEqual(blobTarget, WebText.GitHubTarget(owner: "xiaolong", repo: "qingjian-ios", ref: "main", path: "README.md", isBlob: true))
+        XCTAssertNil(WebText.parseGitHubURL(URL(string: "https://github.com/features/copilot")!))
     }
 }

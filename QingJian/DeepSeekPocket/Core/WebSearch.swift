@@ -54,10 +54,14 @@ enum WebSearchProtocol {
     static func body(query: String) throws -> Data {
         let query = String(query.trimmingCharacters(in: .whitespacesAndNewlines).prefix(2000))
         guard !query.isEmpty else { throw WebSearchError.emptyQuery }
+        let prompt = """
+        请针对下面的用户问题进行精准联网搜索，提炼核心专有名词与关键限定词检索，严禁返回与问题核心实体无关的凑数网页，并提供可靠网页来源与准确总结：
+        \(query)
+        """
         return try JSONSerialization.data(withJSONObject: [
-            "model": "deepseek-v4-flash", "max_tokens": 2048,
-            "messages": [["role": "user", "content": [["type": "text", "text": "请联网搜索这个问题并提供可靠网页来源：\n" + query]]]],
-            "tools": [["type": "web_search_20250305", "name": "web_search", "max_uses": 1]]
+            "model": "deepseek-v4-flash", "max_tokens": 3072,
+            "messages": [["role": "user", "content": [["type": "text", "text": prompt]]]],
+            "tools": [["type": "web_search_20250305", "name": "web_search", "max_uses": 2]]
         ])
     }
 
@@ -87,9 +91,9 @@ enum WebSearchProtocol {
                       seen.insert(raw).inserted else { continue }
                 sources.append(WebSource(title: String((item["title"] as? String ?? host).prefix(200)),
                                          url: raw, snippet: snippets[raw] ?? ""))
-                if sources.count == 5 { break }
+                if sources.count == 8 { break }
             }
-            if sources.count == 5 { break }
+            if sources.count == 8 { break }
         }
         guard !sources.isEmpty else { throw WebSearchError.noResults }
         let rawUsage = root["usage"] as? [String: Any]
@@ -126,6 +130,42 @@ final class WebSearchClient: @unchecked Sendable {
         guard let response = response as? HTTPURLResponse else { throw WebSearchError.invalidResponse }
         guard (200..<300).contains(response.statusCode) else { throw WebSearchError.http(response.statusCode) }
         return try WebSearchProtocol.parse(data)
+    }
+
+    /// Reads any explicit http(s) / GitHub URLs in the query directly first; falls back to or combines with keyword search when needed.
+    func searchOrReadDirectURLs(query: String, contextHint: String = "", key: String, githubToken: String? = nil) async throws -> WebSearchResult {
+        let reader = WebPageReader(githubToken: githubToken)
+        let directURLs = Array(WebText.extractURLs(from: query).prefix(3))
+        var directSources: [WebSource] = []
+        var directPages: [String: String] = [:]
+
+        for url in directURLs {
+            if let text = try? await reader.read(url, limit: 8_000), !text.isEmpty {
+                let title: String
+                if let gh = WebText.parseGitHubURL(url) {
+                    title = gh.path.map { "GitHub: \(gh.owner)/\(gh.repo)/\($0)" } ?? "GitHub: \(gh.owner)/\(gh.repo)"
+                } else {
+                    title = url.host ?? url.absoluteString
+                }
+                directSources.append(WebSource(title: title, url: url.absoluteString, snippet: String(text.prefix(240))))
+                directPages[url.absoluteString] = text
+            }
+        }
+
+        if !directSources.isEmpty {
+            return WebSearchResult(
+                sources: directSources,
+                usage: nil,
+                summary: "已直接读取用户提供链接的内容（共 \(directSources.count) 个来源）。",
+                pages: directPages
+            )
+        }
+
+        let trimmedHint = contextHint.trimmingCharacters(in: .whitespacesAndNewlines)
+        let effectiveQuery = trimmedHint.isEmpty ? query : "对话背景摘要：\n\(trimmedHint)\n\n当前需要搜索的问题：\n\(query)"
+        var result = try await search(query: effectiveQuery, key: key)
+        result.pages = await reader.readTop(result.sources, count: 4)
+        return result
     }
 }
 

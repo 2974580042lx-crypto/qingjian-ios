@@ -69,6 +69,11 @@ enum PromptVariables {
     /// Below this gap nothing is said, so a running conversation never hears the clock.
     static let quietGap: TimeInterval = 2 * 3600
 
+    /// Always-available background clock note for system prompts when timeAwareness is not explicitly disabled.
+    static func currentTimeNote(_ context: Context) -> String {
+        "当前时间：\(format("yyyy年M月d日", context)) \(format("EEEE", context)) \(format("HH:mm", context))（仅作背景参考，无需刻意复述）"
+    }
+
     /// A short note for the model when a project lets characters notice time passing:
     /// the current time on a conversation's first message, and how long it has been
     /// after a long gap. Nil while the conversation is flowing.

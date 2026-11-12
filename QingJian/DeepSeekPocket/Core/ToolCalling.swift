@@ -145,12 +145,20 @@ enum ToolError: LocalizedError, Equatable {
 struct ProjectToolAccess {
     private let names: Set<String>
 
-    init(project: ChatProject?, provider: AIProvider, colabTools: Bool = false) {
+    init(
+        project: ChatProject?,
+        provider: AIProvider,
+        colabTools: Bool = false,
+        driveDefault: Bool = false,
+        githubDefault: Bool = false,
+        webDefault: Bool = false
+    ) {
         var specs: [ToolSpec] = []
-        if provider == .deepSeek || (provider == .colab && colabTools) {
-            if project?.usesDriveTools == true { specs += DriveTools.specs }
-            if project?.usesGitHubTools == true { specs += GitHubTools.specs }
-            if provider == .deepSeek, project?.usesWebTools == true { specs += WebTools.specs }
+        let canRunTools = provider == .deepSeek || provider == .chatGPT || (provider == .colab && colabTools)
+        if canRunTools {
+            if project?.driveTools ?? driveDefault { specs += DriveTools.specs }
+            if project?.githubTools ?? githubDefault { specs += GitHubTools.specs }
+            if project?.webTools ?? webDefault { specs += WebTools.specs }
         }
         names = Set(specs.map(\.name))
     }

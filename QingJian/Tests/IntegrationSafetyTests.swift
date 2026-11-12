@@ -14,15 +14,31 @@ final class ProjectToolAccessTests: XCTestCase {
         }
     }
 
-    func testMissingProjectAndSubscriptionCannotUseTools() {
+    func testMissingProjectAndSubscriptionSupportConnectedDefaultsWhileRespectingExplicitOptOut() throws {
         var project = ChatProject(name: "工具")
         project.driveTools = true; project.githubTools = true; project.webTools = true
-        for access in [ProjectToolAccess(project: nil, provider: .deepSeek),
-                       ProjectToolAccess(project: project, provider: .chatGPT)] {
-            for name in ["github_read", "drive_read", "web_search"] {
-                XCTAssertThrowsError(try access.require(name))
+        // ChatGPT Subscription and non-project chats with connected credentials can use tools by default
+        let subAccess = ProjectToolAccess(project: project, provider: .chatGPT)
+        let nonProjectConnected = ProjectToolAccess(
+            project: nil,
+            provider: .chatGPT,
+            driveDefault: true,
+            githubDefault: true,
+            webDefault: true
+        )
+        for access in [subAccess, nonProjectConnected] {
+            for name in ["github_read", "drive_read", "web_search", "web_read"] {
+                XCTAssertNoThrow(try access.require(name))
             }
         }
+        // Without connected defaults or project flags, tools remain off; explicit false overrides connected defaults
+        let disconnected = ProjectToolAccess(project: nil, provider: .deepSeek)
+        for name in ["github_read", "drive_read", "web_search"] {
+            XCTAssertThrowsError(try disconnected.require(name))
+        }
+        project.githubTools = false
+        let optedOut = ProjectToolAccess(project: project, provider: .chatGPT, githubDefault: true)
+        XCTAssertThrowsError(try optedOut.require("github_read"))
     }
 
     func testTurningOffToolsWhileApprovalWaitsRevokesAccess() throws {
