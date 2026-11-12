@@ -51,7 +51,7 @@ struct AutoBackupSection: View {
             }
             if let issue = store.backupIssue { Text(issue).font(TypeScale.serif(13)).foregroundStyle(.secondary) }
         } header: { Text("自动备份") } footer: {
-            Text("每天第一次打开 Sermo 时自动备份聊天，存进「文件」App 的「我的 iPhone › Sermo › 自动备份」，不用设置。想在 iCloud 云盘等地方再存一份，可以另选一个文件夹：在文件夹右侧勾选后点「打开」。只保留最近 7 天的自动备份；不含 API Key 和登录凭证。")
+            Text("每天第一次打开 Sermo 时自动生成一份完整备份（.sermobackup，包含聊天、项目、指令库、学习进度、书架档案与人物卡，不含小说正文），存进「文件」App 的「我的 iPhone › Sermo › 自动备份」。想在 iCloud 云盘等地方再存一份，可另选一个文件夹。自动保留最近 7 份；不含 API Key 和登录凭证。")
         }
     }
     private func chooseFolder() {

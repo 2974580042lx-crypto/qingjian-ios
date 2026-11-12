@@ -298,23 +298,43 @@ struct SettingsView: View {
                     }
                     Section {
                         Button {
-                            backupURL = store.exportBackup()
-                            showShare = backupURL != nil
-                        } label: { Label("导出聊天备份", systemImage: "square.and.arrow.up") }
-                        Button {
-                            DocumentPicker.present([.json, .data], asCopy: true, onError: { store.errorMessage = $0 }) { url in
-                                defer { try? FileManager.default.removeItem(at: url) }
-                                store.importBackup(url)
+                            Task {
+                                backupURL = await store.exportUnifiedBackup()
+                                showShare = backupURL != nil
                             }
-                        } label: { Label("导入聊天备份", systemImage: "square.and.arrow.down") }
-                            .disabled(store.isGenerating || !store.canPersist)
-                    } header: { Text("记录与备份") } footer: {
-                        Text("这里是原有聊天JSON，不包含学习数据库和图片实体；学习数据请用上方的学习备份，并核对是否有缺图。导入聊天JSON会添加新对话，已有编号跳过，不覆盖设置。")
+                        } label: {
+                            HStack {
+                                Label("导出完整备份（.sermobackup）", systemImage: "externaldrive.fill.badge.arrow.up")
+                                if store.unifiedBackupBusy { Spacer(); ProgressView().controlSize(.small) }
+                            }
+                        }
+                        .disabled(store.isGenerating || !store.canPersist || store.unifiedBackupBusy)
+                        Button {
+                            let types = [UTType(filenameExtension: "sermobackup"), .json, .data].compactMap { $0 }
+                            DocumentPicker.present(types, asCopy: true, onError: { store.errorMessage = $0 }) { url in
+                                store.prepareBackupRestore(url, removeWhenDone: true)
+                            }
+                        } label: {
+                            Label("从备份文件恢复…", systemImage: "arrow.down.doc.fill")
+                        }
+                        .disabled(!store.canRestoreStudyBackup)
+                        DisclosureGroup("兼容旧版单独导出") {
+                            Button {
+                                backupURL = store.exportBackup()
+                                showShare = backupURL != nil
+                            } label: { Label("仅导出聊天与项目 JSON", systemImage: "square.and.arrow.up") }
+                        }
+                    } header: { Text("完整备份与恢复") } footer: {
+                        Text("「导出完整备份」会将所有聊天、项目、资料、自定义指令、用量日历、学习数据库、聊天与学习图片、以及书架阅读进度与角色档案打包成单个 .sermobackup 文件（不含体积巨大的小说原文，小说原文可随时重新导入并自动关联回已有档案）。「从备份文件恢复」支持新版 .sermobackup，也自动兼容旧版聊天 JSON、学习备份 JSON 和书架备份 JSON；选择文件后会先展示内容清单供你核对。")
                     }
                 AutoBackupSection()
         }
         .sheet(isPresented: $showShare) {
             if let url = backupURL { ShareSheet(items: [url]) }
+        }
+        .sheet(item: $store.unifiedRestorePreview) { preview in
+            UnifiedRestorePreviewSheet(preview: preview)
+                .environmentObject(store)
         }
     }
 
@@ -753,7 +773,7 @@ struct LocalDataStatusView: View {
                             }
                             Spacer()
                             Button("导出") { shareURL = item.url }.buttonStyle(.borderless)
-                            Button("合并恢复") { store.importBackup(item.url) }.buttonStyle(.borderless)
+                            Button("恢复") { store.prepareBackupRestore(item.url) }.buttonStyle(.borderless)
                         }
                     }
                 }
@@ -772,6 +792,7 @@ struct LocalDataStatusView: View {
                             }
                             Spacer()
                             Button("导出") { shareURL = item.url }.buttonStyle(.borderless)
+                            Button("恢复") { store.prepareBackupRestore(item.url) }.buttonStyle(.borderless)
                         }
                     }
                 }
@@ -788,10 +809,111 @@ struct LocalDataStatusView: View {
         .sheet(isPresented: Binding(get: { shareURL != nil }, set: { if !$0 { shareURL = nil } })) {
             if let url = shareURL { ShareSheet(items: [url]) }
         }
+        .sheet(item: $store.unifiedRestorePreview) { preview in
+            UnifiedRestorePreviewSheet(preview: preview)
+                .environmentObject(store)
+        }
     }
 
     private func reloadLists() {
         safetyList = store.safetySnapshots()
         autoBackups = store.localAutoBackupFiles()
+    }
+}
+
+@MainActor
+struct UnifiedRestorePreviewSheet: View {
+    @EnvironmentObject private var store: AppStore
+    @Environment(\.dismiss) private var dismiss
+    let preview: UnifiedRestorePreview
+    @State private var mode: UnifiedRestoreMode = .merge
+    @State private var confirming = false
+
+    private var supportsModeChoice: Bool {
+        switch preview.package {
+        case .unified, .legacyChat: return true
+        case .legacyStudy, .legacyShelf: return false
+        }
+    }
+
+    var body: some View {
+        NavigationStack {
+            Form {
+                Section("已核验的备份文件") {
+                    LabeledContent("文件名", value: preview.fileName)
+                    LabeledContent("格式类型", value: preview.package.formatTitle)
+                    LabeledContent("文件体积", value: ByteCountFormatter.string(fromByteCount: preview.fileSize, countStyle: .file))
+                    if let created = preview.package.createdAt {
+                        LabeledContent("备份时间", value: created.formatted(date: .abbreviated, time: .shortened))
+                    }
+                }
+                Section("备份内容明细") {
+                    LabeledContent("对话数量", value: "\(preview.package.threadCount) 条")
+                    LabeledContent("项目数量", value: "\(preview.package.projectCount) 个")
+                    if preview.package.presetCount > 0 {
+                        LabeledContent("自定义指令库", value: "\(preview.package.presetCount) 份")
+                    }
+                    if preview.package.studyRowCount > 0 {
+                        LabeledContent("学习数据库记录", value: "\(preview.package.studyRowCount) 行")
+                    }
+                    if preview.package.bookCount > 0 || preview.package.personaCount > 0 {
+                        LabeledContent("书架档案与进度", value: "\(preview.package.bookCount) 本 · 人物卡 \(preview.package.personaCount) 张")
+                    }
+                    if preview.package.imageCount > 0 || preview.package.omittedImageCount > 0 {
+                        LabeledContent("图片实体", value: "\(preview.package.imageCount) 张已校验")
+                    }
+                    if preview.package.omittedImageCount > 0 {
+                        Text("注：该备份包有 \(preview.package.omittedImageCount) 张图片因体积预算未包含在包内；本机已有同名原图会自动保留。")
+                            .font(TypeScale.caption).foregroundStyle(.orange)
+                    }
+                }
+                if supportsModeChoice {
+                    Section {
+                        Picker("恢复方式", selection: $mode) {
+                            ForEach(UnifiedRestoreMode.allCases) { item in
+                                Text(item.title).tag(item)
+                            }
+                        }
+                        .pickerStyle(.segmented)
+                        Text(mode.summary)
+                            .font(TypeScale.caption).foregroundStyle(Ink.ink3)
+                    } header: { Text("恢复方式") }
+                }
+                Section {
+                    Button {
+                        confirming = true
+                    } label: {
+                        Label("先存本机安全快照并开始恢复", systemImage: "arrow.clockwise.circle.fill")
+                            .fontWeight(.semibold)
+                    }
+                } footer: {
+                    Text("无论选择哪种方式，恢复开始前都会先把本机当前记录另存一份到「Safety 保护快照」，确保不会丢失现有数据。")
+                }
+            }
+            .font(TypeScale.body)
+            .scrollContentBackground(.hidden)
+            .background(AppBackground())
+            .foregroundStyle(Ink.ink)
+            .tint(Ink.seal)
+            .navigationTitle("核对备份内容")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .cancellationAction) {
+                    Button("取消") {
+                        store.unifiedRestorePreview = nil
+                        dismiss()
+                    }
+                }
+            }
+            .confirmationDialog("确认执行恢复？", isPresented: $confirming, titleVisibility: .visible) {
+                Button(supportsModeChoice ? mode.title : "确认恢复", role: mode == .replace ? .destructive : nil) {
+                    store.confirmUnifiedRestore(preview, mode: mode)
+                    dismiss()
+                }
+                Button("取消", role: .cancel) {}
+            } message: {
+                Text("恢复前会自动保存一份当前本机安全快照。")
+            }
+        }
     }
 }

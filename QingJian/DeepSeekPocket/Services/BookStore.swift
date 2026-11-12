@@ -194,6 +194,40 @@ final class BookStore: ObservableObject {
         load()
     }
 
+    func restoreMetadata(_ incomingBooks: [Book], personas incomingPersonas: [PersonaCard], overwriteExisting: Bool) throws {
+        guard !isReading, !isImporting, deepReading == nil, sceneScanBookID == nil else {
+            throw ChatError.invalidBackup("请先等待当前读书或精读任务结束再恢复书架档案。")
+        }
+        let root = try Self.root()
+        for var incoming in incomingBooks {
+            if incoming.status == .reading { incoming.status = .imported }
+            let folder = try Self.folder(incoming.id)
+            let bookURL = folder.appendingPathComponent("book.json")
+            if let existing = book(incoming.id) {
+                if overwriteExisting || (existing.profile == nil && incoming.profile != nil) {
+                    try Self.encoder.encode(incoming).write(to: bookURL, options: [.atomic, .completeFileProtectionUntilFirstUserAuthentication])
+                }
+            } else {
+                try Self.encoder.encode(incoming).write(to: bookURL, options: [.atomic, .completeFileProtectionUntilFirstUserAuthentication])
+            }
+        }
+        var mergedPersonas = overwriteExisting ? [] : personas
+        for var person in incomingPersonas {
+            if mergedPersonas.contains(where: { $0 == person }) { continue }
+            if let idx = mergedPersonas.firstIndex(where: { $0.id == person.id }) {
+                if overwriteExisting { mergedPersonas[idx] = person }
+                else { person.id = UUID(); mergedPersonas.append(person) }
+            } else {
+                mergedPersonas.append(person)
+            }
+        }
+        try Self.encoder.encode(mergedPersonas).write(
+            to: root.appendingPathComponent("personas.json"),
+            options: [.atomic, .completeFileProtectionUntilFirstUserAuthentication]
+        )
+        load()
+    }
+
     // MARK: Your own characters
 
     func savePersona(_ card: PersonaCard) {
@@ -360,8 +394,28 @@ final class BookStore: ObservableObject {
                 }
                 return try BookImport.prepare(Data(contentsOf: url), fileName: fileName)
             }.value
+            let charCount = prepared.chapters.reduce(0) { $0 + $1.text.count }
+            if let existing = books.first(where: { $0.title == prepared.title && chapters(of: $0.id).isEmpty }) {
+                var reconnected = existing
+                reconnected.characterCount = charCount
+                if reconnected.chapterTitles.isEmpty { reconnected.chapterTitles = prepared.chapters.map(\.title) }
+                if reconnected.segments.isEmpty {
+                    reconnected.segments = prepared.segments
+                    reconnected.notes = Array(repeating: nil, count: prepared.segments.count)
+                }
+                if !preview {
+                    let target = try Self.folder(reconnected.id).appendingPathComponent("chapters.json")
+                    let json = prepared.chaptersJSON
+                    try await Task.detached(priority: .userInitiated) {
+                        try json.write(to: target, options: [.atomic, .completeFileProtectionUntilFirstUserAuthentication])
+                    }.value
+                }
+                cachedChapters = (reconnected.id, prepared.chapters)
+                guard save(reconnected) else { return nil }
+                return reconnected.id
+            }
             var book = Book(title: prepared.title,
-                            characterCount: prepared.chapters.reduce(0) { $0 + $1.text.count },
+                            characterCount: charCount,
                             chapterTitles: prepared.chapters.map(\.title), segments: prepared.segments,
                             notes: Array(repeating: nil, count: prepared.segments.count))
             if !preview {

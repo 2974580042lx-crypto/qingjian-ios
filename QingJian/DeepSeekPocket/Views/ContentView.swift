@@ -101,6 +101,10 @@ struct ContentView: View {
             if open { store.refreshBalance() }
         }
         .sheet(isPresented: $showSettings) { SettingsView().environmentObject(store).environmentObject(profile) }
+        .sheet(item: Binding(get: { showSettings ? nil : store.unifiedRestorePreview }, set: { store.unifiedRestorePreview = $0 })) { preview in
+            UnifiedRestorePreviewSheet(preview: preview)
+                .environmentObject(store)
+        }
         .sheet(isPresented: $showProjects) {
             ProjectsView(opened: { showProjects = false; showSidebar = false }).environmentObject(store).environmentObject(profile)
         }
@@ -114,8 +118,7 @@ struct ContentView: View {
                         store.errorMessage = "没能读取这个备份文件，请在「文件」里确认它已下载后再试。"
                         return
                     }
-                    defer { try? FileManager.default.removeItem(at: local.deletingLastPathComponent()) }
-                    store.handleIncomingBackupFile(local)
+                    store.prepareBackupRestore(local, removeWhenDone: true)
                 }
                 return
             }

@@ -38,16 +38,18 @@ enum BackupFolder {
     }
 
     /// File name for a given day; one file per day, rewritten if run again that day.
-    static func fileName(for date: Date) -> String {
+    static func fileName(for date: Date, ext: String = "json") -> String {
         let formatter = DateFormatter()
         formatter.locale = Locale(identifier: "en_US_POSIX")
         formatter.dateFormat = "yyyy-MM-dd"
-        return prefix + formatter.string(from: date) + ".json"
+        return prefix + formatter.string(from: date) + "." + ext
     }
 
     /// Older automatic backups beyond `keep`, by name (dates sort as text).
     static func expired(_ names: [String], keep: Int = keepCount) -> [String] {
-        let ours = names.filter { $0.hasPrefix(prefix) && $0.hasSuffix(".json") }.sorted(by: >)
+        let ours = names.filter {
+            $0.hasPrefix(prefix) && ($0.hasSuffix(".json") || $0.hasSuffix(".sermobackup"))
+        }.sorted(by: >)
         return Array(ours.dropFirst(keep))
     }
 
@@ -64,16 +66,16 @@ enum BackupFolder {
     /// picked, an extra copy into that folder. Returns why the extra copy failed, if it did.
     /// Runs off the main thread.
     @discardableResult
-    static func write(_ data: Data, now: Date = Date()) throws -> String? {
+    static func write(_ data: Data, now: Date = Date(), ext: String = "sermobackup") throws -> String? {
         let local = try localFolder()
-        try data.write(to: local.appendingPathComponent(fileName(for: now)), options: .atomic)
+        try data.write(to: local.appendingPathComponent(fileName(for: now, ext: ext)), options: [.atomic, .completeFileProtectionUntilFirstUserAuthentication])
         let names = (try? FileManager.default.contentsOfDirectory(atPath: local.path)) ?? []
         for name in expired(names) { try? FileManager.default.removeItem(at: local.appendingPathComponent(name)) }
         guard UserDefaults.standard.data(forKey: bookmarkKey) != nil else { return nil }
-        do { try writeExtra(data, now: now); return nil } catch { return error.localizedDescription }
+        do { try writeExtra(data, now: now, ext: ext); return nil } catch { return error.localizedDescription }
     }
 
-    private static func writeExtra(_ data: Data, now: Date) throws {
+    private static func writeExtra(_ data: Data, now: Date, ext: String = "sermobackup") throws {
         guard let bookmark = UserDefaults.standard.data(forKey: bookmarkKey) else {
             throw CocoaError(.fileNoSuchFile)
         }
@@ -87,7 +89,7 @@ enum BackupFolder {
         let coordinator = NSFileCoordinator()
         var coordinationError: NSError?
         var writeError: Error?
-        let target = folder.appendingPathComponent(fileName(for: now))
+        let target = folder.appendingPathComponent(fileName(for: now, ext: ext))
         coordinator.coordinate(writingItemAt: target, options: .forReplacing, error: &coordinationError) { url in
             do { try data.write(to: url, options: .atomic) } catch { writeError = error }
         }

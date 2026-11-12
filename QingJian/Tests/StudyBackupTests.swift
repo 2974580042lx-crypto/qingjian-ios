@@ -317,6 +317,53 @@ final class StudyBackupTests: XCTestCase {
         let stats = await server.stats()
         XCTAssertEqual(stats.0, data.count); XCTAssertEqual(stats.1, 1); XCTAssertEqual(stats.2.filter { $0 == 0 }.count, 1)
     }
+
+    func testUnifiedBackupCompressesVerifiesAndAutoDetectsLegacyFormats() throws {
+        let fixture = try BackupFixture(root: root)
+        let book = Book(title: "测试小说（仅档案不含正文）", characterCount: 120_000, chapterTitles: ["第一章", "第二章"], segments: [0..<2], notes: [nil])
+        let persona = PersonaCard(name: "测试主角", detail: "性格沉稳")
+        let unified = try UnifiedBackupCodec.capture(
+            snapshot: fixture.snapshot,
+            learning: fixture.store.exportAllStudyData(),
+            booksMetadata: [book],
+            personas: [persona],
+            preferences: ["qingjian.profile.name": "小龙"],
+            imageSize: { name in try fixture.images.appendingPathComponent(name).resourceValues(forKeys: [.fileSizeKey]).fileSize ?? 0 },
+            imageLoader: { name in try Data(contentsOf: fixture.images.appendingPathComponent(name)) }
+        )
+        let encoded = try UnifiedBackupCodec.encode(unified)
+        XCTAssertTrue(encoded.starts(with: Data(UnifiedBackupCodec.magicPrefix.utf8)))
+        let decodedPkg = try UnifiedBackupCodec.decodeAny(encoded)
+        guard case .unified(let roundTrip) = decodedPkg else {
+            return XCTFail("Expected .unified package")
+        }
+        XCTAssertEqual(roundTrip.snapshot.threads.count, fixture.snapshot.threads.count)
+        XCTAssertEqual(roundTrip.learning.rows.count, unified.learning.rows.count)
+        XCTAssertEqual(roundTrip.booksMetadata.map(\.title), ["测试小说（仅档案不含正文）"])
+        XCTAssertEqual(roundTrip.personas.map(\.name), ["测试主角"])
+        XCTAssertEqual(roundTrip.images.count, 1)
+        XCTAssertEqual(roundTrip.preferences?["qingjian.profile.name"], "小龙")
+
+        // Tamper with compressed payload bytes and verify SHA-256 rejection
+        var tampered = encoded
+        tampered[tampered.count - 1] ^= 0xFF
+        XCTAssertThrowsError(try UnifiedBackupCodec.decode(tampered))
+
+        // Verify decodeAny also recognizes legacy StudyBackupEnvelope and legacy AppSnapshot JSON
+        let legacyStudyData = try StudyBackupCodec.encode(fixture.payload())
+        if case .legacyStudy(let studyPkg) = try UnifiedBackupCodec.decodeAny(legacyStudyData) {
+            XCTAssertEqual(studyPkg.images.count, 1)
+        } else {
+            XCTFail("Expected .legacyStudy package")
+        }
+
+        let legacyChatData = try fixture.snapshot.encoded()
+        if case .legacyChat(let chatPkg) = try UnifiedBackupCodec.decodeAny(legacyChatData) {
+            XCTAssertEqual(chatPkg.threads.count, fixture.snapshot.threads.count)
+        } else {
+            XCTFail("Expected .legacyChat package")
+        }
+    }
 }
 
 private actor UploadTestState {

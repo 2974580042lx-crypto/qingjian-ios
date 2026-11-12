@@ -88,7 +88,9 @@ final class AppStore: ObservableObject {
     let studyCloud = StudyBackupController()
     private var studyCloudObserver: AnyCancellable?
     @Published private(set) var restoringStudyBackup = false
-    var canRestoreStudyBackup: Bool { canPersist && !isGenerating && !isTranslating && memorizingProjectID == nil && !shelfBackupBusy && !preparingStory && !restoringStudyBackup }
+    @Published var unifiedRestorePreview: UnifiedRestorePreview?
+    @Published private(set) var unifiedBackupBusy = false
+    var canRestoreStudyBackup: Bool { canPersist && !isGenerating && !isTranslating && memorizingProjectID == nil && !shelfBackupBusy && !preparingStory && !restoringStudyBackup && !unifiedBackupBusy }
     func notifyStudyBackup(_ text: String) { noticeMessage = text }
     static func studyDatabaseURL() throws -> URL {
         try FileManager.default.url(for: .applicationSupportDirectory, in: .userDomainMask, appropriateFor: nil, create: true)
@@ -1700,17 +1702,41 @@ final class AppStore: ObservableObject {
     // the app's own folder; into the picked folder too when there is one.
     func autoBackupIfNeeded(force: Bool = false) {
         guard !isPreview, canPersist, !backupRunning else { return }
-        let hasRealData = threads.contains(where: { !$0.messages.isEmpty }) || !usage.days.isEmpty || !systemPromptPresets.isEmpty
+        let hasRealData = threads.contains(where: { !$0.messages.isEmpty }) || !usage.days.isEmpty || !systemPromptPresets.isEmpty || !books.books.isEmpty
         if !force && !hasRealData { return }
         if !force, let last = lastAutoBackup, Calendar.current.isDateInToday(last) { return }
-        let data: Data
-        do { data = try snapshot.encoded(pretty: false, isLocalStore: true) }
-        catch { backupIssue = "自动备份没有完成：\(error.localizedDescription)"; return }
+        let snap = snapshot
+        let learning = (try? studyMemory?.exportAllStudyData()) ?? StudyMemoryArchive(version: 1, rows: [])
+        let booksMeta = books.books
+        let personas = books.personas
+        let prefs = UnifiedBackupCodec.collectPreferences()
+        let imagesDir = try? ImageStore.directory()
         backupRunning = true
         Task {
             let outcome = await Task.detached(priority: .utility) { () -> Result<(Date, String?), Error> in
-                do { let extraIssue = try BackupFolder.write(data); return .success((Date(), extraIssue)) }
-                catch { return .failure(error) }
+                do {
+                    let payload = try UnifiedBackupCodec.capture(
+                        snapshot: snap,
+                        learning: learning,
+                        booksMetadata: booksMeta,
+                        personas: personas,
+                        preferences: prefs,
+                        imageBudgetBytes: 24 * 1024 * 1024,
+                        imageSize: { name in
+                            guard let dir = imagesDir else { return -1 }
+                            return (try? dir.appendingPathComponent(name).resourceValues(forKeys: [.fileSizeKey]).fileSize) ?? -1
+                        },
+                        imageLoader: { name in
+                            guard let dir = imagesDir else { throw CocoaError(.fileNoSuchFile) }
+                            return try Data(contentsOf: dir.appendingPathComponent(name))
+                        }
+                    )
+                    let data = try UnifiedBackupCodec.encode(payload)
+                    let extraIssue = try BackupFolder.write(data, ext: "sermobackup")
+                    return .success((Date(), extraIssue))
+                } catch {
+                    return .failure(error)
+                }
             }.value
             self.backupRunning = false
             switch outcome {
@@ -2736,7 +2762,278 @@ final class AppStore: ObservableObject {
     }
 
     func handleIncomingBackupFile(_ url: URL) {
-        importBackup(url)
+        prepareBackupRestore(url)
+    }
+
+    func exportUnifiedBackup() async -> URL? {
+        guard canPersist, !isGenerating, !unifiedBackupBusy else { return nil }
+        unifiedBackupBusy = true
+        defer { unifiedBackupBusy = false }
+        _ = persistNow()
+        let snap = snapshot
+        let learning = (try? studyMemory?.exportAllStudyData()) ?? StudyMemoryArchive(version: 1, rows: [])
+        let booksMeta = books.books
+        let personas = books.personas
+        let prefs = UnifiedBackupCodec.collectPreferences()
+        do {
+            let imagesDir = try ImageStore.directory()
+            return try await Task.detached(priority: .userInitiated) {
+                let payload = try UnifiedBackupCodec.capture(
+                    snapshot: snap,
+                    learning: learning,
+                    booksMetadata: booksMeta,
+                    personas: personas,
+                    preferences: prefs,
+                    imageBudgetBytes: UnifiedBackupCodec.maximumImageBudgetBytes,
+                    imageSize: { name in
+                        (try? imagesDir.appendingPathComponent(name).resourceValues(forKeys: [.fileSizeKey]).fileSize) ?? -1
+                    },
+                    imageLoader: { name in
+                        try Data(contentsOf: imagesDir.appendingPathComponent(name))
+                    }
+                )
+                let data = try UnifiedBackupCodec.encode(payload)
+                let formatter = DateFormatter()
+                formatter.locale = Locale(identifier: "en_US_POSIX")
+                formatter.dateFormat = "yyyyMMdd-HHmmss"
+                let url = FileManager.default.temporaryDirectory
+                    .appendingPathComponent("Sermo完整备份-\(formatter.string(from: Date())).sermobackup")
+                try data.write(to: url, options: [.atomic, .completeFileProtectionUntilFirstUserAuthentication])
+                return url
+            }.value
+        } catch {
+            errorMessage = "完整备份未能导出：\(error.localizedDescription)"
+            return nil
+        }
+    }
+
+    func prepareBackupRestore(_ url: URL, removeWhenDone: Bool = false) {
+        guard canRestoreStudyBackup else {
+            errorMessage = "请先等待当前回答、翻译或读书任务结束后再恢复备份。"
+            if removeWhenDone { try? FileManager.default.removeItem(at: url) }
+            return
+        }
+        unifiedBackupBusy = true
+        Task {
+            defer {
+                self.unifiedBackupBusy = false
+                if removeWhenDone { try? FileManager.default.removeItem(at: url) }
+            }
+            do {
+                let preview = try await Task.detached(priority: .userInitiated) { () throws -> UnifiedRestorePreview in
+                    let scoped = url.startAccessingSecurityScopedResource()
+                    defer { if scoped { url.stopAccessingSecurityScopedResource() } }
+                    let size = Int64((try? url.resourceValues(forKeys: [.fileSizeKey]).fileSize) ?? 0)
+                    guard size <= UnifiedBackupCodec.maximumUncompressedBytes else {
+                        throw ChatError.invalidBackup("备份文件过大，请选择有效的 Sermo 备份文件。")
+                    }
+                    let data = try Data(contentsOf: url)
+                    let pkg = try UnifiedBackupCodec.decodeAny(data)
+                    return UnifiedRestorePreview(fileName: url.lastPathComponent, fileSize: Int64(data.count), package: pkg)
+                }.value
+                self.unifiedRestorePreview = preview
+            } catch {
+                self.errorMessage = "无法读取这个备份文件：\(error.localizedDescription)"
+            }
+        }
+    }
+
+    func confirmUnifiedRestore(_ preview: UnifiedRestorePreview, mode: UnifiedRestoreMode) {
+        guard canRestoreStudyBackup else {
+            errorMessage = "当前状态暂时无法执行恢复，请稍后再试。"
+            return
+        }
+        unifiedRestorePreview = nil
+        switch preview.package {
+        case .unified(let payload):
+            restoreUnifiedPayload(payload, mode: mode)
+        case .legacyStudy(let studyPayload):
+            do {
+                _ = try persistence?.createSafetyCopy(prefix: "before-restore")
+                try restoreStudyBackup(studyPayload)
+            } catch {
+                errorMessage = "学习备份恢复未完成：\(error.localizedDescription)"
+            }
+        case .legacyShelf(let shelf):
+            Task {
+                _ = try? persistence?.createSafetyCopy(prefix: "before-restore")
+                let tempURL = FileManager.default.temporaryDirectory.appendingPathComponent("legacy-shelf-\(UUID().uuidString).json")
+                defer { try? FileManager.default.removeItem(at: tempURL) }
+                do {
+                    let encoder = JSONEncoder()
+                    encoder.dateEncodingStrategy = .iso8601
+                    try encoder.encode(shelf).write(to: tempURL, options: .atomic)
+                    await importShelfArchive(tempURL)
+                } catch {
+                    errorMessage = "书架备份恢复失败：\(error.localizedDescription)"
+                }
+            }
+        case .legacyChat(let incomingSnapshot):
+            _ = try? persistence?.createSafetyCopy(prefix: "before-restore")
+            restoreLegacyChatSnapshot(incomingSnapshot, replace: mode == .replace)
+        }
+    }
+
+    private func restoreLegacyChatSnapshot(_ incomingOrig: AppSnapshot, replace: Bool) {
+        var incoming = incomingOrig
+        ChatModelSelection.migrate(&incoming.threads, projects: incoming.projects ?? [], settings: incoming.settings)
+        let oldThreads = threads, oldProjects = projects, oldUsage = usage, oldPresets = systemPromptPresets, oldSettings = settings, oldActive = activeThreadID
+        if replace {
+            settings = incoming.settings.migratingDefaultContext().validated()
+            projects = incoming.projects ?? []
+            threads = incoming.threads
+            systemPromptPresets = incoming.systemPromptPresets ?? []
+            usage = incoming.usage ?? UsageLedger.rebuilt(from: incoming.threads)
+            activeThreadID = incoming.activeThreadID ?? threads.first?.id
+            ensureManualProject()
+            guard persistNow(allowShrink: true) else {
+                threads = oldThreads; projects = oldProjects; usage = oldUsage; systemPromptPresets = oldPresets; settings = oldSettings; activeThreadID = oldActive
+                return
+            }
+            noticeMessage = "已按备份完整恢复 \(threads.count) 条对话、\(projects.count) 个项目；恢复前数据已存为安全快照。"
+            return
+        }
+        do {
+            let knownIDs = Set(threads.map(\.id))
+            var added = incoming.threads.filter { !knownIDs.contains($0.id) }
+            var mergedPresets = systemPromptPresets
+            var presetRemap: [UUID: UUID] = [:]
+            for originalPreset in incoming.systemPromptPresets ?? [] {
+                var preset = originalPreset
+                if let existing = mergedPresets.first(where: { $0.id == preset.id }) {
+                    if existing.name == preset.name && existing.content == preset.content { continue }
+                    if let identical = mergedPresets.first(where: { $0.name == preset.name && $0.content == preset.content }) {
+                        presetRemap[originalPreset.id] = identical.id
+                        continue
+                    }
+                    preset.id = UUID()
+                    presetRemap[originalPreset.id] = preset.id
+                }
+                mergedPresets.append(preset)
+            }
+            guard mergedPresets.count <= 100 else { throw ChatError.invalidBackup("合并后的系统指令超过100份，请先整理指令库。") }
+            for index in added.indices {
+                if let originalID = added[index].systemPromptPreset?.id, let newID = presetRemap[originalID] {
+                    added[index].systemPromptPreset?.id = newID
+                }
+            }
+            let knownProjects = Set(projects.map(\.id))
+            let addedProjects = (incoming.projects ?? []).filter { !knownProjects.contains($0.id) }
+            let projectIDs = knownProjects.union(addedProjects.map(\.id))
+            for ti in added.indices where added[ti].projectID.map({ !projectIDs.contains($0) }) ?? false { added[ti].projectID = nil }
+            for ti in added.indices {
+                for mi in added[ti].messages.indices where added[ti].messages[mi].state == .streaming {
+                    added[ti].messages[mi].state = .stopped
+                    added[ti].messages[mi].note = "从备份恢复的未完成回答。"
+                }
+            }
+            guard threads.count + added.count <= 5000 else { throw ChatError.invalidBackup("合并后的对话过多。") }
+            guard projects.count + addedProjects.count <= 200 else { throw ChatError.invalidBackup("合并后的项目过多。") }
+            threads.append(contentsOf: added)
+            projects.append(contentsOf: addedProjects)
+            systemPromptPresets = mergedPresets
+            usage.merge(missingDaysFrom: incoming.usage ?? UsageLedger.rebuilt(from: incoming.threads))
+            guard persistNow(allowShrink: true) else {
+                threads = oldThreads; projects = oldProjects; usage = oldUsage; systemPromptPresets = oldPresets
+                return
+            }
+            let addedPresetCount = mergedPresets.count - oldPresets.count
+            noticeMessage = "已合并导入 \(added.count) 个对话" + (addedProjects.isEmpty ? "" : "、\(addedProjects.count) 个项目")
+                + (addedPresetCount == 0 ? "" : "、\(addedPresetCount) 份系统指令") + "；恢复前状态已另存安全快照。"
+        } catch {
+            errorMessage = "导入失败：\(error.localizedDescription)"
+        }
+    }
+
+    private func restoreUnifiedPayload(_ payload: UnifiedBackupPayload, mode: UnifiedRestoreMode) {
+        guard canRestoreStudyBackup else { return }
+        unifiedBackupBusy = true
+        defer { unifiedBackupBusy = false }
+        let oldThreads = threads, oldProjects = projects, oldUsage = usage, oldPresets = systemPromptPresets, oldSettings = settings, oldActive = activeThreadID, oldInstalled = installedStudySubjects
+        do {
+            _ = try persistence?.createSafetyCopy(prefix: "before-restore")
+            let imagesDir = try ImageStore.directory()
+            try FileManager.default.createDirectory(at: imagesDir, withIntermediateDirectories: true)
+            for image in payload.images {
+                let target = imagesDir.appendingPathComponent(image.name)
+                if !FileManager.default.fileExists(atPath: target.path) {
+                    try image.data.write(to: target, options: [.atomic, .completeFileProtectionUntilFirstUserAuthentication])
+                }
+            }
+            ImageStore.clearThumbnails()
+            try books.restoreMetadata(payload.booksMetadata, personas: payload.personas, overwriteExisting: mode == .replace)
+            if let studyMemory, !payload.learning.rows.isEmpty {
+                let studyProjectIDs = Set(payload.learning.rows.map(\.projectID)).union(
+                    (payload.snapshot.projects ?? []).filter { $0.studySubject != nil }.map(\.id)
+                )
+                try studyMemory.replaceStudyData(payload.learning, projectIDs: studyProjectIDs, trustedRecovery: true)
+                studyRevision += 1
+            }
+            if mode == .replace {
+                UnifiedBackupCodec.applyPreferences(payload.preferences)
+                var incoming = payload.snapshot
+                ChatModelSelection.migrate(&incoming.threads, projects: incoming.projects ?? [], settings: incoming.settings)
+                applyLoadedSnapshot(incoming)
+                ensureManualProject()
+                initializeStudyMemory(persistIfSeeded: false)
+                if activeThreadID == nil || !threads.contains(where: { $0.id == activeThreadID }) {
+                    activeThreadID = threads.first?.id
+                }
+                guard persistNow(allowShrink: true) else {
+                    threads = oldThreads; projects = oldProjects; usage = oldUsage; systemPromptPresets = oldPresets; settings = oldSettings; activeThreadID = oldActive; installedStudySubjects = oldInstalled
+                    throw ChatError.invalidBackup("恢复后写入本机文件失败，已回退。")
+                }
+                let omittedNote = payload.isComplete ? "" : "（另有 \(payload.omittedImages?.count ?? 0) 张超额图片未包含在备份包中）"
+                noticeMessage = "已完整恢复 \(threads.count) 条对话、\(projects.count) 个项目、\(payload.booksMetadata.count) 本书架档案及学习进度\(omittedNote)。恢复前数据已保存在「安全快照」中。"
+            } else {
+                var incoming = payload.snapshot
+                ChatModelSelection.migrate(&incoming.threads, projects: incoming.projects ?? [], settings: incoming.settings)
+                let studyProjectIDs = Set((incoming.projects ?? []).filter { $0.studySubject != nil }.map(\.id))
+                var nextProjects = projects.filter { !studyProjectIDs.contains($0.id) }
+                let knownProjectIDs = Set(nextProjects.map(\.id))
+                for proj in incoming.projects ?? [] {
+                    if studyProjectIDs.contains(proj.id) || !knownProjectIDs.contains(proj.id) {
+                        nextProjects.append(proj)
+                    }
+                }
+                var nextThreads = threads.filter { !($0.projectID.map(studyProjectIDs.contains) ?? false) }
+                let knownThreadIDs = Set(nextThreads.map(\.id))
+                for var thread in incoming.threads {
+                    for mi in thread.messages.indices where thread.messages[mi].state == .streaming {
+                        thread.messages[mi].state = .stopped
+                        thread.messages[mi].note = "从备份恢复的未完成回答。"
+                    }
+                    if (thread.projectID.map(studyProjectIDs.contains) ?? false) || !knownThreadIDs.contains(thread.id) {
+                        nextThreads.append(thread)
+                    }
+                }
+                var mergedPresets = systemPromptPresets
+                for var preset in incoming.systemPromptPresets ?? [] {
+                    if mergedPresets.contains(where: { $0.name == preset.name && $0.content == preset.content }) { continue }
+                    if mergedPresets.contains(where: { $0.id == preset.id }) { preset.id = UUID() }
+                    if mergedPresets.count < 100 { mergedPresets.append(preset) }
+                }
+                projects = nextProjects
+                threads = nextThreads
+                systemPromptPresets = mergedPresets
+                installedStudySubjects = StudySubject.allCases.filter {
+                    Set(installedStudySubjects + (incoming.installedStudySubjects ?? [])).contains($0)
+                }
+                usage.merge(missingDaysFrom: incoming.usage ?? UsageLedger.rebuilt(from: incoming.threads))
+                ensureManualProject()
+                initializeStudyMemory(persistIfSeeded: false)
+                if activeThreadID == nil || !threads.contains(where: { $0.id == activeThreadID }) {
+                    activeThreadID = threads.first?.id
+                }
+                guard persistNow(allowShrink: true) else {
+                    threads = oldThreads; projects = oldProjects; usage = oldUsage; systemPromptPresets = oldPresets; settings = oldSettings; activeThreadID = oldActive; installedStudySubjects = oldInstalled
+                    throw ChatError.invalidBackup("合并保存失败，已回退。")
+                }
+                noticeMessage = "已合并恢复备份中的对话、项目、学习库、图片与 \(payload.booksMetadata.count) 本书架档案；恢复前状态已另存安全快照。"
+            }
+        } catch {
+            errorMessage = "恢复没有完成：\(error.localizedDescription)"
+        }
     }
 
     func exportShelfArchive() async -> URL? {
