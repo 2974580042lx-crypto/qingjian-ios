@@ -311,7 +311,7 @@ struct FlowRows: Layout {
 /// Everything about how Sermo looks, in one page, with a live sample on top.
 @MainActor
 struct PersonalizationView: View {
-    @AppStorage("qingjian.reading.size") private var readingSize = 17.0
+    @AppStorage("qingjian.reading.size") private var readingSize = 18.0
     @AppStorage("qingjian.reading.aiBubble") private var aiBubble = false
     @AppStorage("qingjian.haptics") private var hapticsEnabled = true
     @State private var confirmReset = false
@@ -331,10 +331,11 @@ struct PersonalizationView: View {
                     Slider(value: $readingSize, in: 15...23, step: 1)
                 }
                 Toggle("正文稍粗", isOn: Binding(get: { Personal.mediumBody }, set: { Personal.setMediumBody($0) }))
+                Toggle("加粗使用强调色", isOn: Binding(get: { Personal.boldUsesAccent }, set: { Personal.setBoldUsesAccent($0) }))
                 choice("行距", key: Personal.spacingKey, fallback: "standard",
                        options: [("compact", "紧凑"), ("standard", "标准"), ("loose", "宽松")])
             } header: { Text("文字") } footer: {
-                Text("「正文稍粗」把回答和你的消息从常规换成中等字重。行距会连同段距一起变。")
+                Text("「正文稍粗」用于系统字体与自定义字体；「加粗使用强调色」默认关闭，以保持与电脑版 Claude 一致的深墨黑加粗，反引号重点词仍保持陶土色标签。行距会连同段距一起变。")
             }
             Section {
                 SwatchRow(title: "正文颜色", key: Personal.textKey, presets: Personal.textPresets, fallback: "black")
@@ -355,7 +356,7 @@ struct PersonalizationView: View {
             Section {
                 Button("恢复默认", role: .destructive) { confirmReset = true }
             } footer: {
-                Text("恢复本页的颜色、字重、行距和留白，字号回到 17；字体、界面风格和白天夜晚设置不变。")
+                Text("恢复本页的颜色、字重、行距和留白，字号回到 18；字体、界面风格和白天夜晚设置不变。")
             }
         }
         .font(TypeScale.body)
@@ -366,7 +367,7 @@ struct PersonalizationView: View {
         .navigationTitle("个性化")
         .navigationBarTitleDisplayMode(.inline)
         .confirmationDialog("恢复个性化默认设置？", isPresented: $confirmReset, titleVisibility: .visible) {
-            Button("恢复默认", role: .destructive) { Personal.resetAll(); readingSize = 17 }
+            Button("恢复默认", role: .destructive) { Personal.resetAll(); readingSize = 18 }
         }
     }
 
@@ -465,20 +466,20 @@ private struct Swatch: View {
 /// thinking mark and a send key, so every change shows at once.
 @MainActor
 private struct PersonalPreview: View {
-    @AppStorage("qingjian.reading.size") private var readingSize = 17.0
+    @AppStorage("qingjian.reading.size") private var readingSize = 18.0
     var body: some View {
         VStack(alignment: .leading, spacing: Personal.paragraphGap * 0.6) {
             HStack {
                 Spacer(minLength: 40)
-                Text("帮我想想周末去哪儿玩？").readingStyle().foregroundStyle(Ink.ink)
+                Text("帮我想想周末去哪儿玩？").userMessageStyle().foregroundStyle(Ink.ink)
                     .padding(.horizontal, 16).padding(.vertical, 11)
                     .background(Personal.bubble, in: RoundedRectangle(cornerRadius: 20, style: .continuous))
             }
-            HStack(spacing: 8) {
-                ThinkingMark(live: false, size: 16)
-                Text("已思考 2 秒").font(TypeScale.caption).foregroundStyle(Ink.ink2)
+            HStack(spacing: 5) {
+                Text("已思考 2 秒").font(.system(size: 13, weight: .regular)).foregroundStyle(Ink.ink3).monospacedDigit()
+                Image(systemName: "chevron.right").font(.system(size: 10, weight: .medium)).foregroundStyle(Ink.ink3.opacity(0.75))
             }
-            MarkdownParagraph(text: "天气好的话，可以去**城郊的湖边**走走，带上相机和一点吃的，慢慢逛一下午。")
+            MarkdownParagraph(text: "天气好的话，可以下午 3 点去**城郊的湖边**走走，顺便复习 15 个 `English` 单词。")
             HStack {
                 Spacer()
                 Image(systemName: "arrow.up").font(.system(size: 15, weight: .semibold)).foregroundStyle(.white)

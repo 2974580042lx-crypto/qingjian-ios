@@ -52,4 +52,29 @@ final class HighlightMarksTests: XCTestCase {
         )
         XCTAssertTrue(String(mixed.characters).contains("x ** 2 ** y"))
     }
+
+    func testParseInlinePreservesMixedBoldItalicCodeAndPlainNumbers() {
+        let sample = "1. **核心大脑（Carbon）**：*Same Carbon-level quality*，默认 `18pt` 与 1158 页。"
+        let parsed = HighlightMarks.parseInline(sample)
+
+        XCTAssertEqual(
+            HighlightMarks.boldRanges(in: parsed).map { String(parsed[$0].characters) },
+            ["核心大脑（Carbon）"]
+        )
+
+        var italicRuns: [String] = []
+        var codeRuns: [String] = []
+        for run in parsed.runs {
+            let text = String(parsed[run.range].characters)
+            if run.inlinePresentationIntent?.contains(.emphasized) == true {
+                italicRuns.append(text)
+            }
+            if run.inlinePresentationIntent?.contains(.code) == true {
+                codeRuns.append(text)
+            }
+        }
+        XCTAssertEqual(italicRuns, ["Same Carbon-level quality"])
+        XCTAssertEqual(codeRuns, ["18pt"])
+        XCTAssertTrue(String(parsed.characters).contains("1158"))
+    }
 }

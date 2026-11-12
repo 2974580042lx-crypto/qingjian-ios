@@ -980,7 +980,7 @@ struct ChatScreen: View {
                 Text(store.pillEffortTitle).foregroundStyle(Ink.ink3)
             }
             // A soft grey capsule, as in the Claude app ("Opus 5.5 中等").
-            .font(TypeScale.serif(15)).monospacedDigit()
+            .font(.system(size: 14, weight: .medium)).monospacedDigit()
             .padding(.horizontal, 14).frame(height: 38)
             .background(Ink.raised, in: Capsule())
             .contentShape(Capsule())
@@ -998,7 +998,7 @@ struct ChatScreen: View {
             // Off: a quiet globe. On: the globe and 「联网」 in the accent colour, no base.
             HStack(spacing: 5) {
                 Image(systemName: "globe")
-                if store.webSearchEnabled { Text("联网").font(TypeScale.serif(15)) }
+                if store.webSearchEnabled { Text("联网").font(.system(size: 14, weight: .medium)) }
             }
             .foregroundStyle(store.webSearchEnabled ? Ink.seal : Ink.ink3)
             .frame(minWidth: 38, minHeight: 38)
@@ -1316,17 +1316,17 @@ struct ChatScreen: View {
                         // so the composer grows to fit it instead of the text spilling out.
                         ZStack(alignment: .topLeading) {
                             TextField(ghostText == nil ? composerPlaceholder : "", text: draft, axis: .vertical)
-                                .readingStyle().lineLimit(1...5)
+                                .userMessageStyle().lineLimit(1...5)
                                 .focused($composerFocused).tint(Ink.ink)
                             if let ghost = ghostText {
                                 if isComposerFocused {
-                                    Text(ghost).readingStyle().foregroundStyle(Ink.ink3.opacity(0.75)).lineLimit(4)
+                                    Text(ghost).userMessageStyle().foregroundStyle(Ink.ink3.opacity(0.75)).lineLimit(4)
                                         .frame(maxWidth: .infinity, alignment: .leading)
                                         .allowsHitTesting(false).accessibilityHidden(true)
                                 } else {
                                     // Unfocused, a tap puts it in to edit; send takes it as is.
                                     Button { takeGhost(send: false) } label: {
-                                        Text(ghost).readingStyle().foregroundStyle(Ink.ink3.opacity(0.75)).lineLimit(4)
+                                        Text(ghost).userMessageStyle().foregroundStyle(Ink.ink3.opacity(0.75)).lineLimit(4)
                                             .multilineTextAlignment(.leading)
                                             .frame(maxWidth: .infinity, alignment: .leading)
                                             .contentShape(Rectangle())
@@ -1709,7 +1709,7 @@ struct MessageView: View, Equatable {
                     VStack(alignment: .trailing, spacing: 6) {
                         discussionVoiceLabel
                         if let names = message.images, !names.isEmpty { AttachmentRow(names: names) }
-                        Text(message.content).readingStyle().lineSpacing(max(Personal.lineSpacing - 2, 3)).chineseReading()
+                        Text(message.content).userMessageStyle().lineSpacing(max(Personal.lineSpacing - 2, 3)).chineseReading()
                             .foregroundStyle(Ink.ink).textSelection(.enabled)
                             .padding(.horizontal, 16).padding(.vertical, 11)
                             .background(Personal.bubble, in: RoundedRectangle(cornerRadius: 20, style: .continuous))
@@ -1738,7 +1738,7 @@ struct MessageView: View, Equatable {
                         Spacer(minLength: 4)
                         // Cost only; the time is in the long-press menu.
                         if let usage = message.usage {
-                            Text(usageLabel(usage)).font(TypeScale.serif(11)).monospacedDigit().lineLimit(1)
+                            Text(usageLabel(usage)).font(.system(size: 11.5)).monospacedDigit().lineLimit(1)
                                 .accessibilityLabel("本次请求共 \(usage.totalTokens) 个 Token")
                         }
                     }.font(.system(size: 15)).foregroundStyle(Ink.ink3).buttonStyle(.pressFeedback).padding(.top, 2)
@@ -2074,8 +2074,7 @@ struct MarkdownAnswer: View, Equatable {
                 case .paragraph(let text, let marks):
                     MarkdownParagraph(text: text, marks: marks, style: style).equatable()
                 case .heading(let text, let level):
-                    Text(Self.inline(text)).readingStyle(adjustment: level <= 2 ? 3 : 0, heavy: true)
-                        .foregroundStyle(Ink.ink).padding(.top, 6)
+                    EditorialHeadingRow(text: text, level: level, style: style)
                 case .list(let items):
                     VStack(alignment: .leading, spacing: 8) {
                         ForEach(Array(items.enumerated()), id: \.offset) { _, item in
@@ -2086,8 +2085,7 @@ struct MarkdownAnswer: View, Equatable {
                                         .font(TypeScale.mono(13)).foregroundStyle(Ink.seal)
                                         .frame(minWidth: 24, alignment: .leading)
                                 } else {
-                                    Text(item.marker).readingStyle(heavy: true).monospacedDigit().foregroundStyle(Ink.seal)
-                                        .frame(minWidth: item.marker.count > 1 ? 22 : 12, alignment: .leading)
+                                    EditorialListMarker(marker: item.marker)
                                 }
                                 MarkdownParagraph(text: item.text, marks: item.marks, style: style).equatable()
                             }
@@ -2159,6 +2157,9 @@ struct TableCell: View {
     let text: String
     let header: Bool
     let alignment: TableAlignment
+    @AppStorage(FontLibrary.choiceKey) private var fontChoice = ""
+    @AppStorage(FontLibrary.revisionKey) private var fontRevision = 0
+    @AppStorage("qingjian.reading.size") private var readingSize = 18.0
     private var frameAlignment: Alignment {
         switch alignment {
         case .leading: return .leading
@@ -2167,15 +2168,56 @@ struct TableCell: View {
         }
     }
     var body: some View {
-        Text(MarkdownAnswer.inline(text, baseSize: 15))
-            .readingStyle(adjustment: -2, heavy: header)
+        let _ = (fontChoice, fontRevision, StyleAppearance.shared.revision, FontAppearance.shared.revision)
+        let styled = HighlightMarks.parseInline(text)
+            .applyingEditorialStyle(baseSize: max(14, CGFloat(readingSize) - 2),
+                                    boldColor: header ? Ink.ink : nil,
+                                    forceBold: header)
+        Text(styled)
             .foregroundStyle(header ? Ink.ink : Ink.ink2)
+            .chineseReading()
             .multilineTextAlignment(alignment == .center ? .center : alignment == .trailing ? .trailing : .leading)
             .frame(minWidth: 56, maxWidth: 240, alignment: frameAlignment)
             .padding(.horizontal, 12).padding(.vertical, 9)
             .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: frameAlignment)
             .background(header ? Ink.raised : Color.clear)
             .overlay(alignment: .bottom) { Rectangle().fill(Ink.line).frame(height: 0.5) }
+    }
+}
+
+private struct EditorialHeadingRow: View {
+    let text: String
+    let level: Int
+    let style: InterfaceStyle
+    @AppStorage(FontLibrary.choiceKey) private var fontChoice = ""
+    @AppStorage(FontLibrary.revisionKey) private var fontRevision = 0
+    @AppStorage("qingjian.reading.size") private var readingSize = 18.0
+    var body: some View {
+        let _ = (fontChoice, fontRevision, StyleAppearance.shared.revision, FontAppearance.shared.revision)
+        let delta: CGFloat = level == 1 ? 5 : (level == 2 ? 3.5 : 2)
+        let styled = HighlightMarks.parseInline(text).applyingEditorialStyle(
+            baseSize: CGFloat(readingSize) + delta,
+            boldColor: style == .swiss ? Ink.seal : Ink.ink,
+            forceBold: true
+        )
+        Text(styled)
+            .chineseReading()
+            .foregroundStyle(Ink.ink)
+            .padding(.top, 6)
+    }
+}
+
+private struct EditorialListMarker: View {
+    let marker: String
+    @AppStorage(FontLibrary.choiceKey) private var fontChoice = ""
+    @AppStorage(FontLibrary.revisionKey) private var fontRevision = 0
+    @AppStorage("qingjian.reading.size") private var readingSize = 18.0
+    var body: some View {
+        let _ = (fontChoice, fontRevision, StyleAppearance.shared.revision, FontAppearance.shared.revision)
+        Text(marker)
+            .font(ReadingFont.resolve(baseSize: CGFloat(readingSize), bold: false, italic: false))
+            .foregroundStyle(Ink.ink)
+            .frame(minWidth: marker.count > 1 ? 22 : 12, alignment: .leading)
     }
 }
 
@@ -2193,19 +2235,30 @@ struct MarkdownParagraph: View, Equatable {
     }
     var body: some View {
         if text.hasPrefix("#") {
-            Text(text.drop(while: { $0 == "#" || $0 == " " }))
-                .readingStyle(adjustment: 3, heavy: true).padding(.top, 6)
+            let level = text.prefix(while: { $0 == "#" }).count
+            let bodyText = String(text.drop(while: { $0 == "#" || $0 == " " }))
+            EditorialHeadingRow(text: bodyText, level: level, style: style)
         } else if style == .swiss {
             Text(markdown: parsed, emphasis: Ink.seal).readingStyle(adjustment: -1).lineSpacing(6)
                 .foregroundStyle(Ink.ink)
         } else {
-            let baseSize = CGFloat(UserDefaults.standard.object(forKey: "qingjian.reading.size") as? Double ?? 17.0)
-            Text(markdown: parsed, emphasisWeight: .bold, baseSize: baseSize)
-                .readingStyle()
-                .lineSpacing(Personal.lineSpacing)
-                .chineseReading()
-                .foregroundStyle(Ink.ink)
+            EditorialParagraphBody(parsed: parsed)
         }
+    }
+}
+
+/// Non-equatable inner view so appearance/font/size changes redraw paragraphs even while `MarkdownParagraph` stays `.equatable()`.
+private struct EditorialParagraphBody: View {
+    let parsed: AttributedString
+    @AppStorage(FontLibrary.choiceKey) private var fontChoice = ""
+    @AppStorage(FontLibrary.revisionKey) private var fontRevision = 0
+    @AppStorage("qingjian.reading.size") private var readingSize = 18.0
+    var body: some View {
+        let _ = (fontChoice, fontRevision, StyleAppearance.shared.revision, FontAppearance.shared.revision)
+        Text(parsed.applyingEditorialStyle(baseSize: CGFloat(readingSize)))
+            .lineSpacing(Personal.lineSpacing)
+            .chineseReading()
+            .foregroundStyle(Ink.ink)
     }
 }
 

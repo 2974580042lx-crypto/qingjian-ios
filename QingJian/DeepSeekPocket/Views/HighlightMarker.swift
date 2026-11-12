@@ -4,73 +4,67 @@ extension Text {
     /// The Swiss look's emphasis: bold phrases in the accent colour, nothing
     /// drawn behind them, and no limit on how many.
     init(markdown value: AttributedString, emphasis color: Color) {
-        let styled = value.applyingTerracottaCodeAndEmphasis(baseSize: 16, boldColor: color)
-        let ranges = HighlightMarks.boldRanges(in: styled)
-        guard !ranges.isEmpty else { self.init(styled); return }
-        var result = Text(verbatim: "")
-        var cursor = styled.startIndex
-        for range in ranges {
-            if cursor < range.lowerBound {
-                result = Text("\(result)\(Text(AttributedString(styled[cursor..<range.lowerBound])))")
-            }
-            var phrase = AttributedString(styled[range])
-            phrase.foregroundColor = color
-            result = Text("\(result)\(Text(phrase).foregroundColor(color))")
-            cursor = range.upperBound
-        }
-        if cursor < styled.endIndex {
-            result = Text("\(result)\(Text(AttributedString(styled[cursor..<styled.endIndex])))")
-        }
-        self = result
+        self.init(value.applyingEditorialStyle(baseSize: 16, boldColor: color))
     }
 }
 
 extension AttributedString {
-    /// Applies Claude Code (CC) warm terracotta (`Ink.seal`) styling directly inside `AttributedString` runs
-    /// so outer `.foregroundStyle(Ink.ink)` modifiers never erase emphasis or inline code pill colors.
-    func applyingTerracottaCodeAndEmphasis(baseSize: CGFloat = 17, boldColor: Color = Ink.seal) -> AttributedString {
+    /// Applies Claude Desktop / Antigravity editorial typography per run:
+    /// - Resolves `Georgia` + `NotoSerifSC` cascaded fonts directly onto runs (removing `.stronglyEmphasized`
+    ///   / `.emphasized` intents afterwards so SwiftUI never strips `.cascadeList`).
+    /// - Draws `**bold**` in deep ink (`Ink.ink`) by default (or `Ink.seal` when `Personal.boldUsesAccent` is on).
+    /// - Draws `` `inline code` `` in warm terracotta brick (`#B84A27` / `#E28262`) over an oatmeal chip (`#ECE8DE` / `#2D2B27`).
+    func applyingEditorialStyle(baseSize: CGFloat = 18, boldColor: Color? = nil, forceBold: Bool = false) -> AttributedString {
         var copy = self
-        let monoSize = max(13, baseSize - 1.5)
-        for run in copy.runs {
-            let isCode = run.inlinePresentationIntent?.contains(.code) == true
-            let isBold = run.inlinePresentationIntent?.contains(.stronglyEmphasized) == true
-            if isCode {
-                copy[run.range].foregroundColor = boldColor
-                copy[run.range].backgroundColor = boldColor.opacity(0.14)
-                copy[run.range].font = .system(size: monoSize, weight: .medium, design: .monospaced)
-            } else if isBold {
-                copy[run.range].foregroundColor = boldColor
+        let usesDefaultClay = Personal.value(Personal.accentKey).isEmpty || Personal.value(Personal.accentKey) == "clay"
+        let codeInk: Color = InterfaceStyle.isSwiss || InterfaceStyle.isNight || !usesDefaultClay
+            ? Ink.seal
+            : Color.adaptive(light: 0xB84A27, dark: 0xE28262)
+        let codeFill: Color = InterfaceStyle.isSwiss || InterfaceStyle.isNight
+            ? Ink.raised
+            : Color.adaptive(light: 0xECE8DE, dark: 0x2D2B27)
+        let monoSize = max(13.5, TypeScale.scaled(baseSize - 2, .body))
+        let resolvedBoldColor = boldColor ?? (Personal.boldUsesAccent ? Ink.seal : Ink.ink)
+
+        let runsSnapshot: [(range: Range<AttributedString.Index>, intents: InlinePresentationIntent, hasLink: Bool)] =
+            copy.runs.map { ($0.range, $0.inlinePresentationIntent ?? [], $0.link != nil) }
+
+        for entry in runsSnapshot {
+            let range = entry.range
+            if entry.intents.contains(.code) {
+                copy[range].foregroundColor = codeInk
+                copy[range].backgroundColor = codeFill
+                copy[range].font = .system(size: monoSize, weight: .medium, design: .monospaced)
+            } else {
+                let isBold = forceBold || entry.intents.contains(.stronglyEmphasized)
+                let isItalic = entry.intents.contains(.emphasized)
+                copy[range].font = ReadingFont.resolve(baseSize: baseSize, bold: isBold, italic: isItalic)
+                var cleaned = entry.intents
+                cleaned.remove(.stronglyEmphasized)
+                cleaned.remove(.emphasized)
+                copy[range].inlinePresentationIntent = cleaned.isEmpty ? nil : cleaned
+                if entry.hasLink {
+                    copy[range].foregroundColor = Ink.seal
+                } else if isBold && !forceBold {
+                    copy[range].foregroundColor = resolvedBoldColor
+                } else if forceBold {
+                    copy[range].foregroundColor = boldColor ?? Ink.ink
+                }
             }
         }
         return copy
     }
+
+    /// Backwards-compatible wrapper delegating to `applyingEditorialStyle`.
+    func applyingTerracottaCodeAndEmphasis(baseSize: CGFloat = 18, boldColor: Color = Ink.seal) -> AttributedString {
+        applyingEditorialStyle(baseSize: baseSize, boldColor: boldColor)
+    }
 }
 
 extension Text {
-    /// Claude Code / CC style emphasis: inline `code/words` get a crisp SF Mono terracotta sugar-pill,
-    /// and **bold** key phrases glow in rich warm terracotta (`Ink.seal`) with semibold weight.
-    init(markdown value: AttributedString, emphasisWeight weight: Font.Weight, baseSize: CGFloat = 17) {
-        let styled = value.applyingTerracottaCodeAndEmphasis(baseSize: baseSize, boldColor: Ink.seal)
-        let ranges = HighlightMarks.boldRanges(in: styled)
-        guard !ranges.isEmpty else { self.init(styled); return }
-        var result = Text(verbatim: "")
-        var cursor = styled.startIndex
-        for range in ranges {
-            if cursor < range.lowerBound {
-                result = Text("\(result)\(Text(AttributedString(styled[cursor..<range.lowerBound])))")
-            }
-            var phrase = AttributedString(styled[range])
-            let hasCode = phrase.runs.contains { $0.inlinePresentationIntent?.contains(.code) == true }
-            if !hasCode {
-                phrase.inlinePresentationIntent?.remove(.stronglyEmphasized)
-            }
-            phrase.foregroundColor = Ink.seal
-            result = Text("\(result)\(Text(phrase).fontWeight(weight).foregroundColor(Ink.seal))")
-            cursor = range.upperBound
-        }
-        if cursor < styled.endIndex {
-            result = Text("\(result)\(Text(AttributedString(styled[cursor..<styled.endIndex])))")
-        }
-        self = result
+    /// Editorial Markdown rendering: deep-ink bold (or accent colour if toggled), Georgia+NotoSerifSC prose,
+    /// and warm oatmeal-terracotta inline code chips.
+    init(markdown value: AttributedString, emphasisWeight _: Font.Weight, baseSize: CGFloat = 18) {
+        self.init(value.applyingEditorialStyle(baseSize: baseSize))
     }
 }

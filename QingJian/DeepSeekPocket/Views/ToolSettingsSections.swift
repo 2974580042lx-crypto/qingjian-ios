@@ -111,7 +111,7 @@ struct FontSettingsRows: View {
             Button("删除导入的字体", role: .destructive) { FontLibrary.removeCustomFonts() }
                 .disabled(FontLibrary.regularName == nil)
         }
-        Text("切换或导入后界面会刷新一次。导入的字体只保存在这台手机上，不进备份。瑞士风格下固定用系统黑体，换回纸笺后恢复这里选的字体。")
+        Text("「内置宋体」将 Georgia（英文、斜体与旧式数字 123）与思源宋体（中文）混排，对齐电脑版 Claude 阅读质感；切换或导入后界面会刷新一次。导入的字体只保存在这台手机上，不进备份。瑞士风格下固定用系统黑体，换回纸笺后恢复这里选的字体。")
             .font(TypeScale.serif(13)).foregroundStyle(.secondary)
     }
     private func importFont(bold: Bool) {

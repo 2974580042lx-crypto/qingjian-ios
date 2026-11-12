@@ -38,10 +38,9 @@ enum FontLibrary {
     static var choice: FontChoice {
         _ = FontAppearance.shared.revision
         if let raw = UserDefaults.standard.string(forKey: choiceKey), let value = FontChoice(rawValue: raw) {
-            return value == .custom && regularName == nil ? .system : value
+            return value == .custom && regularName == nil ? .builtIn : value
         }
-        // Default to clean system font (PingFang SC + SF Pro) matching Claude Code unless legacy serif was explicitly set.
-        return UserDefaults.standard.object(forKey: legacySerifKey) as? Bool == true ? .builtIn : .system
+        return (UserDefaults.standard.object(forKey: legacySerifKey) as? Bool == false) ? .system : .builtIn
     }
     static var regularName: String? { UserDefaults.standard.string(forKey: regularKey) }
     static var boldName: String? { UserDefaults.standard.string(forKey: boldKey) }
@@ -117,18 +116,83 @@ enum FontLibrary {
     /// 1.27: the look is reset once to the system font at 17 pt, the size Apple uses for
     /// body text, so every screen starts from the same tuned type. Both can be changed
     /// again in Settings afterwards; this never runs a second time.
+    /// 1.37: one-time migration to the Claude Desktop editorial serif default (Georgia + NotoSerifSC) at 18 pt,
+    /// upgrading unset or system defaults while keeping custom user-imported fonts untouched.
     static func applyReadingDefaultsOnce() {
         let key = "sermo.typography.defaults.v127"
-        guard !UserDefaults.standard.bool(forKey: key) else { return }
-        UserDefaults.standard.set(FontChoice.system.rawValue, forKey: choiceKey)
-        UserDefaults.standard.set(17.0, forKey: "qingjian.reading.size")
-        UserDefaults.standard.set(true, forKey: key)
-        bumpRevision()
+        if !UserDefaults.standard.bool(forKey: key) {
+            UserDefaults.standard.set(FontChoice.system.rawValue, forKey: choiceKey)
+            UserDefaults.standard.set(17.0, forKey: "qingjian.reading.size")
+            UserDefaults.standard.set(true, forKey: key)
+            bumpRevision()
+        }
+        let editorialKey = "sermo.typography.defaults.v137.editorial"
+        if !UserDefaults.standard.bool(forKey: editorialKey) {
+            let existingChoice = UserDefaults.standard.string(forKey: choiceKey)
+            if existingChoice == nil || existingChoice == FontChoice.system.rawValue {
+                UserDefaults.standard.set(FontChoice.builtIn.rawValue, forKey: choiceKey)
+            }
+            let existingSize = UserDefaults.standard.object(forKey: "qingjian.reading.size") as? Double
+            if existingSize == nil || existingSize == 17.0 {
+                UserDefaults.standard.set(18.0, forKey: "qingjian.reading.size")
+            }
+            UserDefaults.standard.set(true, forKey: editorialKey)
+            bumpRevision()
+        }
     }
 
     /// True when text should use the real system font (SF for Latin and digits,
     /// PingFang for Chinese, with the system's own optical sizing), not a named face.
     static var usesSystemFace: Bool { InterfaceStyle.isSwiss || choice == .system }
+
+    /// True when prose and display headings should use the Georgia (Latin/digits) + NotoSerifSC (CJK) cascade.
+    static var usesEditorialSerif: Bool { !InterfaceStyle.isSwiss && choice == .builtIn }
+
+    private struct EditorialFontKey: Hashable {
+        let tenthsOfPoint: Int
+        let bold: Bool
+        let italic: Bool
+    }
+    nonisolated(unsafe) private static var editorialCache: [EditorialFontKey: UIFont] = [:]
+    private static let editorialCacheLock = NSLock()
+
+    /// Resolves a cached UIFont cascading Georgia (Latin letters, italics, and old-style proportional digits)
+    /// into bundled NotoSerifSC (Chinese characters and full-width punctuation).
+    static func editorialUIFont(size points: CGFloat, bold: Bool = false, italic: Bool = false) -> UIFont {
+        let key = EditorialFontKey(tenthsOfPoint: Int((points * 10).rounded()), bold: bold, italic: italic)
+        editorialCacheLock.lock()
+        if let hit = editorialCache[key] {
+            editorialCacheLock.unlock()
+            return hit
+        }
+        editorialCacheLock.unlock()
+
+        let latinName: String
+        switch (bold, italic) {
+        case (false, false): latinName = "Georgia"
+        case (true, false): latinName = "Georgia-Bold"
+        case (false, true): latinName = "Georgia-Italic"
+        case (true, true): latinName = "Georgia-BoldItalic"
+        }
+        let cjkName = bold ? "NotoSerifSC-Bold" : "NotoSerifSC-Regular"
+        let latin = UIFont(name: latinName, size: points)
+        let cjk = UIFont(name: cjkName, size: points)
+        let resolved: UIFont
+        if let latin, let cjk {
+            let descriptor = latin.fontDescriptor.addingAttributes([
+                .cascadeList: [cjk.fontDescriptor]
+            ])
+            resolved = UIFont(descriptor: descriptor, size: points)
+        } else {
+            resolved = cjk ?? latin ?? UIFont.systemFont(ofSize: points, weight: bold ? .bold : .regular)
+        }
+
+        editorialCacheLock.lock()
+        if editorialCache.count >= 128 { editorialCache.removeAll(keepingCapacity: true) }
+        editorialCache[key] = resolved
+        editorialCacheLock.unlock()
+        return resolved
+    }
 
     // Names TypeScale and ReadingStyle draw with. The Swiss look always uses the
     // system sans (PingFang SC); the chosen font comes back with the paper look.

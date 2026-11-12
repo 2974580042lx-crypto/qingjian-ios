@@ -23,9 +23,9 @@ struct ThinkingRow: View {
 
     var body: some View {
         Button(action: open) {
-            HStack(spacing: 7) {
-                ThinkingMark(live: live, size: 15)
+            HStack(spacing: 5) {
                 if live {
+                    ThinkingMark(live: true, size: 14)
                     TimelineView(.periodic(from: .now, by: 1)) { timeline in
                         line(head: "思考中 · \(max(0, Int(timeline.date.timeIntervalSince(message.createdAt)))) 秒")
                     }
@@ -33,15 +33,12 @@ struct ThinkingRow: View {
                     line(head: message.thinkingSeconds.map { "已思考 \($0) 秒" } ?? "思考过程")
                 }
                 Image(systemName: "chevron.right")
-                    .font(.system(size: 9.5, weight: .bold))
-                    .foregroundStyle(Ink.seal.opacity(0.75))
+                    .font(.system(size: 10, weight: .medium))
+                    .foregroundStyle(Ink.ink3.opacity(0.75))
             }
-            .font(.system(size: 12.5, weight: .medium))
-            .padding(.horizontal, 11)
-            .padding(.vertical, 6)
-            .background(Ink.raised, in: InkCapsule())
-            .overlay(InkCapsule().stroke(Ink.seal.opacity(live ? 0.30 : 0.14), lineWidth: 0.8))
-            .frame(minHeight: 34)
+            .font(.system(size: 13, weight: .regular))
+            .padding(.vertical, 3)
+            .frame(minHeight: 28, alignment: .leading)
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
@@ -50,7 +47,7 @@ struct ThinkingRow: View {
     }
 
     private func line(head: String) -> some View {
-        Text(head).foregroundStyle(Ink.ink2).monospacedDigit()
+        Text(head).foregroundStyle(Ink.ink3).monospacedDigit()
     }
 }
 

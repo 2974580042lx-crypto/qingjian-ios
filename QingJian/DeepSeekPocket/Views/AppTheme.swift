@@ -100,12 +100,19 @@ enum Radius {
 }
 
 enum TypeScale {
-    // Chosen in Settings (built-in serif, system PingFang, or an imported font).
+    // Chosen in Settings (built-in Georgia+NotoSerifSC editorial cascade, system PingFang, or an imported font).
     static var serifName: String { FontLibrary.regularFace }
     static func serif(_ size: CGFloat, relativeTo style: Font.TextStyle = .body) -> Font {
         // "系统字体" means the real system font: SF for Latin and digits, PingFang for
         // Chinese. Naming PingFang alone drew Latin and digits thin and narrow.
         if FontLibrary.usesSystemFace { return .system(size: scaled(size, style)) }
+        if FontLibrary.usesEditorialSerif {
+            // Editorial serif for body/headings (>= 17pt); crisp SF+PingFang sans for small chrome/labels (< 17pt).
+            if size >= 17 {
+                return Font(FontLibrary.editorialUIFont(size: scaled(size, style), bold: false, italic: false))
+            }
+            return .system(size: scaled(size, style))
+        }
         return .custom(serifName, size: size, relativeTo: style)
     }
     /// A point size grown or shrunk with the reader's text size setting.
@@ -133,6 +140,9 @@ enum TypeScale {
     static func heavy(_ size: CGFloat, relativeTo style: Font.TextStyle = .body) -> Font {
         if InterfaceStyle.isSwiss { return .system(size: size, weight: .heavy) }
         if FontLibrary.usesSystemFace { return .system(size: scaled(size, style), weight: .semibold) }
+        if FontLibrary.usesEditorialSerif {
+            return Font(FontLibrary.editorialUIFont(size: scaled(size, style), bold: true, italic: false))
+        }
         return hasHeavy ? .custom(heavyName, size: size, relativeTo: style) : .system(size: size, weight: .heavy)
     }
     /// Numbers and small labels in the Swiss look: Q.01, COPY, 2026.10.20.
@@ -142,9 +152,9 @@ enum TypeScale {
     static var pageTitle: Font { serif(32, relativeTo: .largeTitle) }
     static var hero: Font { serif(30, relativeTo: .title) }
     static var subject: Font { serif(20, relativeTo: .title3) }
-    static var answer: Font { serif(17) }
+    static var answer: Font { serif(18) }
     static var note: Font { serif(15, relativeTo: .callout) }
-    static var body: Font { serif(17) }
+    static var body: Font { serif(18) }
     static var label: Font { serif(13, relativeTo: .footnote) }
     static var caption: Font { serif(13, relativeTo: .caption) }
     static var tiny: Font { serif(11, relativeTo: .caption2) }
@@ -154,8 +164,13 @@ enum InkAppearance {
     @MainActor static func apply() {
         let ink = UIColor(Ink.ink)
         let system = FontLibrary.usesSystemFace
-        let large = system ? UIFont.systemFont(ofSize: 32, weight: .bold) : UIFont(name: TypeScale.serifName, size: 32)
-        let inline = system ? UIFont.systemFont(ofSize: 17, weight: .semibold) : UIFont(name: TypeScale.serifName, size: 17)
+        let editorial = FontLibrary.usesEditorialSerif
+        let large: UIFont? = editorial
+            ? FontLibrary.editorialUIFont(size: 32, bold: true)
+            : (system ? UIFont.systemFont(ofSize: 32, weight: .bold) : UIFont(name: TypeScale.serifName, size: 32))
+        let inline: UIFont? = (system || editorial)
+            ? UIFont.systemFont(ofSize: 17, weight: .semibold)
+            : UIFont(name: TypeScale.serifName, size: 17)
         func update(_ bar: UINavigationBar) {
             if let large {
                 bar.largeTitleTextAttributes = [.font: UIFontMetrics(forTextStyle: .largeTitle).scaledFont(for: large), .foregroundColor: ink]
@@ -243,35 +258,67 @@ struct PageContour: Shape {
     }
 }
 
+enum ReadingFont {
+    static func resolve(baseSize: CGFloat, bold: Bool = false, italic: Bool = false) -> Font {
+        let scaled = TypeScale.scaled(baseSize, .body)
+        if FontLibrary.usesSystemFace {
+            let weight: Font.Weight = bold ? .bold : (Personal.mediumBody ? .medium : .regular)
+            let base = Font.system(size: scaled, weight: weight)
+            return italic ? base.italic() : base
+        }
+        if FontLibrary.usesEditorialSerif {
+            return Font(FontLibrary.editorialUIFont(size: scaled, bold: bold, italic: italic))
+        }
+        if bold {
+            let base: Font = TypeScale.hasHeavy
+                ? .custom(TypeScale.heavyName, size: baseSize, relativeTo: .body)
+                : .custom(TypeScale.serifName, size: baseSize, relativeTo: .body).bold()
+            return italic ? base.italic() : base
+        }
+        let base = Font.custom(TypeScale.serifName, size: baseSize, relativeTo: .body)
+        return italic ? base.italic() : base
+    }
+}
+
 struct ReadingStyle: ViewModifier {
     // Observed so text redraws as soon as the font is changed in Settings.
     @AppStorage(FontLibrary.choiceKey) private var choice = ""
     @AppStorage(FontLibrary.revisionKey) private var revision = 0
-    @AppStorage("qingjian.reading.size") private var size = 17.0
+    @AppStorage("qingjian.reading.size") private var size = 18.0
     var adjustment: Double = 0
     var heavy = false
     func body(content: Content) -> some View {
-        // 「正文稍粗」 for a named font: the nearest heavier face of its family.
-        content.font(font).fontWeight(!heavy && Personal.mediumBody && !FontLibrary.usesSystemFace ? .medium : nil)
+        let _ = (choice, revision, StyleAppearance.shared.revision, FontAppearance.shared.revision)
+        let applyCustomMedium = !heavy && Personal.mediumBody && FontLibrary.choice == .custom && !InterfaceStyle.isSwiss
+        content.font(font).fontWeight(applyCustomMedium ? .medium : nil)
     }
     private var font: Font {
-        let points = size + adjustment
-        _ = (choice, revision)
-        if FontLibrary.usesSystemFace {
-            return .system(size: TypeScale.scaled(points, .body),
-                           weight: heavy ? .semibold : (Personal.mediumBody ? .medium : .regular))
+        ReadingFont.resolve(baseSize: size + adjustment, bold: heavy, italic: false)
+    }
+}
+
+/// Clean sans-serif for user chat bubbles and composer input, contrasting with AI's editorial serif answers.
+struct UserMessageStyle: ViewModifier {
+    @AppStorage(FontLibrary.choiceKey) private var choice = ""
+    @AppStorage(FontLibrary.revisionKey) private var revision = 0
+    @AppStorage("qingjian.reading.size") private var size = 18.0
+    func body(content: Content) -> some View {
+        let _ = (choice, revision, StyleAppearance.shared.revision, FontAppearance.shared.revision)
+        if FontLibrary.choice == .custom && !InterfaceStyle.isSwiss {
+            content.modifier(ReadingStyle(adjustment: -1))
+        } else {
+            let weight: Font.Weight = (FontLibrary.usesSystemFace && Personal.mediumBody) ? .medium : .regular
+            content.font(.system(size: TypeScale.scaled(max(16, size - 1), .body), weight: weight))
         }
-        if heavy {
-            return TypeScale.hasHeavy ? .custom(TypeScale.heavyName, size: points, relativeTo: .body)
-                : .custom(TypeScale.serifName, size: points, relativeTo: .body).bold()
-        }
-        return .custom(TypeScale.serifName, size: points, relativeTo: .body)
     }
 }
 
 extension View {
     func readingStyle(adjustment: Double = 0, heavy: Bool = false) -> some View {
         modifier(ReadingStyle(adjustment: adjustment, heavy: heavy))
+    }
+    func userMessageStyle() -> some View {
+        modifier(UserMessageStyle())
     }
     func clearGlass(radius: CGFloat = 28) -> some View { modifier(ClearGlass(radius: radius)) }
 }
@@ -403,7 +450,8 @@ enum Personal {
     static let spacingKey = "sermo.personal.spacing"
     static let marginKey = "sermo.personal.margin"
     static let mediumKey = "sermo.personal.medium"
-    static let allKeys = [textKey, accentKey, paperKey, bubbleKey, spacingKey, marginKey, mediumKey]
+    static let boldAccentKey = "sermo.personal.boldAccent"
+    static let allKeys = [textKey, accentKey, paperKey, bubbleKey, spacingKey, marginKey, mediumKey, boldAccentKey]
 
     struct Preset: Identifiable { let id: String; let title: String; let light: UInt32; let dark: UInt32 }
     static let textPresets = [
@@ -484,9 +532,14 @@ enum Personal {
         StyleAppearance.shared.bump()
     }
     static var mediumBody: Bool { stored(mediumKey) != "0" }
+    @MainActor static func setBoldUsesAccent(_ on: Bool) {
+        UserDefaults.standard.set(on ? "1" : "0", forKey: boldAccentKey)
+        StyleAppearance.shared.bump()
+    }
+    static var boldUsesAccent: Bool { stored(boldAccentKey) == "1" }
     /// Line spacing inside a paragraph and the gap between paragraphs.
     static var lineSpacing: CGFloat {
-        switch stored(spacingKey) { case "compact": return 4.5; case "loose": return 10; default: return 7 }
+        switch stored(spacingKey) { case "compact": return 4.5; case "loose": return 10.5; default: return 7.5 }
     }
     static var paragraphGap: CGFloat {
         switch stored(spacingKey) { case "compact": return 13; case "loose": return 24; default: return 18 }
