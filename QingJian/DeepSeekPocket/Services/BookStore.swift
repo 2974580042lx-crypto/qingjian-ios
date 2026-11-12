@@ -35,10 +35,16 @@ final class BookStore: ObservableObject {
     private var coverQueue: [UUID] = []
     private var coverTask: Task<Void, Never>?
     private let isPreview: Bool
+    @Published private(set) var canPersist = true
 
     init(preview: Bool = false) {
         isPreview = preview
         guard !preview else { return }
+        load()
+    }
+
+    func reloadIfNeeded() {
+        guard !isPreview, !canPersist || books.isEmpty else { return }
         load()
     }
 
@@ -73,19 +79,56 @@ final class BookStore: ObservableObject {
     private func load() {
         guard let root = try? Self.root(),
               let folders = try? FileManager.default.contentsOfDirectory(at: root, includingPropertiesForKeys: nil) else { return }
+        try? FileManager.default.setAttributes([.protectionKey: FileProtectionType.completeUntilFirstUserAuthentication], ofItemAtPath: root.path)
         var loaded: [Book] = []
+        var permissionDenied = false
         for folder in folders {
-            guard let data = try? Data(contentsOf: folder.appendingPathComponent("book.json")),
-                  var book = try? Self.decoder.decode(Book.self, from: data) else { continue }
-            // A read cut off when the app closed can simply continue.
-            if book.status == .reading { book.status = .imported }
-            loaded.append(book)
+            let bookURL = folder.appendingPathComponent("book.json")
+            guard FileManager.default.fileExists(atPath: bookURL.path) else { continue }
+            do {
+                try? FileManager.default.setAttributes([.protectionKey: FileProtectionType.completeUntilFirstUserAuthentication], ofItemAtPath: bookURL.path)
+                let data = try Data(contentsOf: bookURL)
+                if var book = try? Self.decoder.decode(Book.self, from: data) {
+                    if book.status == .reading { book.status = .imported }
+                    loaded.append(book)
+                }
+            } catch let error as NSError where error.domain == NSCocoaErrorDomain && error.code == NSFileReadNoPermissionError {
+                permissionDenied = true
+            } catch {
+                continue
+            }
         }
-        books = loaded.sorted { $0.importedAt > $1.importedAt }
-        if let data = try? Data(contentsOf: root.appendingPathComponent("personas.json")),
-           let saved = try? Self.decoder.decode([PersonaCard].self, from: data) {
-            personas = saved
+        let personasURL = root.appendingPathComponent("personas.json")
+        if FileManager.default.fileExists(atPath: personasURL.path) {
+            do {
+                try? FileManager.default.setAttributes([.protectionKey: FileProtectionType.completeUntilFirstUserAuthentication], ofItemAtPath: personasURL.path)
+                let data = try Data(contentsOf: personasURL)
+                if let saved = try? Self.decoder.decode([PersonaCard].self, from: data) {
+                    personas = saved
+                }
+            } catch let error as NSError where error.domain == NSCocoaErrorDomain && error.code == NSFileReadNoPermissionError {
+                permissionDenied = true
+            } catch {}
         }
+        if permissionDenied {
+            canPersist = false
+            if !loaded.isEmpty { books = loaded.sorted { $0.importedAt > $1.importedAt } }
+        } else {
+            canPersist = true
+            books = loaded.sorted { $0.importedAt > $1.importedAt }
+        }
+    }
+
+    func storageStats() -> (bookCount: Int, personaCount: Int, bytes: Int64) {
+        guard let root = try? Self.root(),
+              let enumerator = FileManager.default.enumerator(at: root, includingPropertiesForKeys: [.fileSizeKey], options: [.skipsHiddenFiles]) else {
+            return (books.count, personas.count, 0)
+        }
+        var total: Int64 = 0
+        for case let url as URL in enumerator {
+            total += Int64((try? url.resourceValues(forKeys: [.fileSizeKey]).fileSize) ?? 0)
+        }
+        return (books.count, personas.count, total)
     }
 
 
@@ -119,8 +162,8 @@ final class BookStore: ObservableObject {
                 try fm.createDirectory(at: folder, withIntermediateDirectories: true)
                 var book = entry.book
                 if book.status == .reading { book.status = .imported }
-                try Self.encoder.encode(book).write(to: folder.appendingPathComponent("book.json"), options: [.atomic, .completeFileProtection])
-                try Self.encoder.encode(entry.chapters).write(to: folder.appendingPathComponent("chapters.json"), options: [.atomic, .completeFileProtection])
+                try Self.encoder.encode(book).write(to: folder.appendingPathComponent("book.json"), options: [.atomic, .completeFileProtectionUntilFirstUserAuthentication])
+                try Self.encoder.encode(entry.chapters).write(to: folder.appendingPathComponent("chapters.json"), options: [.atomic, .completeFileProtectionUntilFirstUserAuthentication])
             }
             for entry in entries {
                 try fm.moveItem(at: stage.appendingPathComponent(entry.book.id.uuidString), to: root.appendingPathComponent(entry.book.id.uuidString))
@@ -132,7 +175,7 @@ final class BookStore: ObservableObject {
                 if merged.contains(where: { $0.id == person.id }) { person.id = UUID() }
                 merged.append(person)
             }
-            try Self.encoder.encode(merged).write(to: root.appendingPathComponent("personas.json"), options: [.atomic, .completeFileProtection])
+            try Self.encoder.encode(merged).write(to: root.appendingPathComponent("personas.json"), options: [.atomic, .completeFileProtectionUntilFirstUserAuthentication])
             load()
             return ImportReceipt(ids: installed, oldPersonas: prior)
         } catch {
@@ -144,7 +187,7 @@ final class BookStore: ObservableObject {
     func rollBackArchive(_ receipt: ImportReceipt) {
         guard let root = try? Self.root() else { return }
         for id in receipt.ids { try? FileManager.default.removeItem(at: root.appendingPathComponent(id.uuidString)) }
-        try? Self.encoder.encode(receipt.oldPersonas).write(to: root.appendingPathComponent("personas.json"), options: [.atomic, .completeFileProtection])
+        try? Self.encoder.encode(receipt.oldPersonas).write(to: root.appendingPathComponent("personas.json"), options: [.atomic, .completeFileProtectionUntilFirstUserAuthentication])
         cachedChapters = nil
         cachedParagraphs = nil
         cachedDialogue = [:]
@@ -171,9 +214,10 @@ final class BookStore: ObservableObject {
 
     private func writePersonas() -> Bool {
         guard !isPreview else { return true }
+        guard canPersist else { errorMessage = "请先解锁手机后再保存人物卡。"; return false }
         do {
             try Self.encoder.encode(personas).write(to: Self.root().appendingPathComponent("personas.json"),
-                                                   options: [.atomic, .completeFileProtection])
+                                                   options: [.atomic, .completeFileProtectionUntilFirstUserAuthentication])
             return true
         } catch {
             errorMessage = "人物卡没能保存：\(error.localizedDescription)"
@@ -182,10 +226,11 @@ final class BookStore: ObservableObject {
     }
 
     @discardableResult private func save(_ book: Book) -> Bool {
+        guard isPreview || canPersist else { errorMessage = "请先解锁手机后再保存书架。"; return false }
         if let index = books.firstIndex(where: { $0.id == book.id }) { books[index] = book } else { books.insert(book, at: 0) }
         guard !isPreview else { return true }
         do {
-            try Self.encoder.encode(book).write(to: Self.folder(book.id).appendingPathComponent("book.json"), options: [.atomic, .completeFileProtection])
+            try Self.encoder.encode(book).write(to: Self.folder(book.id).appendingPathComponent("book.json"), options: [.atomic, .completeFileProtectionUntilFirstUserAuthentication])
             return true
         } catch {
             errorMessage = "书架没能保存：\(error.localizedDescription)"
@@ -323,7 +368,7 @@ final class BookStore: ObservableObject {
                 let target = try Self.folder(book.id).appendingPathComponent("chapters.json")
                 let json = prepared.chaptersJSON
                 try await Task.detached(priority: .userInitiated) {
-                    try json.write(to: target, options: [.atomic, .completeFileProtection])
+                    try json.write(to: target, options: [.atomic, .completeFileProtectionUntilFirstUserAuthentication])
                 }.value
             }
             cachedChapters = (book.id, prepared.chapters)

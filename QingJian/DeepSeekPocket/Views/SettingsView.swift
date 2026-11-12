@@ -281,6 +281,15 @@ struct SettingsView: View {
 
     private var dataPage: some View {
         page("用量与备份") {
+                    Section {
+                        NavigationLink {
+                            LocalDataStatusView()
+                        } label: {
+                            Label("本机数据状态与安全快照", systemImage: "externaldrive.badge.checkmark")
+                        }
+                    } header: { Text("数据安全") } footer: {
+                        Text("查看本机聊天、项目、学习库、书架和图片的实时统计，以及防缩水保护留存的安全快照。")
+                    }
                     StudyCloudBackupSection(cloud: store.studyCloud)
                     Section {
                         UsageCalendarView(ledger: store.usage)
@@ -292,7 +301,12 @@ struct SettingsView: View {
                             backupURL = store.exportBackup()
                             showShare = backupURL != nil
                         } label: { Label("导出聊天备份", systemImage: "square.and.arrow.up") }
-                        Button { showImporter = true } label: { Label("导入聊天备份", systemImage: "square.and.arrow.down") }
+                        Button {
+                            DocumentPicker.present([.json, .data], asCopy: true, onError: { store.errorMessage = $0 }) { url in
+                                defer { try? FileManager.default.removeItem(at: url) }
+                                store.importBackup(url)
+                            }
+                        } label: { Label("导入聊天备份", systemImage: "square.and.arrow.down") }
                             .disabled(store.isGenerating || !store.canPersist)
                     } header: { Text("记录与备份") } footer: {
                         Text("这里是原有聊天JSON，不包含学习数据库和图片实体；学习数据请用上方的学习备份，并核对是否有缺图。导入聊天JSON会添加新对话，已有编号跳过，不覆盖设置。")
@@ -301,12 +315,6 @@ struct SettingsView: View {
         }
         .sheet(isPresented: $showShare) {
             if let url = backupURL { ShareSheet(items: [url]) }
-        }
-        .fileImporter(isPresented: $showImporter, allowedContentTypes: [.json]) { result in
-            switch result {
-            case .success(let url): store.importBackup(url)
-            case .failure(let error): store.errorMessage = "无法打开文件：\(error.localizedDescription)"
-            }
         }
     }
 
@@ -692,4 +700,98 @@ struct ShareSheet: UIViewControllerRepresentable {
         UIActivityViewController(activityItems: items, applicationActivities: nil)
     }
     func updateUIViewController(_ controller: UIActivityViewController, context: Context) { }
+}
+
+@MainActor
+struct LocalDataStatusView: View {
+    @EnvironmentObject private var store: AppStore
+    @State private var shareURL: URL?
+    @State private var safetyList: [SafetySnapshotInfo] = []
+    @State private var autoBackups: [(name: String, size: Int64, date: Date, url: URL)] = []
+
+    private func formatBytes(_ bytes: Int64) -> String {
+        ByteCountFormatter.string(fromByteCount: bytes, countStyle: .file)
+    }
+
+    var body: some View {
+        let stats = store.localDataDiagnostics()
+        List {
+            Section("运行与存储状态") {
+                LabeledContent("主记录保存权限", value: store.canPersist ? "正常" : "只读保护中")
+                LabeledContent("书架保存权限", value: store.books.canPersist ? "正常" : "只读保护中")
+                LabeledContent("主文件体积", value: formatBytes(stats.conversationsBytes))
+                LabeledContent("最近写入时间", value: stats.conversationsModified?.formatted(date: .abbreviated, time: .shortened) ?? "尚未落盘")
+            }
+            Section("聊天与项目") {
+                LabeledContent("可见对话数", value: "\(stats.visibleThreads) 条")
+                LabeledContent("含重试分支总对话", value: "\(stats.totalThreads) 条")
+                LabeledContent("总消息数", value: "\(stats.totalMessages) 条")
+                LabeledContent("项目数量", value: "\(stats.projectCount) 个（资料 \(stats.documentCount) 份）")
+                LabeledContent("自定义指令库", value: "\(stats.presetCount) 份")
+                LabeledContent("用量记录天数", value: "\(stats.usageDays) 天")
+            }
+            Section("学习数据库、图片与书架") {
+                LabeledContent("学习数据库体积", value: formatBytes(stats.studyBytes))
+                LabeledContent("学习数据总行数", value: "\(stats.studyRows) 行")
+                LabeledContent("本机保存图片", value: "\(stats.imageCount) 张 · \(formatBytes(stats.imageBytes))")
+                LabeledContent("书架小说与档案", value: "\(stats.bookCount) 本 · 人物卡 \(stats.personaCount) 张 · \(formatBytes(stats.bookBytes))")
+            }
+            Section {
+                Button("立即创建一份安全快照") {
+                    if store.createManualSafetySnapshot() { reloadLists() }
+                }.disabled(!store.canPersist)
+                if safetyList.isEmpty {
+                    Text("尚无安全快照。当检测到异常缩水、恢复备份前或手动点上方按钮时，会自动保留最近 5 份。")
+                        .font(TypeScale.caption).foregroundStyle(Ink.ink3)
+                } else {
+                    ForEach(safetyList) { item in
+                        HStack {
+                            VStack(alignment: .leading, spacing: 4) {
+                                Text(item.name).font(TypeScale.caption).lineLimit(1)
+                                Text("\(item.date.formatted(date: .abbreviated, time: .shortened)) · \(formatBytes(item.size))")
+                                    .font(TypeScale.tiny).foregroundStyle(Ink.ink3)
+                            }
+                            Spacer()
+                            Button("导出") { shareURL = item.url }.buttonStyle(.borderless)
+                            Button("合并恢复") { store.importBackup(item.url) }.buttonStyle(.borderless)
+                        }
+                    }
+                }
+            } header: { Text("Safety 保护快照（最近 \(safetyList.count) 份）") }
+            Section {
+                if autoBackups.isEmpty {
+                    Text("自动备份目录暂无文件。")
+                        .font(TypeScale.caption).foregroundStyle(Ink.ink3)
+                } else {
+                    ForEach(autoBackups, id: \.url.path) { item in
+                        HStack {
+                            VStack(alignment: .leading, spacing: 4) {
+                                Text(item.name).font(TypeScale.caption).lineLimit(1)
+                                Text("\(item.date.formatted(date: .abbreviated, time: .shortened)) · \(formatBytes(item.size))")
+                                    .font(TypeScale.tiny).foregroundStyle(Ink.ink3)
+                            }
+                            Spacer()
+                            Button("导出") { shareURL = item.url }.buttonStyle(.borderless)
+                        }
+                    }
+                }
+            } header: { Text("Documents/自动备份（最近 \(autoBackups.count) 份）") }
+        }
+        .font(TypeScale.body)
+        .scrollContentBackground(.hidden)
+        .background(AppBackground())
+        .foregroundStyle(Ink.ink)
+        .tint(Ink.seal)
+        .navigationTitle("本机数据状态")
+        .navigationBarTitleDisplayMode(.inline)
+        .onAppear(perform: reloadLists)
+        .sheet(isPresented: Binding(get: { shareURL != nil }, set: { if !$0 { shareURL = nil } })) {
+            if let url = shareURL { ShareSheet(items: [url]) }
+        }
+    }
+
+    private func reloadLists() {
+        safetyList = store.safetySnapshots()
+        autoBackups = store.localAutoBackupFiles()
+    }
 }

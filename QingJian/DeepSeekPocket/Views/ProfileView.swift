@@ -22,15 +22,22 @@ final class ProfileStore: ObservableObject {
     init(preview: Bool = ProcessInfo.processInfo.arguments.contains("--ui-preview")) {
         self.preview = preview
         guard !preview else { return }
+        reloadIfNeeded()
+    }
+
+    func reloadIfNeeded() {
+        guard !preview, file == nil else { return }
         do {
             let directory = try FileManager.default.url(for: .applicationSupportDirectory, in: .userDomainMask, appropriateFor: nil, create: true)
                 .appendingPathComponent("QingJian", isDirectory: true)
             try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
             let target = directory.appendingPathComponent("profile.json")
             if FileManager.default.fileExists(atPath: target.path) {
+                try? FileManager.default.setAttributes([.protectionKey: FileProtectionType.completeUntilFirstUserAuthentication], ofItemAtPath: target.path)
                 profile = try JSONDecoder().decode(LocalProfile.self, from: Data(contentsOf: target))
             }
             file = target
+            error = nil
         } catch { self.error = "暂时无法读取个人资料，原文件已保留。" }
     }
 
@@ -41,7 +48,7 @@ final class ProfileStore: ObservableObject {
         do {
             if !preview {
                 guard let file else { error = "个人资料存储暂时不可用。"; return false }
-                try JSONEncoder().encode(next).write(to: file, options: [.atomic, .completeFileProtection])
+                try JSONEncoder().encode(next).write(to: file, options: [.atomic, .completeFileProtectionUntilFirstUserAuthentication])
             }
             profile = next
             return true

@@ -231,12 +231,15 @@ struct StudyRestorePreview: Identifiable {
         running = Task {
             guard !busy else { return }
             busy = true; defer { busy = false }
-            let access = url.startAccessingSecurityScopedResource()
-            defer { if access { url.stopAccessingSecurityScopedResource() } }
+            let copied = await Task.detached(priority: .utility) { IncomingFile.privateCopy(of: url) }.value
+            let target = copied ?? url
+            defer { if let copied { try? FileManager.default.removeItem(at: copied.deletingLastPathComponent()) } }
+            let access = target.startAccessingSecurityScopedResource()
+            defer { if access { target.stopAccessingSecurityScopedResource() } }
             do {
                 let payload = try await Task.detached(priority: .utility) {
-                    guard (try url.resourceValues(forKeys: [.fileSizeKey]).fileSize ?? 0) <= StudyBackupCodec.maximumBytes else { throw StudyBackupError.invalid("备份文件超过160MB。") }
-                    return try StudyBackupCodec.decode(Data(contentsOf: url))
+                    guard (try target.resourceValues(forKeys: [.fileSizeKey]).fileSize ?? 0) <= StudyBackupCodec.maximumBytes else { throw StudyBackupError.invalid("备份文件超过160MB。") }
+                    return try StudyBackupCodec.decode(Data(contentsOf: target))
                 }.value
                 let current = try app.studyBackupCapture()
                 _ = try StudyBackupCodec.merge(payload, into: current.0, currentLearning: current.1)

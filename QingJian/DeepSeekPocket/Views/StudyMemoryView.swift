@@ -11,22 +11,18 @@ struct StudyMemoryView: View {
     @State private var exportURL: URL?
     @State private var showExport = false
     @State private var loadError: String?
-    @State private var importingWords = false
     @State private var importingWordsBusy = false
     @State private var wordCount = 0
-    @State private var importingReadings = false
     @State private var importingReadingsBusy = false
     @State private var readingCount = 0
     @State private var reviewKind: ReviewTarget?
     @State private var topics: [StudyTopic] = []
     @State private var practices: [StudyPractice] = []
-    @State private var importingHistory = false
     @State private var importingHistoryBusy = false
     @State private var historyPreview: HistoryTarget?
     @State private var historyReferenceCount = 0
     @State private var historyOutlineCount = 0
     @State private var temporaryMap: StudyTemporaryMap?
-    @State private var importingMap = false
     @State private var importingMapBusy = false
     private struct ReviewTarget: Identifiable { let id: String }
     private struct HistoryTarget: Identifiable { let id = UUID(); let pack: StudyHistoryPack }
@@ -53,8 +49,8 @@ struct StudyMemoryView: View {
                             .font(TypeScale.caption).foregroundStyle(Ink.ink3)
                         Text("参考词条 \(historyReferenceCount) 条，与正式大纲分开。")
                             .font(TypeScale.caption).foregroundStyle(Ink.ink3)
-                        Button(importingHistoryBusy ? "正在读取…" : "导入历史资料 JSON") { importingHistory = true }.disabled(importingHistoryBusy)
-                        Button(importingMapBusy ? "正在导入…" : "导入网络临时学习地图") { importingMap = true }.disabled(importingMapBusy)
+                        Button(importingHistoryBusy ? "正在读取…" : "导入历史资料 JSON") { pickHistoryPack() }.disabled(importingHistoryBusy)
+                        Button(importingMapBusy ? "正在导入…" : "导入网络临时学习地图") { pickTemporaryMap() }.disabled(importingMapBusy)
                     }
                 }
                 if subject != .english {
@@ -90,12 +86,12 @@ struct StudyMemoryView: View {
                     Section("私人词库") {
                         Text(wordCount == 0 ? "导入一次后，在聊天里说“开始背词”即可。" : "已导入 \(wordCount) 个词，可以在聊天里开始或继续。")
                             .font(TypeScale.caption).foregroundStyle(Ink.ink3)
-                        Button(importingWordsBusy ? "正在导入…" : "导入词库 JSON") { importingWords = true }.disabled(importingWordsBusy)
+                        Button(importingWordsBusy ? "正在导入…" : "导入词库 JSON") { pickVocabulary() }.disabled(importingWordsBusy)
                     }
                     Section("阅读资料") {
                         Text(readingCount == 0 ? "导入后，在聊天里说“开始某年 Text 4”或“继续上次阅读”。" : "已导入 \(readingCount) 篇。正文按段读取，原文和待答题留在聊天中。")
                             .font(TypeScale.caption).foregroundStyle(Ink.ink3)
-                        Button(importingReadingsBusy ? "正在导入…" : "导入阅读 JSON") { importingReadings = true }.disabled(importingReadingsBusy)
+                        Button(importingReadingsBusy ? "正在导入…" : "导入阅读 JSON") { pickReadings() }.disabled(importingReadingsBusy)
                     }
                 }
                 ForEach(subject.categories, id: \.self) { category in
@@ -195,43 +191,45 @@ struct StudyMemoryView: View {
         .sheet(isPresented: $showExport) { if let exportURL { ShareSheet(items: [exportURL]) } }
         .sheet(item: $reviewKind) { target in StudyReviewView(projectID: projectID, kind: target.id).environmentObject(store) }
         .sheet(item: $historyPreview) { target in StudyHistoryImportPreview(projectID: projectID, pack: target.pack).environmentObject(store) }
-        .fileImporter(isPresented: $importingHistory, allowedContentTypes: [.json]) { result in
-            do {
-                let url = try result.get(); importingHistoryBusy = true
-                Task { @MainActor in
-                    do { historyPreview = HistoryTarget(pack: try await store.previewHistoryPack(url: url)) }
-                    catch { store.studyIssue = error.localizedDescription }
-                    importingHistoryBusy = false
-                }
-            } catch { store.studyIssue = error.localizedDescription }
+    }
+    private func pickHistoryPack() {
+        DocumentPicker.present([.json], asCopy: true, onError: { store.studyIssue = $0 }) { url in
+            importingHistoryBusy = true
+            Task { @MainActor in
+                defer { try? FileManager.default.removeItem(at: url); importingHistoryBusy = false }
+                do { historyPreview = HistoryTarget(pack: try await store.previewHistoryPack(url: url)) }
+                catch { store.studyIssue = error.localizedDescription }
+            }
         }
-        .fileImporter(isPresented: $importingMap, allowedContentTypes: [.json]) { result in
-            do {
-                let url = try result.get(); importingMapBusy = true
-                Task { @MainActor in
-                    _ = await store.importTemporaryHistoryMap(projectID: projectID, url: url)
-                    importingMapBusy = false; reload()
-                }
-            } catch { store.studyIssue = error.localizedDescription }
+    }
+    private func pickTemporaryMap() {
+        DocumentPicker.present([.json], asCopy: true, onError: { store.studyIssue = $0 }) { url in
+            importingMapBusy = true
+            Task { @MainActor in
+                defer { try? FileManager.default.removeItem(at: url); importingMapBusy = false }
+                _ = await store.importTemporaryHistoryMap(projectID: projectID, url: url)
+                reload()
+            }
         }
-        .fileImporter(isPresented: $importingWords, allowedContentTypes: [.json]) { result in
-            do {
-                let url = try result.get()
-                importingWordsBusy = true
-                Task { @MainActor in
-                    _ = await store.importStudyVocabulary(projectID: projectID, url: url)
-                    importingWordsBusy = false; reload()
-                }
-            } catch { store.studyIssue = error.localizedDescription }
+    }
+    private func pickVocabulary() {
+        DocumentPicker.present([.json], asCopy: true, onError: { store.studyIssue = $0 }) { url in
+            importingWordsBusy = true
+            Task { @MainActor in
+                defer { try? FileManager.default.removeItem(at: url); importingWordsBusy = false }
+                _ = await store.importStudyVocabulary(projectID: projectID, url: url)
+                reload()
+            }
         }
-        .fileImporter(isPresented: $importingReadings, allowedContentTypes: [.json]) { result in
-            do {
-                let url = try result.get(); importingReadingsBusy = true
-                Task { @MainActor in
-                    _ = await store.importStudyReadings(projectID: projectID, url: url)
-                    importingReadingsBusy = false; reload()
-                }
-            } catch { store.studyIssue = error.localizedDescription }
+    }
+    private func pickReadings() {
+        DocumentPicker.present([.json], asCopy: true, onError: { store.studyIssue = $0 }) { url in
+            importingReadingsBusy = true
+            Task { @MainActor in
+                defer { try? FileManager.default.removeItem(at: url); importingReadingsBusy = false }
+                _ = await store.importStudyReadings(projectID: projectID, url: url)
+                reload()
+            }
         }
     }
     private func reload() {

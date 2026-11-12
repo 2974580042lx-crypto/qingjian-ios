@@ -25,14 +25,19 @@ private enum SubscriptionKeychain {
         let status = SecItemCopyMatching(q as CFDictionary, &value)
         if status == errSecItemNotFound { return SubscriptionVault() }
         guard status == errSecSuccess, let data = value as? Data else { throw SubscriptionError.storage(Int(status)) }
+        SecItemUpdate(query as CFDictionary,
+                      [kSecAttrAccessible as String: kSecAttrAccessibleAfterFirstUnlockThisDeviceOnly] as CFDictionary)
         return try JSONDecoder().decode(SubscriptionVault.self, from: data)
     }
     static func save(_ value: SubscriptionVault) throws {
         let data = try JSONEncoder().encode(value)
-        let status = SecItemUpdate(query as CFDictionary, [kSecValueData as String: data] as CFDictionary)
+        let status = SecItemUpdate(query as CFDictionary, [
+            kSecValueData as String: data,
+            kSecAttrAccessible as String: kSecAttrAccessibleAfterFirstUnlockThisDeviceOnly
+        ] as CFDictionary)
         if status == errSecItemNotFound {
             var q = query; q[kSecValueData as String] = data
-            q[kSecAttrAccessible as String] = kSecAttrAccessibleWhenUnlockedThisDeviceOnly
+            q[kSecAttrAccessible as String] = kSecAttrAccessibleAfterFirstUnlockThisDeviceOnly
             let result = SecItemAdd(q as CFDictionary, nil)
             guard result == errSecSuccess else { throw SubscriptionError.storage(Int(result)) }
         } else if status != errSecSuccess { throw SubscriptionError.storage(Int(status)) }
@@ -76,7 +81,11 @@ final class SubscriptionStore: NSObject, ObservableObject, ASWebAuthenticationPr
     override init() {
         super.init()
         if preview { return }
-        do { vault = try SubscriptionKeychain.read(); publish() }
+        reloadIfNeeded()
+    }
+    func reloadIfNeeded() {
+        guard !preview else { return }
+        do { vault = try SubscriptionKeychain.read(); canSave = true; issue = nil; publish() }
         catch { canSave = false; issue = error.localizedDescription }
     }
     private func publish() {

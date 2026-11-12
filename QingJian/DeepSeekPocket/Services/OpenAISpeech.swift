@@ -19,6 +19,8 @@ enum SpeechKeychain {
         if status == errSecItemNotFound { return "" }
         guard status == errSecSuccess, let data = result as? Data,
               let value = String(data: data, encoding: .utf8) else { throw SpeechError.keychain }
+        SecItemUpdate(query as CFDictionary,
+                      [kSecAttrAccessible as String: kSecAttrAccessibleAfterFirstUnlockThisDeviceOnly] as CFDictionary)
         return value
     }
     static func save(_ value: String) throws {
@@ -30,11 +32,14 @@ enum SpeechKeychain {
             return
         }
         let data = Data(value.utf8)
-        let status = SecItemUpdate(query as CFDictionary, [kSecValueData as String: data] as CFDictionary)
+        let status = SecItemUpdate(query as CFDictionary, [
+            kSecValueData as String: data,
+            kSecAttrAccessible as String: kSecAttrAccessibleAfterFirstUnlockThisDeviceOnly
+        ] as CFDictionary)
         if status == errSecItemNotFound {
             var item = query
             item[kSecValueData as String] = data
-            item[kSecAttrAccessible as String] = kSecAttrAccessibleWhenUnlockedThisDeviceOnly
+            item[kSecAttrAccessible as String] = kSecAttrAccessibleAfterFirstUnlockThisDeviceOnly
             guard SecItemAdd(item as CFDictionary, nil) == errSecSuccess else { throw SpeechError.keychain }
         } else if status != errSecSuccess { throw SpeechError.keychain }
     }

@@ -29,13 +29,10 @@ enum DocumentPicker {
         show(types, asCopy: asCopy, multiple: true, onCancel: onCancel, onError: onError, pick: pick)
     }
 
-    // A folder is chosen with the tick beside it plus 「打开」, the same way as files. In
-    // single-choice mode the picker only lets you tap into a folder, and on recent iOS
-    // 「打开」 often stayed grey even inside it, so no folder could ever be chosen.
     @discardableResult
     static func presentFolder(onCancel: (() -> Void)? = nil, onError: ((String) -> Void)? = nil,
                               pick: @escaping (URL) -> Void) -> Bool {
-        show([.folder], asCopy: false, multiple: true, onCancel: onCancel, onError: onError) { urls in
+        show([.folder], asCopy: false, multiple: false, onCancel: onCancel, onError: onError) { urls in
             if let url = urls.first { pick(url) }
         }
     }
@@ -43,14 +40,31 @@ enum DocumentPicker {
     private static func show(_ types: [UTType], asCopy: Bool, multiple: Bool,
                              onCancel: (() -> Void)?, onError: ((String) -> Void)?,
                              pick: @escaping ([URL]) -> Void) -> Bool {
-        // A picker closed without telling us (swiped away mid-transition) must not block the next one.
-        if let open = current, open.picker?.presentingViewController == nil { current = nil; open.cancel?() }
-        guard current == nil else { onError?("文件选择器已经打开，请先完成或取消当前选择。"); return false }
-        guard let top = topViewController(), top.viewIfLoaded?.window != nil,
-              !top.isBeingPresented, !top.isBeingDismissed else {
-            onError?("当前页面还在切换，暂时无法打开文件选择器，请稍后再试。")
-            return false
+        if let open = current, open.picker == nil || (open.picker?.presentingViewController == nil && open.picker?.isBeingPresented == false) {
+            current = nil
+            open.cancel?()
         }
+        guard current == nil else { onError?("文件选择器已经打开，请先完成或取消当前选择。"); return false }
+        if let top = topViewController(), top.viewIfLoaded?.window != nil, !top.isBeingPresented, !top.isBeingDismissed {
+            presentNow(on: top, types: types, asCopy: asCopy, multiple: multiple, onCancel: onCancel, pick: pick)
+            return true
+        }
+        // When triggered from a Menu item, the context menu's dismissal is still in flight for ~150ms.
+        Task { @MainActor in
+            try? await Task.sleep(for: .milliseconds(180))
+            guard current == nil, let top = topViewController(), top.viewIfLoaded?.window != nil,
+                  !top.isBeingPresented, !top.isBeingDismissed else {
+                onCancel?()
+                onError?("当前页面还在切换，暂时无法打开文件选择器，请稍后再试。")
+                return
+            }
+            presentNow(on: top, types: types, asCopy: asCopy, multiple: multiple, onCancel: onCancel, pick: pick)
+        }
+        return true
+    }
+
+    private static func presentNow(on top: UIViewController, types: [UTType], asCopy: Bool, multiple: Bool,
+                                   onCancel: (() -> Void)?, pick: @escaping ([URL]) -> Void) {
         let coordinator = Coordinator(pick: pick, cancel: onCancel)
         let picker = UIDocumentPickerViewController(forOpeningContentTypes: types, asCopy: asCopy)
         picker.allowsMultipleSelection = multiple
@@ -59,17 +73,20 @@ enum DocumentPicker {
         coordinator.picker = picker
         current = coordinator
         top.view.endEditing(true)
-        // The picker keeps its own presentation delegate; replacing it could leave 「打开」 unusable.
-        top.present(picker, animated: true)
-        return true
+        top.present(picker, animated: true) {
+            coordinator.startDismissWatchdog()
+        }
     }
 
     private static func topViewController() -> UIViewController? {
-        let window = UIApplication.shared.connectedScenes.filter { $0.activationState == .foregroundActive }
+        let scenes = UIApplication.shared.connectedScenes
+            .filter { $0.activationState == .foregroundActive || $0.activationState == .foregroundInactive }
             .compactMap { $0 as? UIWindowScene }
-            .flatMap(\.windows).first(where: \.isKeyWindow)
+        let window = scenes.flatMap(\.windows).first(where: \.isKeyWindow) ?? scenes.flatMap(\.windows).first
         var top = window?.rootViewController
-        while let next = top?.presentedViewController { top = next }
+        while let next = top?.presentedViewController, !next.isBeingDismissed {
+            top = next
+        }
         return top
     }
 
@@ -78,7 +95,22 @@ enum DocumentPicker {
         let cancel: (() -> Void)?
         weak var picker: UIDocumentPickerViewController?
         private var completed = false
+        private var watchdogTask: Task<Void, Never>?
         init(pick: @escaping ([URL]) -> Void, cancel: (() -> Void)?) { self.pick = pick; self.cancel = cancel }
+
+        func startDismissWatchdog() {
+            watchdogTask = Task { @MainActor [weak self] in
+                while let self, !self.completed {
+                    try? await Task.sleep(for: .milliseconds(350))
+                    guard !self.completed else { break }
+                    if self.picker == nil || (self.picker?.presentingViewController == nil && self.picker?.isBeingPresented == false) {
+                        self.finish(nil, urls: [])
+                        break
+                    }
+                }
+            }
+        }
+
         func documentPicker(_ controller: UIDocumentPickerViewController, didPickDocumentsAt urls: [URL]) {
             finish(controller, urls: urls)
         }
@@ -88,14 +120,22 @@ enum DocumentPicker {
         private func finish(_ controller: UIViewController?, urls: [URL]) {
             guard !completed else { return }
             completed = true
-            let deliver = { [self] in
+            watchdogTask?.cancel()
+            watchdogTask = nil
+            // UIDocumentPickerViewController dismisses itself when the user taps Open/Cancel.
+            // Calling controller.dismiss(completion:) while UIKit is already dismissing it causes
+            // UIKit to drop the completion callback. Instead, wait briefly for dismissal to settle
+            // and then unconditionally invoke the callback on the main actor.
+            Task { @MainActor [self] in
+                for _ in 0..<20 {
+                    guard let controller, controller.presentingViewController != nil else { break }
+                    if !controller.isBeingDismissed {
+                        controller.dismiss(animated: true)
+                    }
+                    try? await Task.sleep(for: .milliseconds(35))
+                }
                 if DocumentPicker.current === self { DocumentPicker.current = nil }
                 if urls.isEmpty { cancel?() } else { pick(urls) }
-            }
-            if let controller, controller.presentingViewController != nil {
-                controller.dismiss(animated: true, completion: deliver)
-            } else {
-                deliver()
             }
         }
     }

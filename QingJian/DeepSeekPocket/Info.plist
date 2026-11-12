@@ -61,6 +61,39 @@
 				<string>org.idpf.epub-container</string>
 			</array>
 		</dict>
+		<dict>
+			<key>CFBundleTypeName</key>
+			<string>Sermo 备份</string>
+			<key>CFBundleTypeRole</key>
+			<string>Viewer</string>
+			<key>LSHandlerRank</key>
+			<string>Default</string>
+			<key>LSItemContentTypes</key>
+			<array>
+				<string>com.xiaolong.qingjian.backup</string>
+				<string>public.json</string>
+			</array>
+		</dict>
+	</array>
+	<key>UTExportedTypeDeclarations</key>
+	<array>
+		<dict>
+			<key>UTTypeIdentifier</key>
+			<string>com.xiaolong.qingjian.backup</string>
+			<key>UTTypeDescription</key>
+			<string>Sermo 全量备份</string>
+			<key>UTTypeConformsTo</key>
+			<array>
+				<string>public.data</string>
+			</array>
+			<key>UTTypeTagSpecification</key>
+			<dict>
+				<key>public.filename-extension</key>
+				<array>
+					<string>sermobackup</string>
+				</array>
+			</dict>
+		</dict>
 	</array>
 	<key>LSSupportsOpeningDocumentsInPlace</key>
 	<true/>

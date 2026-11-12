@@ -41,8 +41,24 @@ enum ImageStore {
 
     static func save(_ jpeg: Data) throws -> String {
         let name = UUID().uuidString + ".jpg"
-        try jpeg.write(to: directory().appendingPathComponent(name), options: [.atomic, .completeFileProtection])
+        let folder = try directory()
+        try? FileManager.default.setAttributes([.protectionKey: FileProtectionType.completeUntilFirstUserAuthentication], ofItemAtPath: folder.path)
+        try jpeg.write(to: folder.appendingPathComponent(name), options: [.atomic, .completeFileProtectionUntilFirstUserAuthentication])
         return name
+    }
+
+    static func storageStats() -> (count: Int, bytes: Int64) {
+        guard let folder = try? directory(),
+              let urls = try? FileManager.default.contentsOfDirectory(at: folder, includingPropertiesForKeys: [.fileSizeKey], options: [.skipsHiddenFiles]) else {
+            return (0, 0)
+        }
+        var count = 0
+        var total: Int64 = 0
+        for url in urls where isSafe(url.lastPathComponent) {
+            count += 1
+            total += Int64((try? url.resourceValues(forKeys: [.fileSizeKey]).fileSize) ?? 0)
+        }
+        return (count, total)
     }
 
     static func dataURL(named name: String) -> String? {

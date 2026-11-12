@@ -213,9 +213,10 @@ struct AppSnapshot: Codable, Sendable {
     var usage: UsageLedger?
     var systemPromptPresets: [SystemPromptPreset]?
     var installedStudySubjects: [StudySubject]?
-    func validate() throws {
+    func validate(isLocalStore: Bool = false) throws {
         guard version == 1 else { throw ChatError.invalidBackup("这个备份的版本暂不支持。") }
-        guard threads.count <= 2000 else { throw ChatError.invalidBackup("备份中的对话数量过多。") }
+        let maxThreads = isLocalStore ? 10000 : 5000
+        guard threads.count <= maxThreads else { throw ChatError.invalidBackup("备份中的对话数量过多。") }
         let presets = systemPromptPresets ?? []
         guard presets.count <= 100, Set(presets.map(\.id)).count == presets.count else {
             throw ChatError.invalidBackup("系统指令库最多100份，且编号不能重复。")
@@ -255,14 +256,21 @@ struct AppSnapshot: Codable, Sendable {
         let decoder = JSONDecoder()
         decoder.dateDecodingStrategy = .iso8601
         let result = try decoder.decode(Self.self, from: data)
-        try result.validate()
+        try result.validate(isLocalStore: false)
         return result
     }
-    func encoded() throws -> Data {
-        try validate()
+    static func decodeLocal(_ data: Data) throws -> AppSnapshot {
+        let decoder = JSONDecoder()
+        decoder.dateDecodingStrategy = .iso8601
+        let result = try decoder.decode(Self.self, from: data)
+        try result.validate(isLocalStore: true)
+        return result
+    }
+    func encoded(pretty: Bool = true, isLocalStore: Bool = false) throws -> Data {
+        try validate(isLocalStore: isLocalStore)
         let encoder = JSONEncoder()
         encoder.dateEncodingStrategy = .iso8601
-        encoder.outputFormatting = [.prettyPrinted, .sortedKeys, .withoutEscapingSlashes]
+        encoder.outputFormatting = pretty ? [.prettyPrinted, .sortedKeys, .withoutEscapingSlashes] : [.sortedKeys, .withoutEscapingSlashes]
         return try encoder.encode(self)
     }
 }

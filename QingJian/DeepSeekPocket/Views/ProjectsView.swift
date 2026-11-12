@@ -768,7 +768,7 @@ private struct ProjectDocumentEditor: View {
             let base = cleanName.components(separatedBy: banned).joined()
             let fileName = String((base.isEmpty ? "项目资料" : base).prefix(80)) + ".md"
             let url = directory.appendingPathComponent(fileName)
-            try Data(text.utf8).write(to: url, options: [.atomic, .completeFileProtection])
+            try Data(text.utf8).write(to: url, options: [.atomic, .completeFileProtectionUntilFirstUserAuthentication])
             shareURL = url
         } catch {
             saveError = "文字文件没能导出：\(error.localizedDescription)"

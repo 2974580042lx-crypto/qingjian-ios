@@ -12,6 +12,8 @@ enum KeychainStore {
         if status == errSecItemNotFound { return "" }
         guard status == errSecSuccess, let data = result as? Data,
               let key = String(data: data, encoding: .utf8) else { throw KeychainError(status: status) }
+        SecItemUpdate(baseQuery(service: service) as CFDictionary,
+                      [kSecAttrAccessible as String: kSecAttrAccessibleAfterFirstUnlockThisDeviceOnly] as CFDictionary)
         return key
     }
     static func save(_ value: String, service: String = "qingjian.deepseek.api-key") throws {
@@ -23,12 +25,15 @@ enum KeychainStore {
             return
         }
         let data = Data(key.utf8)
-        let updates: [String: Any] = [kSecValueData as String: data]
+        let updates: [String: Any] = [
+            kSecValueData as String: data,
+            kSecAttrAccessible as String: kSecAttrAccessibleAfterFirstUnlockThisDeviceOnly
+        ]
         let status = SecItemUpdate(baseQuery as CFDictionary, updates as CFDictionary)
         if status == errSecItemNotFound {
             var item = baseQuery
             item[kSecValueData as String] = data
-            item[kSecAttrAccessible as String] = kSecAttrAccessibleWhenUnlockedThisDeviceOnly
+            item[kSecAttrAccessible as String] = kSecAttrAccessibleAfterFirstUnlockThisDeviceOnly
             let addStatus = SecItemAdd(item as CFDictionary, nil)
             guard addStatus == errSecSuccess else { throw KeychainError(status: addStatus) }
         } else if status != errSecSuccess { throw KeychainError(status: status) }

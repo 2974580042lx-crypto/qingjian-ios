@@ -132,7 +132,9 @@ final class AppStore: ObservableObject {
         } catch { studyIssue = "图片出处暂时无法核对，已保留图片文件。" }
     }
 
-    private func initializeStudyMemory() {
+    private var hasExistingLocalStoreFile = false
+
+    private func initializeStudyMemory(persistIfSeeded: Bool = true) {
         guard canPersist else { return }
         let oldProjects = projects, oldThreads = threads, oldInstalled = installedStudySubjects
         do {
@@ -141,7 +143,7 @@ final class AppStore: ObservableObject {
             studyMemory = try StudyMemoryStore(url: root.appendingPathComponent("learning.sqlite"))
             try StudyProjects.seed(projects: &projects, installed: &installedStudySubjects)
             ChatModelSelection.migrate(&threads, projects: oldProjects, settings: settings)
-            if projects != oldProjects || threads != oldThreads || installedStudySubjects != oldInstalled {
+            if persistIfSeeded && (projects != oldProjects || threads != oldThreads || installedStudySubjects != oldInstalled) {
                 guard persistNow() else { throw StudyMemoryError.unavailable }
             }
         } catch {
@@ -251,7 +253,7 @@ final class AppStore: ObservableObject {
             let (data, backup) = try StudyBackupCodec.encodeResilient(captured)
             let label = backup.isComplete ? "完整" : "记录保底-缺\(backup.omittedImages?.count ?? 0)图"
             let url = FileManager.default.temporaryDirectory.appendingPathComponent("Sermo学习备份-\(label)-\(projectID.uuidString)-\(UUID().uuidString.prefix(8)).json")
-            try data.write(to: url, options: [.atomic, .completeFileProtection])
+            try data.write(to: url, options: [.atomic, .completeFileProtectionUntilFirstUserAuthentication])
             if !backup.isComplete { noticeMessage = "已导出记录保底包，\(backup.omittedImages?.count ?? 0)张图片未包含，原文件仍保留本机。" }
             return url
         } catch { studyIssue = error.localizedDescription; return nil }
@@ -492,31 +494,24 @@ final class AppStore: ObservableObject {
             return
         }
         do {
-            persistence = try AppPersistence()
-            if let persistence {
-                let recoveryStore = try StudyMemoryStore(url: Self.studyDatabaseURL())
-                if try StudyRestoreEngine.recover(store: recoveryStore, imagesDirectory: ImageStore.directory(), recoveryDirectory: Self.studyRecoveryDirectory(), saveSnapshot: { try persistence.save($0) }) {
-                    noticeMessage = "上次学习恢复被中断，已回到恢复前状态。"
+            let storePersistence = try AppPersistence()
+            storePersistence.onBackgroundError = { [weak self] message in
+                Task { @MainActor in
+                    if self?.errorMessage == nil { self?.errorMessage = "后台保存提醒：\(message)" }
                 }
             }
-            if let snapshot = try persistence?.load() {
-                settings = snapshot.settings.migratingDefaultContext().validated()
-                threads = snapshot.threads
-                activeThreadID = snapshot.activeThreadID
-                projects = snapshot.projects ?? []
-                installedStudySubjects = snapshot.installedStudySubjects ?? []
-                systemPromptPresets = snapshot.systemPromptPresets ?? []
-                usage = snapshot.usage ?? UsageLedger.rebuilt(from: snapshot.threads)
-                let known = Set(projects.map(\.id))
-                for ti in threads.indices where threads[ti].projectID.map({ !known.contains($0) }) ?? false {
-                    threads[ti].projectID = nil
+            persistence = storePersistence
+            do {
+                let recoveryStore = try StudyMemoryStore(url: Self.studyDatabaseURL())
+                if try StudyRestoreEngine.recover(store: recoveryStore, imagesDirectory: ImageStore.directory(), recoveryDirectory: Self.studyRecoveryDirectory(), saveSnapshot: { try storePersistence.save($0, allowShrink: true) }) {
+                    noticeMessage = "上次学习恢复被中断，已回到恢复前状态。"
                 }
-                for ti in threads.indices {
-                    for mi in threads[ti].messages.indices where threads[ti].messages[mi].state == .streaming {
-                        threads[ti].messages[mi].state = .stopped
-                        threads[ti].messages[mi].note = "上次生成中断了，收到的内容已保留。"
-                    }
-                }
+            } catch {
+                studyIssue = "学习恢复检查未完成：\(error.localizedDescription)"
+            }
+            if let snapshot = try storePersistence.load() {
+                hasExistingLocalStoreFile = true
+                applyLoadedSnapshot(snapshot)
             }
         } catch {
             canPersist = false
@@ -524,12 +519,13 @@ final class AppStore: ObservableObject {
         }
         defer { refreshColabEndpoint() }
         do { apiKey = try KeychainStore.read() }
-        catch { errorMessage = error.localizedDescription }
+        catch { if errorMessage == nil { errorMessage = error.localizedDescription } }
         if threads.isEmpty { threads = [ChatThread()] }
         // Every launch opens on a fresh page in the project last picked for new chats
         // (none, or a locked one, means outside any project); earlier conversations stay in the sidebar.
         ensureManualProject()
-        initializeStudyMemory()
+        // Never auto-write a ~30 KB empty shell to disk on a fresh/missing-file launch before user interaction.
+        initializeStudyMemory(persistIfSeeded: hasExistingLocalStoreFile)
         studyCloudObserver = studyCloud.objectWillChange.sink { [weak self] in self?.objectWillChange.send() }
         studyCloud.configure(self)
         let start = newChatProjectID
@@ -543,6 +539,48 @@ final class AppStore: ObservableObject {
         }
         applyDefaults(of: start)
         if !threads.contains(where: { $0.id == activeThreadID }) { activeThreadID = threads.first?.id }
+    }
+
+    private func applyLoadedSnapshot(_ snapshot: AppSnapshot) {
+        settings = snapshot.settings.migratingDefaultContext().validated()
+        threads = snapshot.threads
+        activeThreadID = snapshot.activeThreadID
+        projects = snapshot.projects ?? []
+        installedStudySubjects = snapshot.installedStudySubjects ?? []
+        systemPromptPresets = snapshot.systemPromptPresets ?? []
+        usage = snapshot.usage ?? UsageLedger.rebuilt(from: snapshot.threads)
+        let known = Set(projects.map(\.id))
+        for ti in threads.indices where threads[ti].projectID.map({ !known.contains($0) }) ?? false {
+            threads[ti].projectID = nil
+        }
+        for ti in threads.indices {
+            for mi in threads[ti].messages.indices where threads[ti].messages[mi].state == .streaming {
+                threads[ti].messages[mi].state = .stopped
+                threads[ti].messages[mi].note = "上次生成中断了，收到的内容已保留。"
+            }
+        }
+    }
+
+    func reloadAfterUnlockIfNeeded() {
+        guard !isPreview else { return }
+        books.reloadIfNeeded()
+        subscription.reloadIfNeeded()
+        if apiKey.isEmpty, let key = try? KeychainStore.read(), !key.isEmpty { apiKey = key }
+        guard !canPersist else {
+            if studyMemory == nil { initializeStudyMemory(persistIfSeeded: hasExistingLocalStoreFile) }
+            return
+        }
+        do {
+            if persistence == nil { persistence = try AppPersistence() }
+            if let snapshot = try persistence?.load() {
+                hasExistingLocalStoreFile = true
+                applyLoadedSnapshot(snapshot)
+            }
+            canPersist = true
+            errorMessage = nil
+            ensureManualProject()
+            initializeStudyMemory(persistIfSeeded: hasExistingLocalStoreFile)
+        } catch {}
     }
 
     // A new page in a project also takes the project's default model and thinking level.
@@ -870,7 +908,7 @@ final class AppStore: ObservableObject {
         guard let thread = threads.first(where: { $0.id == id }) else { return nil }
         let url = FileManager.default.temporaryDirectory.appendingPathComponent(ConversationExport.fileName(for: thread))
         do {
-            try Data(ConversationExport.markdown(thread, userName: userName).utf8).write(to: url, options: [.atomic, .completeFileProtection])
+            try Data(ConversationExport.markdown(thread, userName: userName).utf8).write(to: url, options: [.atomic, .completeFileProtectionUntilFirstUserAuthentication])
             return url
         } catch { errorMessage = "无法导出这个对话：\(error.localizedDescription)"; return nil }
     }
@@ -1662,9 +1700,11 @@ final class AppStore: ObservableObject {
     // the app's own folder; into the picked folder too when there is one.
     func autoBackupIfNeeded(force: Bool = false) {
         guard !isPreview, canPersist, !backupRunning else { return }
+        let hasRealData = threads.contains(where: { !$0.messages.isEmpty }) || !usage.days.isEmpty || !systemPromptPresets.isEmpty
+        if !force && !hasRealData { return }
         if !force, let last = lastAutoBackup, Calendar.current.isDateInToday(last) { return }
         let data: Data
-        do { data = try snapshot.encoded() }
+        do { data = try snapshot.encoded(pretty: false, isLocalStore: true) }
         catch { backupIssue = "自动备份没有完成：\(error.localizedDescription)"; return }
         backupRunning = true
         Task {
@@ -2599,12 +2639,104 @@ final class AppStore: ObservableObject {
         AppSnapshot(settings: settings, threads: threads, activeThreadID: activeThreadID, projects: projects, usage: usage,
                     systemPromptPresets: systemPromptPresets, installedStudySubjects: installedStudySubjects)
     }
-    @discardableResult func persistNow() -> Bool {
+    @discardableResult func persistNow(allowShrink: Bool = false) -> Bool {
         if isPreview { return true }
         guard canPersist, let persistence else { return false }
         commitLive()
-        do { try persistence.save(snapshot); lastSave = Date(); studyCloud.changed(); return true }
-        catch { errorMessage = "这次记录未能保存，请保持手机解锁并检查可用空间后重试。"; return false }
+        do {
+            try persistence.save(snapshot, allowShrink: allowShrink)
+            hasExistingLocalStoreFile = true
+            lastSave = Date()
+            studyCloud.changed()
+            return true
+        } catch {
+            errorMessage = error.localizedDescription
+            return false
+        }
+    }
+
+    struct LocalDataDiagnostics {
+        var conversationsBytes: Int64
+        var conversationsModified: Date?
+        var visibleThreads: Int
+        var totalThreads: Int
+        var totalMessages: Int
+        var projectCount: Int
+        var documentCount: Int
+        var presetCount: Int
+        var usageDays: Int
+        var studyBytes: Int64
+        var studyRows: Int
+        var imageCount: Int
+        var imageBytes: Int64
+        var bookCount: Int
+        var personaCount: Int
+        var bookBytes: Int64
+    }
+
+    func localDataDiagnostics() -> LocalDataDiagnostics {
+        let fileStats = persistence?.fileStats() ?? (0, nil)
+        let studyURL = try? Self.studyDatabaseURL()
+        let studySize = Int64((try? studyURL?.resourceValues(forKeys: [.fileSizeKey]).fileSize) ?? 0)
+        let studyRows = (try? studyMemory?.exportAllStudyData().rows.count) ?? 0
+        let imageStats = ImageStore.storageStats()
+        let bookStats = books.storageStats()
+        let docs = projects.reduce(0) { $0 + $1.documents.count }
+        let messages = threads.reduce(0) { $0 + $1.messages.count }
+        return LocalDataDiagnostics(
+            conversationsBytes: fileStats.size,
+            conversationsModified: fileStats.modified,
+            visibleThreads: browsableThreads.count,
+            totalThreads: threads.count,
+            totalMessages: messages,
+            projectCount: projects.count,
+            documentCount: docs,
+            presetCount: systemPromptPresets.count,
+            usageDays: usage.days.count,
+            studyBytes: studySize,
+            studyRows: studyRows,
+            imageCount: imageStats.count,
+            imageBytes: imageStats.bytes,
+            bookCount: bookStats.bookCount,
+            personaCount: bookStats.personaCount,
+            bookBytes: bookStats.bytes
+        )
+    }
+
+    func safetySnapshots() -> [SafetySnapshotInfo] {
+        persistence?.safetySnapshots() ?? []
+    }
+
+    @discardableResult
+    func createManualSafetySnapshot() -> Bool {
+        guard canPersist, let persistence else { return false }
+        _ = persistNow()
+        do {
+            if let _ = try persistence.createSafetyCopy(prefix: "manual-safety") {
+                noticeMessage = "已创建当前数据的安全快照。"
+                return true
+            }
+            errorMessage = "当前还没有落盘的主记录文件。"
+            return false
+        } catch {
+            errorMessage = "安全快照创建失败：\(error.localizedDescription)"
+            return false
+        }
+    }
+
+    func localAutoBackupFiles() -> [(name: String, size: Int64, date: Date, url: URL)] {
+        guard let folder = try? BackupFolder.localFolder(),
+              let urls = try? FileManager.default.contentsOfDirectory(
+                at: folder, includingPropertiesForKeys: [.fileSizeKey, .contentModificationDateKey], options: [.skipsHiddenFiles]
+              ) else { return [] }
+        return urls.filter { $0.lastPathComponent.hasPrefix(BackupFolder.prefix) }.compactMap { url in
+            let v = try? url.resourceValues(forKeys: [.fileSizeKey, .contentModificationDateKey])
+            return (url.lastPathComponent, Int64(v?.fileSize ?? 0), v?.contentModificationDate ?? .distantPast, url)
+        }.sorted { $0.date > $1.date }
+    }
+
+    func handleIncomingBackupFile(_ url: URL) {
+        importBackup(url)
     }
 
     func exportShelfArchive() async -> URL? {
@@ -2635,7 +2767,7 @@ final class AppStore: ObservableObject {
                 guard data.count <= 512 * 1024 * 1024 else { throw ChatError.invalidBackup("书架超过512 MB，请先分批整理。") }
                 let formatter = DateFormatter(); formatter.dateFormat = "yyyyMMdd-HHmmss"
                 let file = FileManager.default.temporaryDirectory.appendingPathComponent("Sermo完整书架-\(formatter.string(from: Date())).json")
-                try data.write(to: file, options: [.atomic, .completeFileProtection])
+                try data.write(to: file, options: [.atomic, .completeFileProtectionUntilFirstUserAuthentication])
                 return file
             }.value
         } catch { errorMessage = "书架备份没有导出：\(error.localizedDescription)"; return nil }

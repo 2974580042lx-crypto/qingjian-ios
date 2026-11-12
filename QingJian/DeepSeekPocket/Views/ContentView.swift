@@ -104,9 +104,21 @@ struct ContentView: View {
         .sheet(isPresented: $showProjects) {
             ProjectsView(opened: { showProjects = false; showSidebar = false }).environmentObject(store).environmentObject(profile)
         }
-        // A TXT shared to Sermo from the Files app (or another app) goes onto the bookshelf.
+        // Route files opened from the Files app by extension: backups vs novels.
         .onOpenURL { url in
             guard url.isFileURL else { return }
+            let ext = url.pathExtension.lowercased()
+            if ext == "sermobackup" || ext == "json" {
+                Task {
+                    guard let local = await Task.detached(priority: .userInitiated, operation: { IncomingFile.privateCopy(of: url) }).value else {
+                        store.errorMessage = "没能读取这个备份文件，请在「文件」里确认它已下载后再试。"
+                        return
+                    }
+                    defer { try? FileManager.default.removeItem(at: local.deletingLastPathComponent()) }
+                    store.handleIncomingBackupFile(local)
+                }
+                return
+            }
             showBooks = true
             Task {
                 // Import a private copy: the importer removes what it reads, and the

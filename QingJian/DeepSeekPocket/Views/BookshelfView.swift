@@ -94,7 +94,12 @@ struct BookshelfView: View {
                             Task { shelfExport = await store.exportShelfArchive() }
                         }
                         Button("恢复书架备份", systemImage: "square.and.arrow.down") {
-                            DocumentPicker.present([.json], asCopy: false) { url in Task { await store.importShelfArchive(url) } }
+                            DocumentPicker.present([.json], asCopy: true, onError: { store.errorMessage = $0 }) { url in
+                                Task {
+                                    defer { try? FileManager.default.removeItem(at: url) }
+                                    await store.importShelfArchive(url)
+                                }
+                            }
                         }
                     } label: {
                         if store.shelfBackupBusy { ProgressView() } else { Image(systemName: "externaldrive") }

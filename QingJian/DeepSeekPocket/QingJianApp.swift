@@ -28,17 +28,25 @@ struct QingJianApp: App {
                 .environmentObject(store)
                 .environmentObject(profile)
                 .tint(Ink.ink)
+                .onReceive(NotificationCenter.default.publisher(for: UIApplication.protectedDataDidBecomeAvailableNotification)) { _ in
+                    store.reloadAfterUnlockIfNeeded()
+                    profile.reloadIfNeeded()
+                }
                 .onChange(of: scenePhase) { _, phase in
                     store.speech.setForeground(phase == .active)
                     store.studyCloud.setForeground(phase == .active)
-                    if phase != .active { store.persistNow() }
-                    // Not on .inactive: the Face ID prompt itself makes the app inactive.
                     if phase == .background {
+                        store.persistNow()
                         // Leaving the app counts as leaving the conversation for project memory.
                         store.updateMemory(leaving: store.activeThreadID)
                         store.relockProjects()
                     }
-                    if phase == .active { store.autoBackupIfNeeded(); store.refreshColabEndpoint() }
+                    if phase == .active {
+                        store.reloadAfterUnlockIfNeeded()
+                        profile.reloadIfNeeded()
+                        store.autoBackupIfNeeded()
+                        store.refreshColabEndpoint()
+                    }
                 }
         }
     }

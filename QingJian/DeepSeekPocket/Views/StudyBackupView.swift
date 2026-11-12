@@ -4,7 +4,6 @@ import UniformTypeIdentifiers
 struct StudyCloudBackupSection: View {
     @EnvironmentObject private var store: AppStore
     @ObservedObject var cloud: StudyBackupController
-    @State private var importing = false
     @State private var keepLocal = false
     var body: some View {
         Section {
@@ -48,7 +47,11 @@ struct StudyCloudBackupSection: View {
                     }
                 }
             }
-            Button("从本地学习备份恢复") { importing = true }.disabled(cloud.busy || !store.canRestoreStudyBackup)
+            Button("从本地学习备份恢复") {
+                DocumentPicker.present([.json, .data], asCopy: true, onError: { cloud.issue = $0 }) { url in
+                    cloud.prepareLocalRestore(url)
+                }
+            }.disabled(cloud.busy || !store.canRestoreStudyBackup)
             if !cloud.localRecoveryFiles.isEmpty {
                 DisclosureGroup("恢复前的本机版本") {
                     ForEach(cloud.localRecoveryFiles.prefix(10), id: \.path) { url in
@@ -68,10 +71,6 @@ struct StudyCloudBackupSection: View {
             Button("保留本机，另存新版本") { cloud.syncNow(keepLocal: true) }
         } message: {
             Text("当前账号：\(store.drive.accountLabel)\n云端最近版本：\(cloud.files.first?.name ?? "尚未读取")\n已有云端版本会保留。")
-        }
-        .fileImporter(isPresented: $importing, allowedContentTypes: [.json]) { result in
-            do { cloud.prepareLocalRestore(try result.get()) }
-            catch { cloud.issue = error.localizedDescription }
         }
         .sheet(item: $cloud.preview) { preview in
             StudyRestorePreviewView(cloud: cloud, preview: preview)
