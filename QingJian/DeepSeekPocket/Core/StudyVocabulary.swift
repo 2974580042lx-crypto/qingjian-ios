@@ -199,6 +199,9 @@ extension StudyMemoryStore {
     func wordProgress(projectID: UUID) throws -> [StudyWordProgress] {
         try transaction { try rows(projectID: projectID, kind: "word_progress").map { try StudyCoding.decode(StudyWordProgress.self, from: $0) } }
     }
+    func wordEvents(projectID: UUID) throws -> [StudyWordEvent] {
+        try transaction { try rows(projectID: projectID, kind: "word_event").map { try StudyCoding.decode(StudyWordEvent.self, from: $0) } }
+    }
     func wordPracticeSummary(projectID: UUID, now: Date = Date()) throws -> StudyWordPracticeSummary {
         let pack = try wordPack(projectID: projectID)
         let progress = try wordProgress(projectID: projectID)
@@ -734,13 +737,16 @@ extension StudyMemoryStore {
 
         for outItem in outOfPackItems {
             let label = ["easy": "轻松掌握", "good": "记得", "hard": "印象模糊", "again": "待加强"][outItem.canonicalRating] ?? "已聊"
+            let userMessage = message.role == .user
+                ? message
+                : ChatMessage(id: message.id, role: .user, content: message.content.isEmpty ? outItem.word : message.content, createdAt: message.createdAt)
             _ = try saveMemoryFree(
                 scope: scope,
                 recordRef: nil,
                 action: "save",
                 category: "生词",
                 text: "\(outItem.word)（聊天/阅读随手记词 · \(label)）",
-                message: message
+                message: userMessage
             )
             let fallbackWord = StudyWord(
                 id: "notebook:\(outItem.word.lowercased())",

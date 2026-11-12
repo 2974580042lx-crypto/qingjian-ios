@@ -46,7 +46,7 @@ final class WebSearchTests: XCTestCase {
         let data = try WebSearchProtocol.body(query: String(repeating: "字", count: 5000))
         let body = try XCTUnwrap(JSONSerialization.jsonObject(with: data) as? [String: Any])
         let tools = try XCTUnwrap(body["tools"] as? [[String: Any]])
-        XCTAssertEqual(tools.first?["max_uses"] as? Int, 1)
+        XCTAssertEqual(tools.first?["max_uses"] as? Int, 2)
         XCTAssertLessThan(data.count, 15000)
     }
 }

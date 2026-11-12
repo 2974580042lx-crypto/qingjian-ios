@@ -153,7 +153,7 @@ enum WebText {
             if let subPath, !GitHubAction.isValidPath(subPath, allowEmpty: false) { return nil }
             return GitHubTarget(owner: owner, repo: repo, ref: ref, path: subPath, isBlob: mode == "blob")
         }
-        return GitHubTarget(owner: owner, repo: repo, ref: nil, path: nil, isBlob: false)
+        return nil
     }
 }
 
