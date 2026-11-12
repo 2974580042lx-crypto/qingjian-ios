@@ -41,7 +41,7 @@ enum Ink {
     }
     static var raised: Color {
         if night { return fixed(0x0F1D24) }
-        return swiss ? Color.adaptive(light: 0xFFFFFF, dark: 0x1D1E21) : Color.adaptive(light: 0xF0EFEB, dark: 0x292927)
+        return swiss ? Color.adaptive(light: 0xFFFFFF, dark: 0x1D1E21) : Color.adaptive(light: 0xF2EFE6, dark: 0x262522)
     }
     static var ink: Color {
         if night { return fixed(0xDBEBEF) }
@@ -49,16 +49,16 @@ enum Ink {
     }
     static var ink2: Color {
         if night { return fixed(0xB4C3C9) }
-        return swiss ? Color.adaptive(light: 0x3B3B3B, dark: 0xC6C6C1) : Color.adaptive(light: 0x3D3C38, dark: 0xD0CDC4)
+        return swiss ? Color.adaptive(light: 0x3B3B3B, dark: 0xC6C6C1) : Color.adaptive(light: 0x35322D, dark: 0xD6D2C9)
     }
     static var ink3: Color {
         if night { return fixed(0x92A1A8) }
-        return swiss ? Color.adaptive(light: 0x5E5E5E, dark: 0x9B9B96) : Color.adaptive(light: 0x6B6964, dark: 0xA6A39B)
+        return swiss ? Color.adaptive(light: 0x5E5E5E, dark: 0x9B9B96) : Color.adaptive(light: 0x6D685F, dark: 0xA6A299)
     }
     static var line: Color {
         if night { return fixed(0xDBEBEF, alpha: 0.13) }
         return swiss ? Color.adaptive(light: 0x111111, dark: 0xEDEDE9, lightAlpha: 0.16, darkAlpha: 0.18)
-            : Color.adaptive(light: 0x1F1E1D, dark: 0xECEAE3, lightAlpha: 0.10, darkAlpha: 0.12)
+            : Color.adaptive(light: 0x24211C, dark: 0xECE9E1, lightAlpha: 0.11, darkAlpha: 0.13)
     }
     static var seal: Color {
         if night { return fixed(0xECD59F) }
@@ -407,9 +407,9 @@ enum Personal {
 
     struct Preset: Identifiable { let id: String; let title: String; let light: UInt32; let dark: UInt32 }
     static let textPresets = [
-        Preset(id: "black", title: "近黑", light: 0x1A1918, dark: 0xEEECE6),
-        Preset(id: "warm", title: "暖深灰", light: 0x2A2926, dark: 0xE8E6DF),
-        Preset(id: "brown", title: "深棕", light: 0x3A2A21, dark: 0xE8D9CB),
+        Preset(id: "black", title: "近黑", light: 0x1F1E1B, dark: 0xECE9E1),
+        Preset(id: "warm", title: "暖深灰", light: 0x2B2925, dark: 0xE8E5DD),
+        Preset(id: "brown", title: "深棕", light: 0x382920, dark: 0xEADACE),
     ]
     static let accentPresets = [
         Preset(id: "clay", title: "陶土", light: 0xC96442, dark: 0xD97757),
@@ -419,12 +419,12 @@ enum Personal {
         Preset(id: "graphite", title: "石墨", light: 0x3A3936, dark: 0xD8D6CF),
     ]
     static let paperPresets = [
-        Preset(id: "ivory", title: "柔白", light: 0xFAFAF8, dark: 0x171716),
+        Preset(id: "ivory", title: "柔白", light: 0xFAF9F5, dark: 0x191918),
         Preset(id: "white", title: "纯白", light: 0xFFFFFF, dark: 0x0C0C0C),
         Preset(id: "grey", title: "浅灰", light: 0xF3F3F1, dark: 0x1C1C1E),
     ]
     private static let sheetFor: [String: (UInt32, UInt32)] = [
-        "ivory": (0xF3F3F0, 0x111110), "white": (0xF4F4F4, 0x050505), "grey": (0xEAEAE7, 0x141416),
+        "ivory": (0xF3F0E8, 0x131312), "white": (0xF4F4F4, 0x050505), "grey": (0xEAEAE7, 0x141416),
     ]
 
     // Read from UserDefaults once per change, not once per paragraph per redraw.
@@ -463,21 +463,21 @@ enum Personal {
     }
 
     // Near-black by default: 1.28's softer grey made strokes read thinner than the Claude app.
-    static var ink: Color { pick(textKey, textPresets, fallback: "black", darkForCustom: 0xEEECE6) }
+    static var ink: Color { pick(textKey, textPresets, fallback: "black", darkForCustom: 0xECE9E1) }
     static var accent: Color { pick(accentKey, accentPresets, fallback: "clay", darkForCustom: 0xD97757) }
-    static var paper: Color { pick(paperKey, paperPresets, fallback: "ivory", darkForCustom: 0x171716) }
+    static var paper: Color { pick(paperKey, paperPresets, fallback: "ivory", darkForCustom: 0x191918) }
     static var sheet: Color {
         let raw = stored(paperKey)
         let pair = sheetFor[raw] ?? sheetFor["ivory"]!
         return Color.adaptive(light: pair.0, dark: pair.1)
     }
-    /// Your message bubble: soft grey, a wash of the accent, or a picked colour.
+    /// Your message bubble: warm oat-milk cream by default, a wash of the accent, or a picked colour.
     static var bubble: Color {
         let raw = stored(bubbleKey)
         if InterfaceStyle.isSwiss || InterfaceStyle.isNight { return Ink.raised }
         if raw == "accent" { return accent.opacity(0.14) }
-        if let custom = hex(raw) { return Color.adaptive(light: custom, dark: 0x292927) }
-        return Ink.raised
+        if let custom = hex(raw) { return Color.adaptive(light: custom, dark: 0x2A2926) }
+        return Color.adaptive(light: 0xEFECE4, dark: 0x2A2926)
     }
     @MainActor static func setMediumBody(_ on: Bool) {
         UserDefaults.standard.set(on ? "1" : "", forKey: mediumKey)
@@ -486,10 +486,10 @@ enum Personal {
     static var mediumBody: Bool { stored(mediumKey) == "1" }
     /// Line spacing inside a paragraph and the gap between paragraphs.
     static var lineSpacing: CGFloat {
-        switch stored(spacingKey) { case "compact": return 5; case "loose": return 11; default: return 8 }
+        switch stored(spacingKey) { case "compact": return 4.5; case "loose": return 10; default: return 7 }
     }
     static var paragraphGap: CGFloat {
-        switch stored(spacingKey) { case "compact": return 16; case "loose": return 28; default: return 22 }
+        switch stored(spacingKey) { case "compact": return 13; case "loose": return 24; default: return 18 }
     }
     /// Left and right margin of the chat text.
     static var margin: CGFloat {

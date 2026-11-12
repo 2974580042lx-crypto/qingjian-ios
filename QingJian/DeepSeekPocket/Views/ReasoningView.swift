@@ -1,6 +1,6 @@
 import SwiftUI
 
-// Thinking, after the Claude app: one quiet line in the conversation, and the
+// Thinking, after the Claude app: one quiet pill in the conversation, and the
 // full thinking in a half-height sheet, laid out as a timeline of paragraphs.
 enum ThinkingSteps {
     static func split(_ text: String) -> [String] {
@@ -15,8 +15,6 @@ struct ThinkingRow: View {
     let message: ChatMessage
     let open: () -> Void
     private var live: Bool { message.state == .streaming && message.content.isEmpty }
-    // Only the tail is looked at: splitting the whole thinking text on every redraw
-    // costs more the longer it thinks.
     private var snippet: String {
         let tail = String(message.reasoning.suffix(400))
         let last = tail.components(separatedBy: "\n\n").map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }.last { !$0.isEmpty } ?? ""
@@ -25,8 +23,8 @@ struct ThinkingRow: View {
 
     var body: some View {
         Button(action: open) {
-            HStack(spacing: 8) {
-                ThinkingMark(live: live)
+            HStack(spacing: 7) {
+                ThinkingMark(live: live, size: 15)
                 if live {
                     TimelineView(.periodic(from: .now, by: 1)) { timeline in
                         line(head: "思考中 · \(max(0, Int(timeline.date.timeIntervalSince(message.createdAt)))) 秒")
@@ -34,30 +32,29 @@ struct ThinkingRow: View {
                 } else {
                     line(head: message.thinkingSeconds.map { "已思考 \($0) 秒" } ?? "思考过程")
                 }
-                Image(systemName: "chevron.right").font(.system(size: 10, weight: .semibold))
+                Image(systemName: "chevron.right")
+                    .font(.system(size: 9.5, weight: .bold))
+                    .foregroundStyle(Ink.seal.opacity(0.75))
             }
-            .font(TypeScale.caption).foregroundStyle(Ink.ink3)
-            .frame(minHeight: 36).contentShape(Rectangle())
+            .font(.system(size: 12.5, weight: .medium))
+            .padding(.horizontal, 11)
+            .padding(.vertical, 6)
+            .background(Ink.raised, in: InkCapsule())
+            .overlay(InkCapsule().stroke(Ink.seal.opacity(live ? 0.30 : 0.14), lineWidth: 0.8))
+            .frame(minHeight: 34)
+            .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
         .accessibilityLabel(live ? "正在思考，打开思考过程" : "打开思考过程")
         .accessibilityIdentifier("thinking-row")
     }
 
-    // Only how long it thought; the raw first words of the reasoning read as noise.
-    // The whole timeline opens with a tap.
     private func line(head: String) -> some View {
         Text(head).foregroundStyle(Ink.ink2).monospacedDigit()
     }
 }
 
-/// Sermo's thinking mark: five small terracotta petals round a seed. While it thinks
-/// the flower turns slowly and the petals breathe one after another; when it is done
-/// they settle into a still little flower. Motion stops when Reduce Motion is on.
-///
-/// The motion is handed to the system's animation engine once (repeating rotation and
-/// scale), so the view is not redrawn frame by frame: an earlier version recomputed
-/// the flower on every display frame and kept the phone warm through long answers.
+/// Sermo's thinking mark: five small terracotta petals round a seed.
 struct ThinkingMark: View {
     var live: Bool
     var size: CGFloat = 18
@@ -122,7 +119,7 @@ struct ThinkingSheet: View {
                         }
                         .padding(.horizontal, 22).padding(.top, 6).padding(.bottom, 32)
                     }
-                    // While it thinks, new paragraphs keep the newest one in view.
+                    .background(Ink.paper)
                     .defaultScrollAnchor(live ? .bottom : nil, for: .sizeChanges)
                     .toolbar {
                         ToolbarItem(placement: .topBarTrailing) {
@@ -132,6 +129,7 @@ struct ThinkingSheet: View {
                   }
                 } else {
                     Text("这条回答已经不在了。").font(TypeScale.caption).foregroundStyle(Ink.ink3)
+                        .frame(maxWidth: .infinity, maxHeight: .infinity).background(Ink.paper)
                 }
             }
             .toolbar {
@@ -145,10 +143,11 @@ struct ThinkingSheet: View {
             .navigationBarTitleDisplayMode(.inline)
             .navigationDestination(for: ThinkingStepPage.self) { page in
                 ScrollView {
-                    Text(page.text).readingStyle(adjustment: -2).lineSpacing(7).foregroundStyle(Ink.ink2)
+                    Text(page.text).readingStyle(adjustment: -2).lineSpacing(7).foregroundStyle(Ink.ink)
                         .textSelection(.enabled).frame(maxWidth: .infinity, alignment: .leading)
                         .padding(.horizontal, 22).padding(.vertical, 10)
                 }
+                .background(Ink.paper)
                 .navigationTitle("第 \(page.index + 1) 段").navigationBarTitleDisplayMode(.inline)
             }
         }
@@ -218,7 +217,7 @@ struct ThinkingStepPage: Hashable {
     let text: String
 }
 
-// Paragraphs joined by a hairline down the left, each with a small dot.
+// Paragraphs joined by a hairline down the left, each with a small terracotta dot.
 struct ThinkingTimeline: View {
     let steps: [String]
     let live: Bool
@@ -243,10 +242,10 @@ struct ThinkingTimeline: View {
     private func row(_ step: String, last: Bool, chevron: Bool) -> some View {
         HStack(alignment: .top, spacing: 14) {
             Group {
-                if live && last { PulseDot(size: 9) } else { Circle().fill(Ink.line).frame(width: 9, height: 9) }
+                if live && last { PulseDot(size: 9) } else { Circle().fill(Ink.seal.opacity(0.36)).frame(width: 8, height: 8) }
             }
             .frame(width: 9).padding(.top, 8)
-            Text(step).font(TypeScale.serif(15)).lineSpacing(6).foregroundStyle(Ink.ink2)
+            Text(step).font(TypeScale.serif(15)).lineSpacing(6).foregroundStyle(Ink.ink)
                 .lineLimit(4).multilineTextAlignment(.leading)
                 .frame(maxWidth: .infinity, alignment: .leading)
             if chevron {
@@ -254,9 +253,9 @@ struct ThinkingTimeline: View {
                     .padding(.top, 8)
             }
         }
-        .padding(.bottom, last ? 0 : 22)
+        .padding(.bottom, last ? 0 : 20)
         .background(alignment: .topLeading) {
-            if !last { Rectangle().fill(Ink.line).frame(width: 1).padding(.top, 22).padding(.leading, 4) }
+            if !last { Rectangle().fill(Ink.line).frame(width: 1).padding(.top, 20).padding(.leading, 4) }
         }
         .contentShape(Rectangle())
     }

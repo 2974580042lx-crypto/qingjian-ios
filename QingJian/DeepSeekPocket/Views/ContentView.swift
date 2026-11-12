@@ -2137,14 +2137,15 @@ struct MarkdownAnswer: View, Equatable {
                             Text(Self.codeBody(segment)).font(.system(size: 13, design: .monospaced)).textSelection(.enabled)
                         }
                     }.padding(14).background(Ink.raised, in: RoundedRectangle(cornerRadius: swiss ? 0 : 16, style: .continuous))
-                        .overlay(Rectangle().stroke(swiss ? Ink.line : Color.clear, lineWidth: 1).allowsHitTesting(false))
+                        .overlay(RoundedRectangle(cornerRadius: swiss ? 0 : 16, style: .continuous)
+                            .stroke(swiss ? Ink.line : Ink.seal.opacity(0.18), lineWidth: 1).allowsHitTesting(false))
                 }
             }
         }.frame(maxWidth: .infinity, alignment: .leading)
     }
-    private static func inline(_ text: String) -> AttributedString {
+    fileprivate static func inline(_ text: String, baseSize: CGFloat = 18) -> AttributedString {
         ((try? AttributedString(markdown: text, options: .init(interpretedSyntax: .inlineOnlyPreservingWhitespace))) ?? AttributedString(text))
-            .applyingTerracottaCodeAndEmphasis()
+            .applyingTerracottaCodeAndEmphasis(baseSize: baseSize, boldColor: Ink.seal)
     }
     private static func codeBody(_ segment: String) -> String {
         guard let newline = segment.firstIndex(of: "\n") else { return segment }
@@ -2166,7 +2167,7 @@ struct TableCell: View {
         }
     }
     var body: some View {
-        Text((try? AttributedString(markdown: text, options: .init(interpretedSyntax: .inlineOnlyPreservingWhitespace))) ?? AttributedString(text))
+        Text(MarkdownContent.inline(text, baseSize: 15))
             .readingStyle(adjustment: -2, heavy: header)
             .foregroundStyle(header ? Ink.ink : Ink.ink2)
             .multilineTextAlignment(alignment == .center ? .center : alignment == .trailing ? .trailing : .leading)
@@ -2198,10 +2199,11 @@ struct MarkdownParagraph: View, Equatable {
             Text(markdown: parsed, emphasis: Ink.seal).readingStyle(adjustment: -1).lineSpacing(6)
                 .foregroundStyle(Ink.ink)
         } else {
-            // Emphasis is a touch heavier text now, no highlighter stroke behind it.
-            // Line height and paragraph gap from 个性化 (about 1.6× by default) and
-            // Chinese punctuation; no extra letter spacing.
-            Text(markdown: parsed, emphasisWeight: .semibold).readingStyle().lineSpacing(Personal.lineSpacing).chineseReading()
+            let baseSize = CGFloat(UserDefaults.standard.object(forKey: "qingjian.reading.size") as? Double ?? 17.0)
+            Text(markdown: parsed, emphasisWeight: .semibold, baseSize: baseSize)
+                .readingStyle()
+                .lineSpacing(Personal.lineSpacing)
+                .chineseReading()
                 .foregroundStyle(Ink.ink)
         }
     }

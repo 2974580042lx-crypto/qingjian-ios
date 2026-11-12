@@ -6,25 +6,35 @@ struct ToolActivityList: View {
     let items: [ToolActivity]
     let signIn: () -> Void
     var body: some View {
-        VStack(alignment: .leading, spacing: 8) {
+        VStack(alignment: .leading, spacing: 7) {
             ForEach(items) { item in
-                HStack(alignment: .firstTextBaseline, spacing: 8) {
-                    icon(for: item.status).frame(width: 16)
-                    VStack(alignment: .leading, spacing: 3) {
-                        Text(item.title).font(TypeScale.serif(14).weight(item.status == .running ? .medium : .regular))
-                            .foregroundStyle(item.status == .running ? Ink.seal : Ink.ink2).lineLimit(2)
-                        if let detail = item.detail {
-                            Text(detail).font(TypeScale.serif(12)).foregroundStyle(Ink.ink3).lineLimit(3)
+                HStack(alignment: .center, spacing: 8) {
+                    icon(for: item.status).frame(width: 15, height: 15)
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text(item.title)
+                            .font(.system(size: 13, weight: .medium))
+                            .foregroundStyle(item.status == .running ? Ink.seal : Ink.ink2)
+                            .lineLimit(2)
+                        if let detail = item.detail, !detail.isEmpty {
+                            Text(detail)
+                                .font(.system(size: 11.5))
+                                .foregroundStyle(Ink.ink3)
+                                .lineLimit(2)
                         }
                         if item.status == .needsSignIn && item.kind != "github" {
                             Button("登录谷歌云盘", action: signIn)
-                                .font(TypeScale.serif(13).weight(.semibold)).foregroundStyle(Ink.ink)
-                                .padding(.horizontal, 12).frame(height: 32)
-                                .background(Ink.raised, in: InkCapsule())
+                                .font(.system(size: 12.5, weight: .semibold)).foregroundStyle(Ink.seal)
+                                .padding(.horizontal, 10).frame(height: 28)
+                                .background(Ink.paper, in: InkCapsule())
                                 .buttonStyle(.plain)
+                                .padding(.top, 2)
                         }
                     }
                 }
+                .padding(.horizontal, 11)
+                .padding(.vertical, 6.5)
+                .background(Ink.raised, in: InkRounded(radius: 12))
+                .overlay(InkRounded(radius: 12).stroke(Ink.seal.opacity(item.status == .running ? 0.30 : 0.14), lineWidth: 0.8))
                 .accessibilityElement(children: .combine)
                 if let report = item.studyReport {
                     DisclosureGroup("学习周报 · 第\(report.revision)版快照") {

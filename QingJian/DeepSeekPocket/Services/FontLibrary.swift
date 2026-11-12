@@ -38,10 +38,10 @@ enum FontLibrary {
     static var choice: FontChoice {
         _ = FontAppearance.shared.revision
         if let raw = UserDefaults.standard.string(forKey: choiceKey), let value = FontChoice(rawValue: raw) {
-            return value == .custom && regularName == nil ? .builtIn : value
+            return value == .custom && regularName == nil ? .system : value
         }
-        // Before 1.6.0 there was only the "宋体阅读" switch.
-        return UserDefaults.standard.object(forKey: legacySerifKey) as? Bool == false ? .system : .builtIn
+        // Default to clean system font (PingFang SC + SF Pro) matching Claude Code unless legacy serif was explicitly set.
+        return UserDefaults.standard.object(forKey: legacySerifKey) as? Bool == true ? .builtIn : .system
     }
     static var regularName: String? { UserDefaults.standard.string(forKey: regularKey) }
     static var boldName: String? { UserDefaults.standard.string(forKey: boldKey) }
