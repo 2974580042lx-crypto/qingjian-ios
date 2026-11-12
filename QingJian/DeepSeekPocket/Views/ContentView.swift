@@ -2167,7 +2167,7 @@ struct TableCell: View {
         }
     }
     var body: some View {
-        Text(MarkdownContent.inline(text, baseSize: 15))
+        Text(MarkdownAnswer.inline(text, baseSize: 15))
             .readingStyle(adjustment: -2, heavy: header)
             .foregroundStyle(header ? Ink.ink : Ink.ink2)
             .multilineTextAlignment(alignment == .center ? .center : alignment == .trailing ? .trailing : .leading)
