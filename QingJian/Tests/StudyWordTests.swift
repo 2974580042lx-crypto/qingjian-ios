@@ -275,7 +275,7 @@ final class StudyWordTests: XCTestCase {
         XCTAssertEqual(summary.todayWords, 2)
         XCTAssertEqual(Set(summary.todayWordsList.map(\.word.word)), Set(["adapt", "adopt"]))
         XCTAssertTrue(summary.weakWordsList.contains("adopt"))
-        XCTAssertEqual(try store.wordEvents(projectID: scope.projectID).filter { !$0.undone }.count, 2)
+        XCTAssertEqual(try store.reviewInput(projectID: scope.projectID).wordEvents.filter { !$0.undone }.count, 2)
 
         // Undo by word name reverts the latest FSRS review cleanly and marks the word_event undone
         let undone = try store.gradeWordsFree(
@@ -286,7 +286,7 @@ final class StudyWordTests: XCTestCase {
         )
         XCTAssertEqual(undone.first?.reviewCount, 0)
         XCTAssertEqual(try store.wordPracticeSummary(projectID: scope.projectID, now: now.addingTimeInterval(15)).learnedWords, 1)
-        XCTAssertEqual(try store.wordEvents(projectID: scope.projectID).filter { !$0.undone }.count, 1)
+        XCTAssertEqual(try store.reviewInput(projectID: scope.projectID).wordEvents.filter { !$0.undone }.count, 1)
 
         // Out-of-pack word casually discussed in any window is saved into 生词 memory instead of throwing
         let outOfPack = try store.gradeWordsFree(
