@@ -1556,7 +1556,7 @@ final class AppStore: ObservableObject {
         if provider == .chatGPT { answer.provider = .chatGPT; answer.subscriptionModel = subscriptionModel }
         threads[ti].messages.append(answer)
         threads[ti].updatedAt = Date()
-        let key = apiKey, ghToken = github.currentToken, answerID = answer.id
+        let key = apiKey, ghToken = github.savedToken, answerID = answer.id
         guard persistNow() else { threads = old; return false }
         live.begin(messageID: answerID, startedAt: answer.createdAt)
         studyOutputGuard = StudyOutputGuard()
@@ -1813,7 +1813,7 @@ final class AppStore: ObservableObject {
         if call.name.hasPrefix("web_") {
             let action = try WebAction(call)
             let key = apiKey
-            let ghToken = github.currentToken
+            let ghToken = github.savedToken
             return PreparedTool(title: action.activityTitle, kind: "web", confirm: nil, perform: { [weak self] in
                 switch action {
                 case .search(let query):

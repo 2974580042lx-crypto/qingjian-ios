@@ -64,7 +64,7 @@ final class GitHubClient: ObservableObject {
     @Published private(set) var checking = false
     @Published var issue: String?
     private var token: String?
-    var currentToken: String? { token }
+    var savedToken: String? { token }
     private let preview = ProcessInfo.processInfo.arguments.contains("--ui-preview")
     private let session: URLSession = {
         let configuration = URLSessionConfiguration.ephemeral
