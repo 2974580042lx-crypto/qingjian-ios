@@ -27,6 +27,10 @@ final class OperationManualTests: XCTestCase {
         XCTAssertFalse(reading.content.contains("正文只用一句话邀请作答"))
         XCTAssertTrue(reading.content.contains("是不是应该选 A"))
         XCTAssertTrue(reading.content.contains("人设"))
+
+        let words = try! XCTUnwrap(book.chapters.first { $0.id == "study-english-words" })
+        XCTAssertTrue(words.content.contains("study_draw_words"))
+        XCTAssertTrue(words.content.contains("光线"))
     }
 
     func testNormalChatCanAccessGeneralManualAndSearchAllChaptersOnDemand() throws {
@@ -153,7 +157,7 @@ final class OperationManualTests: XCTestCase {
             usesGitHub: false,
             usesWeb: false
         )
-        XCTAssertEqual(readRes.completedTitle, "已查阅规范：《英语：聊天式精读与做题》 v1")
+        XCTAssertEqual(readRes.completedTitle, "已查阅规范：《英语：聊天式精读与做题》 v3")
         XCTAssertTrue(readRes.output.contains(#"<operation_manual id="study-english-reading""#))
         XCTAssertTrue(readRes.output.contains("study_answer_reading"))
 
@@ -211,7 +215,7 @@ final class OperationManualTests: XCTestCase {
         XCTAssertEqual(reloaded.chapters.count, 10)
         let savedReading = try XCTUnwrap(reloaded.chapters.first { $0.id == "study-english-reading" })
         XCTAssertTrue(savedReading.isUserModified)
-        XCTAssertEqual(savedReading.version, 2)
+        XCTAssertEqual(savedReading.version, 4)
         XCTAssertTrue(savedReading.content.contains("专属傲娇学长"))
 
         let savedWeekly = try XCTUnwrap(reloaded.chapters.first { $0.id == "study-weekly-report" })

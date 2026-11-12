@@ -44,7 +44,15 @@ enum StudyWordTools {
 """
 
     static func fields(for name: String) -> Set<String>? {
-        names.contains(name) ? [] : nil
+        switch name {
+        case "study_draw_words": return ["mode", "count", "unit_id"]
+        case "study_find_word": return ["query", "match_mode"]
+        case "study_grade_word": return ["word", "word_id", "rating", "items", "session_id", "expected_revision", "evidence_quote"]
+        case "study_word_units", "study_word_state": return []
+        case "study_start_words": return ["unit_id", "count", "mode"]
+        case "study_undo_word", "study_pause_words": return ["session_id", "expected_revision"]
+        default: return nil
+        }
     }
 }
 

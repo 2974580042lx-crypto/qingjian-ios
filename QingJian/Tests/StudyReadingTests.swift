@@ -206,4 +206,31 @@ final class StudyReadingTests: XCTestCase {
         XCTAssertEqual(restoredWord.source.material?.originalSentence, "Birds adapt to a changed climate.")
         if let evidenceURL { try Data(lines.joined(separator: "\n").utf8).write(to: evidenceURL.appendingPathComponent("scenario.txt")) }
     }
+
+    func testFreePassageReadAndAnswerWorkAcrossTurnsWithoutPausedOrRevisionLocks() throws {
+        let executor = StudyToolExecutor(store: store, scope: scope, documents: [])
+        let openTurn = message("先读 Text 4 第二段和第 36 题")
+        let readOut = try executor.perform(
+            action("study_read_passage", ["passage_id": "synthetic-2026-text-4", "paragraph": 2, "question": 36]),
+            sourceMessage: openTurn
+        )
+        let readResult = try StudyCoding.decode(StudyReadingResult.self, from: Data(readOut.utf8))
+        XCTAssertEqual(readResult.excerpts.count, 2)
+        XCTAssertTrue(readResult.excerpts[0].text.contains("gardens"))
+        XCTAssertTrue(readResult.excerpts[1].text.contains("What do birds do?"))
+
+        // Pause via legacy call, then answer directly via lock-free study_answer_reading without manual unpause or revision
+        _ = try store.performReading(action("study_pause_reading", ["expected_revision": revision()]), scope: scope, message: message("先去吃饭"))
+        XCTAssertEqual(try store.readingState(scope: scope)?.paused, true)
+
+        let ansTurn = message("回来啦，这道题是不是应该选 A？")
+        let ansOut = try executor.perform(
+            action("study_answer_reading", ["choice": "A"]),
+            sourceMessage: ansTurn
+        )
+        let ansResult = try StudyCoding.decode(StudyReadingResult.self, from: Data(ansOut.utf8))
+        XCTAssertFalse(ansResult.state.paused)
+        XCTAssertTrue(ansResult.message.contains("回答正确"))
+        XCTAssertEqual(try store.readingAnswers(projectID: scope.projectID).first?.correct, true)
+    }
 }

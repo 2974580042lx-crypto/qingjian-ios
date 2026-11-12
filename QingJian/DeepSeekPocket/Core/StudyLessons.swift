@@ -278,4 +278,195 @@ extension StudyMemoryStore {
             return receipt
         }
     }
+
+    func saveTopicFree(
+        scope: StudyScope,
+        title: String,
+        outlineID: String,
+        phase: String,
+        level: String,
+        note: String,
+        pendingPrompt: String,
+        message: ChatMessage
+    ) throws -> StudyLessonReceipt {
+        guard scope.subject != .english, message.role == .user else {
+            throw StudyMemoryError.invalid("请在历史或政治项目中保存专题进度。")
+        }
+        let now = Date()
+        let quote = message.content.isEmpty ? "专题学习" : String(message.content.prefix(4000))
+        let kind: StudySource.Kind = message.content.isEmpty ? .modelInference : .userStatement
+        let source = StudySource.from(message: message, scope: scope, kind: kind, quote: quote)
+
+        return try transaction {
+            let sessions = try lessonSessions(scope.projectID)
+            let topics = try rows(projectID: scope.projectID, kind: "topic").map { try StudyCoding.decode(StudyTopic.self, from: $0) }
+            var cleanTitle = title.trimmingCharacters(in: .whitespacesAndNewlines)
+            let cleanOutline = outlineID.trimmingCharacters(in: .whitespacesAndNewlines)
+
+            if !cleanOutline.isEmpty, scope.subject == .history {
+                if cleanOutline.hasPrefix("netmap:"),
+                   let map = try read(StudyTemporaryMap.self, projectID: scope.projectID, kind: "temporary_map", id: "network"),
+                   let entry = map.entries.first(where: { $0.id == cleanOutline }) {
+                    cleanTitle = entry.title
+                } else if let map = try read(StudyHistoryPack.self, projectID: scope.projectID, kind: "history_pack", id: "outline"),
+                          let entry = map.entries.first(where: { $0.id == cleanOutline }) {
+                    cleanTitle = entry.title
+                }
+            }
+
+            let old: StudyTopic?
+            var topic: StudyTopic
+            var session: StudyTopicSession
+
+            if cleanTitle.isEmpty && cleanOutline.isEmpty {
+                guard var activeSession = sessions.first(where: { $0.threadID == scope.threadID }) ?? sessions.first,
+                      let existingTopic = topics.first(where: { $0.id == activeSession.topicID }) else {
+                    throw StudyMemoryError.invalid("当前还没有进行中的专题，请传入专题名称 title。")
+                }
+                old = existingTopic
+                topic = existingTopic
+                activeSession.threadID = scope.threadID
+                activeSession.paused = false
+                activeSession.revision += 1
+                session = activeSession
+            } else {
+                let matchedTopic = topics.first {
+                    !cleanOutline.isEmpty ? $0.outlineID == cleanOutline : ($0.title == cleanTitle && $0.outlineID == nil)
+                }
+                old = matchedTopic
+                let resolvedTitle = cleanTitle.isEmpty ? (matchedTopic?.title ?? cleanOutline) : String(cleanTitle.prefix(200))
+                topic = matchedTopic ?? StudyTopic(
+                    id: UUID(),
+                    title: resolvedTitle,
+                    outlineID: cleanOutline.isEmpty ? nil : cleanOutline,
+                    revision: 0,
+                    phase: StudyLearningPhase(rawValue: phase) ?? .unknown,
+                    level: StudyTopicLevel(rawValue: level) ?? .notStudied,
+                    note: "",
+                    source: source,
+                    createdAt: now,
+                    updatedAt: now
+                )
+                if var matchedSession = sessions.first(where: { $0.topicID == topic.id && $0.threadID == scope.threadID })
+                    ?? sessions.first(where: { $0.topicID == topic.id }) {
+                    matchedSession.threadID = scope.threadID
+                    matchedSession.paused = false
+                    matchedSession.revision += 1
+                    session = matchedSession
+                } else {
+                    session = StudyTopicSession(
+                        id: UUID(), topicID: topic.id, threadID: scope.threadID,
+                        revision: 1, pendingPrompt: "", paused: false, updatedAt: now
+                    )
+                }
+            }
+
+            if let parsedPhase = StudyLearningPhase(rawValue: phase) { topic.phase = parsedPhase }
+            if let parsedLevel = StudyTopicLevel(rawValue: level) { topic.level = parsedLevel }
+            if !note.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty { topic.note = note }
+            if !pendingPrompt.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || argumentsCleared(pendingPrompt) {
+                session.pendingPrompt = pendingPrompt
+            }
+            topic.revision += 1
+            topic.source = source
+            topic.updatedAt = now
+            session.updatedAt = now
+
+            let op = StudyCoding.hash(Data("\(message.id.uuidString)/free-topic/\(topic.id.uuidString)/\(topic.revision)".utf8))
+            try write(topic, projectID: scope.projectID, kind: "topic", id: topic.id.uuidString)
+            try write(session, projectID: scope.projectID, kind: "topic_session", id: session.id.uuidString)
+            try write(StudyTopicEvent(id: UUID(), action: "study_save_topic", before: old, after: topic, session: session, source: source, date: now),
+                      projectID: scope.projectID, kind: "topic_event", id: op)
+            return StudyLessonReceipt(status: "committed", message: "已保存专题进度《\(topic.title)》。", topic: topicView(topic, session), practice: nil)
+        }
+    }
+
+    private func argumentsCleared(_ text: String) -> Bool {
+        text.isEmpty
+    }
+
+    func savePracticeFree(
+        scope: StudyScope,
+        recordRef: String,
+        action: String,
+        area: String,
+        kind: String,
+        question: String,
+        answer: String,
+        outcome: String,
+        weakPoint: String,
+        sourceKind: String,
+        message: ChatMessage
+    ) throws -> StudyLessonReceipt {
+        guard scope.subject != .english, message.role == .user else {
+            throw StudyMemoryError.invalid("请在历史或政治项目中保存练习记录。")
+        }
+        let now = Date()
+        let inferred = sourceKind == "model_inference" || message.content.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+        let resolvedSourceKind: StudySource.Kind = inferred ? .modelInference : .userStatement
+        let quote = message.content.isEmpty ? "" : String(message.content.prefix(4000))
+        let source = StudySource.from(message: message, scope: scope, kind: resolvedSourceKind, quote: quote)
+
+        return try transaction {
+            let all = try rows(projectID: scope.projectID, kind: "practice").map { try StudyCoding.decode(StudyPractice.self, from: $0) }
+            let cleanRef = recordRef.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+            let old: StudyPractice?
+            if !cleanRef.isEmpty {
+                guard let hit = all.first(where: { !$0.isDeleted && ($0.reference == cleanRef || $0.id.uuidString.lowercased() == cleanRef) }) else {
+                    throw StudyMemoryError.invalid("找不到对应的练习记录（\(recordRef)）。")
+                }
+                old = hit
+            } else {
+                old = nil
+            }
+
+            let isDelete = ["delete", "remove", "forget"].contains(action.trimmingCharacters(in: .whitespacesAndNewlines).lowercased())
+            let next: StudyPractice
+            if isDelete {
+                guard var existing = old else { throw StudyMemoryError.invalid("删除练习记录时请提供 record_id。") }
+                existing.isDeleted = true
+                existing.revision += 1
+                existing.updatedAt = now
+                existing.source = source
+                next = existing
+            } else {
+                let validAreas = scope.subject == .history ? StudyLessonTools.historyAreas : StudyLessonTools.politicsAreas
+                let resolvedArea = validAreas.contains(area) ? area : (old?.area ?? validAreas[0])
+                let resolvedKind = StudyPracticeKind(rawValue: kind) ?? old?.kind ?? .oral
+                let trimmedQ = question.trimmingCharacters(in: .whitespacesAndNewlines)
+                let resolvedQuestion = trimmedQ.isEmpty ? (old?.question ?? "题干未完整提供") : trimmedQ
+                let resolvedAnswer = answer.isEmpty && old != nil && trimmedQ.isEmpty ? (old?.answer ?? "") : answer
+                var resolvedOutcome = StudyPracticeOutcome(rawValue: outcome) ?? old?.outcome ?? .unknown
+                if resolvedAnswer.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                    resolvedOutcome = .unknown
+                }
+                let resolvedWeak = weakPoint.isEmpty ? (old?.weakPoint ?? "") : weakPoint
+                next = StudyPractice(
+                    id: old?.id ?? UUID(),
+                    revision: (old?.revision ?? 0) + 1,
+                    area: resolvedArea,
+                    kind: resolvedKind,
+                    question: resolvedQuestion,
+                    answer: resolvedAnswer,
+                    outcome: resolvedOutcome,
+                    weakPoint: resolvedWeak,
+                    source: source,
+                    createdAt: old?.createdAt ?? now,
+                    updatedAt: now,
+                    isDeleted: false
+                )
+            }
+
+            let op = StudyCoding.hash(Data("\(message.id.uuidString)/free-practice/\(next.id.uuidString)/\(next.revision)".utf8))
+            try write(next, projectID: scope.projectID, kind: "practice", id: next.id.uuidString)
+            try write(StudyPracticeEvent(id: UUID(), before: old, after: next, source: source, date: now),
+                      projectID: scope.projectID, kind: "practice_event", id: op)
+            return StudyLessonReceipt(
+                status: "committed",
+                message: next.isDeleted ? "已移出有效练习记录。" : (old == nil ? "已保存本次练习记录。" : "已更新原练习记录。"),
+                topic: nil,
+                practice: StudyPracticeView(next)
+            )
+        }
+    }
 }

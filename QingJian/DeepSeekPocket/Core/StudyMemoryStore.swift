@@ -189,6 +189,88 @@ final class StudyMemoryStore: @unchecked Sendable {
     func discardPending(projectID: UUID, operationID: String) throws {
         try transaction { try remove(projectID: projectID, kind: "pending", id: operationID) }
     }
+
+    func saveMemoryFree(
+        scope: StudyScope,
+        recordRef: String?,
+        action: String = "save",
+        category: String = "",
+        text: String = "",
+        message: ChatMessage
+    ) throws -> StudyReceipt {
+        guard message.role == .user else { throw StudyMemoryError.invalid("记忆需要用户消息出处。") }
+        let trimmedRef = (recordRef ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
+        let normalizedAction = action.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        let isDelete = ["delete", "forget", "remove"].contains(normalizedAction)
+
+        return try transaction {
+            let before: StudyMemoryRecord?
+            if !trimmedRef.isEmpty {
+                let active = try rows(projectID: scope.projectID, kind: "memory")
+                    .map { try StudyCoding.decode(StudyMemoryRecord.self, from: $0) }
+                    .filter { !$0.isDeleted }
+                if let uuid = UUID(uuidString: trimmedRef), let hit = active.first(where: { $0.id == uuid }) {
+                    before = hit
+                } else if let hit = active.first(where: { $0.toolReference == trimmedRef.lowercased() }) {
+                    before = hit
+                } else {
+                    throw StudyMemoryError.invalid("找不到对应的学习记忆记录（\(trimmedRef)）。")
+                }
+            } else {
+                before = nil
+            }
+
+            let trimmedCat = category.trimmingCharacters(in: .whitespacesAndNewlines)
+            let resolvedCategory: String
+            if scope.subject.categories.contains(trimmedCat) {
+                resolvedCategory = trimmedCat
+            } else if let before {
+                resolvedCategory = before.category
+            } else if scope.subject.categories.contains("生词") {
+                resolvedCategory = "生词"
+            } else {
+                resolvedCategory = scope.subject.categories.first ?? "笔记"
+            }
+
+            let trimmedText = text.trimmingCharacters(in: .whitespacesAndNewlines)
+            let resolvedText = isDelete && trimmedText.isEmpty ? (before?.text ?? "已移出") : trimmedText
+            guard !resolvedText.isEmpty, resolvedText.count <= 4000 else {
+                throw StudyMemoryError.invalid("请填写 4000 字以内的记忆内容。")
+            }
+
+            let quote = message.content.isEmpty ? resolvedText : String(message.content.prefix(4000))
+            let kind: StudySource.Kind = message.content.isEmpty ? .modelInference : .userStatement
+            let source = StudySource.from(message: message, scope: scope, kind: kind, quote: quote)
+
+            let opKey = "\(message.id.uuidString)/free-mem/\(before?.id.uuidString ?? resolvedCategory)/\(normalizedAction)/\(resolvedText)"
+            let operationID = StudyCoding.hash(Data(opKey.utf8))
+            if let existing = try read(CommittedOperation.self, projectID: scope.projectID, kind: "operation", id: operationID) {
+                return existing.receipt
+            }
+
+            let now = Date()
+            let after = StudyMemoryRecord(
+                id: before?.id ?? UUID(),
+                revision: (before?.revision ?? 0) + 1,
+                category: resolvedCategory,
+                text: resolvedText,
+                source: source,
+                createdAt: before?.createdAt ?? now,
+                updatedAt: now,
+                isDeleted: isDelete
+            )
+            let event = StudyMemoryEvent(
+                id: UUID(),
+                projectID: scope.projectID,
+                operationID: operationID,
+                before: before,
+                after: after,
+                date: now,
+                undoOf: nil
+            )
+            return try commit(event, fingerprint: operationID)
+        }
+    }
     func rebindSessions(from oldThreadIDs: Set<UUID>, to newThreadID: UUID, projectID: UUID) throws {
         guard !oldThreadIDs.isEmpty else { return }
         try transaction {

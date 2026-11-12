@@ -1497,6 +1497,7 @@ final class AppStore: ObservableObject {
                 if let subject = chatProject?.studySubject { specs += StudyLessonTools.specs(for: subject) }
                 if chatProject?.studySubject == .english {
                     specs += StudyWordTools.specs + StudyReadingTools.specs
+                    notes.append(StudyWordTools.note)
                 }
             }
         }
@@ -1951,8 +1952,7 @@ final class AppStore: ObservableObject {
     // Tokens arrive far faster than the screen needs to redraw. Collect them and
     // publish about fifteen times a second, so layout does not run once per token.
     private func receive(_ event: StreamEvent, threadID: UUID, messageID: UUID) {
-        let study = threads.first(where: { $0.id == threadID }).flatMap { project($0.projectID)?.studySubject } != nil
-        pendingContent += study ? studyOutputGuard.consume(event.content, finish: event.finishReason != nil || event.isDone) : event.content
+        pendingContent += event.content
         pendingReasoning += event.reasoning
         pendingTarget = (threadID, messageID)
         guard event.usage != nil || event.finishReason != nil || event.isDone else {
@@ -2012,7 +2012,6 @@ final class AppStore: ObservableObject {
         persistence.saveInBackground(snapshot)
     }
     private func finish(threadID: UUID, messageID: UUID, state: MessageState, note: String? = nil) {
-        pendingContent += studyOutputGuard.consume("", finish: true)
         flushPending(force: true)
         live.end()
         pendingTarget = nil

@@ -315,4 +315,179 @@ extension StudyMemoryStore {
                          originalSentence: originalSentence, word: word, linkedWordIDs: linked, source: p.source, sourceURL: p.sourceURL)
         }
     }
+
+    private func resolveFreeReadingSession(
+        scope: StudyScope,
+        passageID: String,
+        now: Date
+    ) throws -> (before: StudyReadingSession?, session: StudyReadingSession, passage: StudyReadingPassage) {
+        let trimmed = passageID.trimmingCharacters(in: .whitespacesAndNewlines)
+        let sessions = try rawReadingSessions(scope.projectID)
+        if !trimmed.isEmpty {
+            let catalog = try read([StudyReadingCatalogEntry].self, projectID: scope.projectID, kind: "reading_catalog", id: "index") ?? []
+            let resolvedID = catalog.first(where: { $0.id.caseInsensitiveCompare(trimmed) == .orderedSame })?.id ?? trimmed
+            let p = try readingPassage(resolvedID, project: scope.projectID)
+            let matching = sessions.filter { $0.passageID == p.id }
+            let chosen = matching.first(where: { $0.threadID == scope.threadID }) ?? matching.first
+            if var existing = chosen, existing.passageFingerprint == p.fingerprint {
+                existing.threadID = scope.threadID
+                existing.paused = false
+                existing.revision += 1
+                return (chosen, existing, p)
+            }
+            let fresh = StudyReadingSession(
+                id: UUID(), threadID: scope.threadID, passageID: p.id,
+                passageFingerprint: p.fingerprint, updatedAt: now
+            )
+            return (chosen, fresh, p)
+        }
+        guard var chosen = sessions.first(where: { $0.threadID == scope.threadID }) ?? sessions.first else {
+            throw StudyMemoryError.invalid("当前还没有打开阅读篇目，请先传 passage_id 或调 study_reading_catalog 查看篇目目录。")
+        }
+        let p = try readingPassage(chosen.passageID, project: scope.projectID)
+        let before = chosen
+        chosen.threadID = scope.threadID
+        chosen.paused = false
+        chosen.revision += 1
+        return (before, chosen, p)
+    }
+
+    func readPassageFree(
+        scope: StudyScope,
+        passageID: String,
+        paragraph: Int?,
+        question: Int?,
+        showAnswer: Bool,
+        message: ChatMessage
+    ) throws -> StudyReadingResult {
+        guard scope.subject == .english, message.role == .user else {
+            throw StudyMemoryError.invalid("请在英语项目中学习阅读。")
+        }
+        let now = Date()
+        let quote = message.content.isEmpty ? "阅读" : String(message.content.prefix(4000))
+        let source = StudySource.from(message: message, scope: scope, kind: .userStatement, quote: quote)
+        return try transaction {
+            var (before, session, p) = try resolveFreeReadingSession(scope: scope, passageID: passageID, now: now)
+            var excerpts: [StudyReadingExcerpt] = []
+
+            if let paragraph {
+                guard (1...p.paragraphs.count).contains(paragraph) else {
+                    throw StudyMemoryError.invalid("段落号超出范围（本篇共 \(p.paragraphs.count) 段）。")
+                }
+                session.paragraph = paragraph
+                excerpts.append(paragraphExcerpt(session, passage: p))
+            }
+
+            if let question {
+                guard let q = p.questions.first(where: { $0.number == question }) else {
+                    throw StudyMemoryError.invalid("本篇没有第 \(question) 题（可用题号：\(p.questions.map { String($0.number) }.joined(separator: "、"))）。")
+                }
+                session.question = question
+                session.questionMessageID = message.id
+                session.questionIssuedAt = now
+                excerpts.append(questionExcerpt(q, passage: p))
+            }
+
+            if paragraph == nil && question == nil && !showAnswer {
+                excerpts.append(paragraphExcerpt(session, passage: p))
+                if let qNum = session.question, let q = p.questions.first(where: { $0.number == qNum }) {
+                    excerpts.append(questionExcerpt(q, passage: p))
+                }
+            }
+
+            if showAnswer {
+                let targetNum = question ?? session.question ?? p.questions.first?.number
+                if let targetNum, let q = p.questions.first(where: { $0.number == targetNum }) {
+                    let text = q.verifiedAnswer.map {
+                        "参考答案：" + ["A", "B", "C", "D"][$0] + "\n" + (q.explanation ?? "")
+                    } ?? "答案待核，请以纸质原卷或可靠答案核对。"
+                    excerpts.append(.init(title: "第 \(q.number) 题 · 参考答案", text: text, source: q.source, sourceURL: q.sourceURL))
+                }
+            }
+
+            session.updatedAt = now
+            let opID = StudyCoding.hash(Data("\(message.id.uuidString)/free-read/\(p.id)/\(paragraph ?? 0)/\(question ?? 0)/\(showAnswer)".utf8))
+            try write(session, projectID: scope.projectID, kind: "reading_session", id: session.id.uuidString)
+            try write(
+                StudyReadingEvent(id: UUID(), action: "study_read_passage", before: before, after: session, oldAnswer: nil, newAnswer: nil, source: source, date: now),
+                projectID: scope.projectID, kind: "reading_event", id: opID
+            )
+            return try StudyReadingResult(
+                message: "已读取《\(p.title)》对应原文卡片（App 已直接在气泡上方展示原文，回复时无需重抄整段英文）。",
+                state: readingState(session, passage: p, project: scope.projectID),
+                excerpts: excerpts
+            )
+        }
+    }
+
+    func answerReadingFree(
+        scope: StudyScope,
+        passageID: String,
+        question: Int?,
+        choice: String,
+        message: ChatMessage
+    ) throws -> StudyReadingResult {
+        guard scope.subject == .english, message.role == .user else {
+            throw StudyMemoryError.invalid("请在英语项目中记录阅读作答。")
+        }
+        let rawChoice = choice.trimmingCharacters(in: .whitespacesAndNewlines).uppercased()
+        let isSkip = ["SKIP", "跳过"].contains(rawChoice)
+        guard isSkip || ["A", "B", "C", "D"].contains(rawChoice) else {
+            throw StudyMemoryError.invalid("选项请传 A、B、C、D，或传 skip 表示不答直接看解析。")
+        }
+
+        let now = Date()
+        let quote = message.content.isEmpty ? rawChoice : String(message.content.prefix(4000))
+        let source = StudySource.from(message: message, scope: scope, kind: .userStatement, quote: quote)
+
+        return try transaction {
+            var (before, session, p) = try resolveFreeReadingSession(scope: scope, passageID: passageID, now: now)
+            guard let targetNum = question ?? session.question ?? p.questions.first?.number,
+                  let q = p.questions.first(where: { $0.number == targetNum }) else {
+                throw StudyMemoryError.invalid("请指定要作答的题号（可用题号：\(p.questions.map { String($0.number) }.joined(separator: "、"))）。")
+            }
+            session.question = targetNum
+
+            let answerID = session.id.uuidString + "/\(targetNum)"
+            let oldAnswer = try read(StudyReadingAnswer.self, projectID: scope.projectID, kind: "reading_answer", id: answerID)
+            let correctAnswer = q.verifiedAnswer.map { ["A", "B", "C", "D"][$0] }
+            let newAnswer: StudyReadingAnswer
+            let feedback: String
+            if isSkip {
+                newAnswer = StudyReadingAnswer(
+                    sessionID: session.id, question: targetNum, revision: (oldAnswer?.revision ?? 0) + 1,
+                    choice: nil, skipped: true, referenceAnswer: nil, correct: nil, source: source, date: now
+                )
+                let refDetail = correctAnswer.map { "参考答案：\($0)" + (q.explanation.map { "\n解析：\($0)" } ?? "") } ?? "参考答案待核，请以纸质原卷为准。"
+                feedback = "第 \(targetNum) 题已标记跳过（不计入作答正确率）。\(refDetail)"
+            } else {
+                let isCorrect = correctAnswer.map { $0 == rawChoice }
+                newAnswer = StudyReadingAnswer(
+                    sessionID: session.id, question: targetNum, revision: (oldAnswer?.revision ?? 0) + 1,
+                    choice: rawChoice, skipped: false, referenceAnswer: correctAnswer,
+                    correct: isCorrect, source: source, date: now
+                )
+                if let correctAnswer {
+                    let verdict = isCorrect == true ? "回答正确" : "回答有误"
+                    feedback = "已记录第 \(targetNum) 题选择 \(rawChoice)（\(verdict)，参考答案：\(correctAnswer)）。" + (q.explanation.map { "\n解析参考：\($0)" } ?? "")
+                } else {
+                    feedback = "已记录第 \(targetNum) 题选择 \(rawChoice)。本题参考答案待核，暂不判对错，请以纸质原卷为准。"
+                }
+            }
+
+            try write(newAnswer, projectID: scope.projectID, kind: "reading_answer", id: answerID)
+            session.updatedAt = now
+            let opID = StudyCoding.hash(Data("\(message.id.uuidString)/free-ans/\(p.id)/\(targetNum)/\(rawChoice)".utf8))
+            try write(session, projectID: scope.projectID, kind: "reading_session", id: session.id.uuidString)
+            try write(
+                StudyReadingEvent(id: UUID(), action: "study_answer_reading", before: before, after: session, oldAnswer: oldAnswer, newAnswer: newAnswer, source: source, date: now),
+                projectID: scope.projectID, kind: "reading_event", id: opID
+            )
+            return try StudyReadingResult(
+                message: feedback,
+                state: readingState(session, passage: p, project: scope.projectID),
+                excerpts: []
+            )
+        }
+    }
 }
