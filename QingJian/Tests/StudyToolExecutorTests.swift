@@ -88,6 +88,12 @@ final class StudyToolExecutorTests: XCTestCase {
         _ = try executor.perform(StudyToolAction(gradeCall), sourceMessage: nextMsg)
         XCTAssertEqual(try store.wordPracticeSummary(projectID: scope.projectID).learnedWords, 1)
 
+        // Another window in the same English project immediately sees today's discussed words in its context
+        let secondWindowScope = StudyScope(projectID: scope.projectID, threadID: UUID(), subject: .english)
+        let secondExecutor = StudyToolExecutor(store: store, scope: secondWindowScope, documents: [])
+        let secondWindowContext = try secondExecutor.context(query: "今天我在不同窗口聊了哪些单词")
+        XCTAssertTrue(secondWindowContext.contains("今日各窗口已聊单词：adapt(good)"))
+
         // 4. Lock-free study_remember & study_update_memory with omitted optional fields
         let remCall = ToolCall(id: "m1", name: "study_remember", arguments: #"{"text":"sunshine 答光线也算对"}"#)
         _ = try executor.perform(StudyToolAction(remCall), sourceMessage: nextMsg)

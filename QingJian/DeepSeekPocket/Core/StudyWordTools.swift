@@ -27,7 +27,7 @@ enum StudyWordTools {
         ),
         .init(
             name: "study_grade_word",
-            description: "无锁记录单词掌握度并自动按 FSRS v6 遗忘曲线排期（支持单条记录，也支持传 JSON 字符串 items 一次批量记多个词；无版本号和原话限制，跨轮补记也可直接调用）。",
+            description: "无锁记录单词掌握度并自动按 FSRS v6 遗忘曲线排期（支持单条记录，也支持传 JSON 字符串 items 一次批量记多个词；日常在任意窗口随口问到或聊到的单词也应主动调用记录，不在 4356 词库内的生词会自动记入项目『生词』笔记）。",
             parameters: ToolSpec.object([
                 ("word", "string", "要记分的英文单词（如 radical）；批量记分时可留空并填 items"),
                 ("rating", "string", "easy（轻松秒答）、good（记得/核心意思懂了）、hard（模糊/提示后想出）、again（忘了/答错）、undo（撤回该词刚记的评分）"),
@@ -39,8 +39,9 @@ enum StudyWordTools {
     static let note = """
 【英语词库与记忆账本说明】
 - 自由陪伴优先：出题节奏、互动语气、一次考 1 个还是给几个词对比、词根联想或趣味造句，全部按项目人设和用户心意自由发挥，没有单步流程束缚。
+- 跨窗口无感联结与随手记词：不管用户在哪个窗口随口问了几个单词、聊到某个词的用法，还是在背词互动中作答，你都应顺手调用 `study_grade_word` 把这些词记进共享账本（词库内单词自动走 FSRS 排期，词库外生词自动存入『生词』记忆），这样切去其他窗口或回顾『今日在不同窗口聊了哪些词』时都能一目了然，无需用户专门说『开始学习/帮我记回去』。
 - 语义理解判分（不死抠字眼）：词库里的中文释义只是简明参考锚点，不是死板的填空标准答案！例如词库写“阳光”而用户答“光线”，只要核心语义和感觉对上了，直接算掌握（`good`），顺口自然提一嘴常用译法即可；一词多义或轻微混淆也可灵性点拨后判 `good` 或 `hard`。
-- 省 Token 抽词与记分：需要考词或换一批乱序词时调 1 次 `study_draw_words` 即可拿到整批词；找形近词调 `study_find_word(query, match_mode: "lookalike")`；用户答出后随时调 `study_grade_word` 写入 FSRS 遗忘曲线（隔了一两轮闲聊再顺手补记也完全支持）。
+- 省 Token 抽词与记分：需要考词或换一批乱序词时调 1 次 `study_draw_words` 即可拿到整批词；找形近词调 `study_find_word(query, match_mode: "lookalike")`；用户答出或聊过某词后随时调 `study_grade_word` 写入账本（隔了一两轮闲聊再顺手补记也完全支持）。
 """
 
     static func fields(for name: String) -> Set<String>? {

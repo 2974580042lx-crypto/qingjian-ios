@@ -281,21 +281,22 @@ struct OperationManualBook: Codable, Equatable, Sendable {
         OperationManualChapter(
             id: "study-english-words",
             title: "英语：聊天式背词与判分",
-            whenToRead: "抽单词互动、打乱顺序背词、找形近词对比、语义理解判分或撤回评分时查阅",
+            whenToRead: "抽单词互动、打乱顺序背词、找形近词对比、日常随口问词记录、语义理解判分或撤回评分时查阅",
             content: """
             1. 边聊边学，高自由度互动：全程保持项目指令里的人设温度陪用户玩单词！你可以一次只抛 1 个词逗他猜，也可以按用户心意一次给三五个词串成小故事、拆词根词缀、对比近义词或形近词，完全由你根据聊天氛围自由掌控，没有任何单步死锁限制。
-            2. 一键整批抽词与真随机乱序（极省 Token）：
+            2. 跨窗口无感记词（不用专门说“开始学习”）：用户在任意聊天窗口随口问到某个英文单词、顺嘴聊起几个易混词，哪怕不是正式抽词测验，也请你在自然回答的同时顺手调 `study_grade_word` 记录下来（刚问还不熟可记 `hard` 或 `good`，不在 4356 词库内的词也会由工具自动记入项目『生词』笔记）。所有窗口共享同一个项目账本与 `[学习账本概况]` 的『今日各窗口已聊单词』，换窗口也能无缝知道今天聊过哪些词。
+            3. 一键整批抽词与真随机乱序（极省 Token）：
                - 开始抽词或日常顺手考几个词：调 1 次 `study_draw_words(mode: "smart", count: 10)` 即可一次性拿到整批 10 个词（含音标、释义与 FSRS 复习次数），接下来几轮直接在对话里用这批词自由互动，不用每考一题都调抽词工具！
                - 用户说“可以打乱顺序背吗 / 随机抽几个”：直接调 `study_draw_words(mode: "shuffle", count: 10)` 立即拿到全新真随机乱序批次（无需暂停旧任务）。
                - 用户说“我想看几个形近词 / 跟 adapt 长得像的词”：直接调 `study_find_word(query: "adapt", match_mode: "lookalike")`，一次可拿回最多 15 个拼写相近或同词根词供你自由对比讲解。
-            3. 语义理解灵性判分（绝不死抠标准答案字眼）：
+            4. 语义理解灵性判分（绝不死抠标准答案字眼）：
                - 词库附带的中文释义只是简明锚点，不是死板的填空标准答案！例如词库写“阳光”，用户回答“光线吧”或用自己的话描述对了核心画面与语感，**直接视为答对（`good`）**！用人设口吻夸一句并顺口自然带过常见译法即可。
                - 若用户有一点点记混或靠你给的小提示才想起来，记 `hard`；完全没印象记 `again`；秒答超熟记 `easy`。
-            4. 无锁随时记分与跨轮补记：用户答完 1 个词可调 `study_grade_word(word: "radical", rating: "good")`，也可以等聊完几个词后传 `items` 一次性批量写入 FSRS v6 遗忘曲线（完全不需要 `session_id`、`expected_revision` 或逐字 `evidence_quote`，哪怕上一轮忘了记、这一轮闲聊时顺手补记也 100% 成功；若记错了传 `rating: "undo"` 即可撤回）。在聊天里标出英文单词时可用行内反引号如 `adapt` 让排版更清晰可爱。
+            5. 无锁随时记分与跨轮补记：用户答完或聊完 1 个词可调 `study_grade_word(word: "radical", rating: "good")`，也可以等聊完几个词后传 `items` 一次性批量写入 FSRS v6 遗忘曲线（完全不需要 `session_id`、`expected_revision` 或逐字 `evidence_quote`，哪怕上一轮忘了记、这一轮闲聊时顺手补记也 100% 成功；若记错了传 `rating: "undo"` 即可撤回）。在聊天里标出英文单词时可用行内反引号如 `adapt` 让排版更清晰可爱。
             """,
             scope: .studyEnglish,
             isEnabled: true,
-            version: 3,
+            version: 4,
             isCustom: false,
             isUserModified: false,
             updatedAt: seedDate

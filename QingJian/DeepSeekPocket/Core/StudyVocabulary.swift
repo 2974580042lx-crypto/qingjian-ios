@@ -119,6 +119,8 @@ struct StudyWordPracticeSummary: Codable, Sendable {
     let activeSessionPosition: Int
     let activeSessionCount: Int
     let recentWords: [StudyWordView]
+    var todayWordsList: [StudyWordView] = []
+    var weakWordsList: [String] = []
 }
 
 struct StudyWordDrawResult: Codable, Sendable {
@@ -205,12 +207,20 @@ extension StudyMemoryStore {
         let cardByID = Dictionary(uniqueKeysWithValues: (pack?.cards ?? []).map { ($0.id, $0) })
         let practiced = progress.filter { $0.reviewCount > 0 }.sorted { ($0.lastReviewedAt ?? .distantPast) > ($1.lastReviewedAt ?? .distantPast) }
         let calendar = Calendar.current
-        let todayCount = practiced.filter { $0.lastReviewedAt.map { calendar.isDate($0, inSameDayAs: now) } == true }.count
+        let todayPracticed = practiced.filter { $0.lastReviewedAt.map { calendar.isDate($0, inSameDayAs: now) } == true }
+        let todayCount = todayPracticed.count
         let dueCount = practiced.filter { $0.due <= now }.count
         let recent: [StudyWordView] = practiced.prefix(30).compactMap { p in
             guard let word = cardByID[p.wordID] else { return nil }
             return StudyWordView(word: word, reviewCount: p.reviewCount, lastRating: p.lastRating, lastReviewedAt: p.lastReviewedAt, due: p.due)
         }
+        let todayList: [StudyWordView] = todayPracticed.prefix(30).compactMap { p in
+            guard let word = cardByID[p.wordID] else { return nil }
+            return StudyWordView(word: word, reviewCount: p.reviewCount, lastRating: p.lastRating, lastReviewedAt: p.lastReviewedAt, due: p.due)
+        }
+        let weakList: [String] = practiced.filter { ["again", "hard"].contains($0.lastRating ?? "") }
+            .prefix(15)
+            .compactMap { cardByID[$0.wordID]?.word }
         return StudyWordPracticeSummary(
             totalWords: pack?.cards.count ?? 0,
             learnedWords: practiced.count,
@@ -219,7 +229,9 @@ extension StudyMemoryStore {
             activeSessionUnit: active.map { $0.unitID.isEmpty ? "智能顺序/复习" : $0.unitID },
             activeSessionPosition: active?.position ?? 0,
             activeSessionCount: active?.wordIDs.count ?? 0,
-            recentWords: recent
+            recentWords: recent,
+            todayWordsList: todayList,
+            weakWordsList: weakList
         )
     }
     private static func normalizeUnitID(_ raw: String, in pack: StudyWordPack) -> String {
@@ -578,9 +590,7 @@ extension StudyMemoryStore {
     func gradeWordsFree(scope: StudyScope, items: [(word: String, rating: String)], message: ChatMessage, now: Date = Date()) throws -> [StudyWordView] {
         guard scope.subject == .english else { throw StudyMemoryError.invalid("请在考研英语项目中记录单词评分。") }
         guard !items.isEmpty else { throw StudyMemoryError.invalid("请提供要记录评分的单词。") }
-        guard let pack = try wordPack(projectID: scope.projectID) else {
-            throw StudyMemoryError.invalid("请先在项目记忆页导入私人词库。")
-        }
+        let pack = try wordPack(projectID: scope.projectID)
 
         let ratingMap: [String: (String, Rating)] = [
             "easy": ("easy", .easy), "轻松": ("easy", .easy), "熟练": ("easy", .easy),
@@ -589,12 +599,16 @@ extension StudyMemoryStore {
             "again": ("again", .again), "忘了": ("again", .again), "不认识": ("again", .again), "wrong": ("again", .again), "forgot": ("again", .again)
         ]
         let undoTokens: Set<String> = ["undo", "revert", "撤销", "撤回"]
+        var outOfPackItems: [(word: String, canonicalRating: String)] = []
 
-        return try transaction {
+        var updatedViews: [StudyWordView] = try transaction {
             var activeSession = try wordSessions(scope.projectID).first { $0.threadID == scope.threadID && !$0.completed }
-            let cardByID = Dictionary(uniqueKeysWithValues: pack.cards.map { ($0.id, $0) })
+            let cards = pack?.cards ?? []
+            let cardByID = Dictionary(uniqueKeysWithValues: cards.map { ($0.id, $0) })
             let scheduler = FSRS(parameters: FSRSParameters(w: FSRSDefaults.defaultWv6, enableFuzz: false))
-            var updatedViews: [StudyWordView] = []
+            var views: [StudyWordView] = []
+            let quote = message.content.isEmpty ? "背词记录" : String(message.content.prefix(4000))
+            let source = StudySource.from(message: message, scope: scope, kind: message.content.isEmpty ? .modelInference : .userStatement, quote: quote)
 
             for item in items {
                 let cleanedWord = item.word.trimmingCharacters(in: .whitespacesAndNewlines.union(CharacterSet(charactersIn: "`\"'")))
@@ -604,11 +618,17 @@ extension StudyMemoryStore {
                 if cleanedWord.isEmpty || cleanedWord.lowercased() == "current" {
                     targetCard = activeSession?.currentWordID.flatMap { cardByID[$0] }
                 } else {
-                    targetCard = pack.cards.first { $0.word.caseInsensitiveCompare(cleanedWord) == .orderedSame }
-                        ?? pack.cards.first { $0.id.caseInsensitiveCompare(cleanedWord) == .orderedSame }
+                    targetCard = cards.first { $0.word.caseInsensitiveCompare(cleanedWord) == .orderedSame }
+                        ?? cards.first { $0.id.caseInsensitiveCompare(cleanedWord) == .orderedSame }
                 }
                 guard let wordCard = targetCard else {
-                    throw StudyMemoryError.invalid("词库中未找到单词「\(cleanedWord)」；如果是课外生词，可用 study_remember 存入生词本。")
+                    if !cleanedWord.isEmpty, cleanedWord.lowercased() != "current" {
+                        if undoTokens.contains(cleanedRating) { continue }
+                        let canonical = ratingMap[cleanedRating]?.0 ?? "good"
+                        outOfPackItems.append((word: cleanedWord, canonicalRating: canonical))
+                        continue
+                    }
+                    throw StudyMemoryError.invalid("未指定要评分的单词，且当前没有正在进行的背词批次。")
                 }
 
                 let existing = try read(StudyWordProgress.self, projectID: scope.projectID, kind: "word_progress", id: wordCard.id)
@@ -641,7 +661,12 @@ extension StudyMemoryStore {
                         reverted.lastReviewedAt = reverted.logs.last?.review
                     }
                     try write(reverted, projectID: scope.projectID, kind: "word_progress", id: wordCard.id)
-                    updatedViews.append(StudyWordView(word: wordCard, reviewCount: reverted.reviewCount, lastRating: reverted.lastRating, lastReviewedAt: reverted.lastReviewedAt, due: reverted.card?.due))
+                    let events = try rows(projectID: scope.projectID, kind: "word_event").map { try StudyCoding.decode(StudyWordEvent.self, from: $0) }
+                    if var latestEvent = events.filter({ !$0.undone && $0.afterProgress.wordID == wordCard.id }).max(by: { $0.date < $1.date }) {
+                        latestEvent.undone = true
+                        try write(latestEvent, projectID: scope.projectID, kind: "word_event", id: latestEvent.id.uuidString)
+                    }
+                    views.append(StudyWordView(word: wordCard, reviewCount: reverted.reviewCount, lastRating: reverted.lastRating, lastReviewedAt: reverted.lastReviewedAt, due: reverted.card?.due))
                     continue
                 }
 
@@ -657,6 +682,19 @@ extension StudyMemoryStore {
                 after.lastReviewedAt = now
                 try write(after, projectID: scope.projectID, kind: "word_progress", id: wordCard.id)
 
+                let beforeSession = activeSession ?? StudyWordSession(
+                    id: UUID(),
+                    threadID: scope.threadID,
+                    unitID: "自由背词",
+                    mode: .start,
+                    wordIDs: [wordCard.id],
+                    position: 0,
+                    revision: 1,
+                    paused: false,
+                    updatedAt: now
+                )
+                var afterSession = beforeSession
+                let eventID = UUID()
                 if var session = activeSession {
                     if session.currentWordID == wordCard.id {
                         session.position += 1
@@ -667,14 +705,57 @@ extension StudyMemoryStore {
                     }
                     session.revision += 1
                     session.updatedAt = now
+                    session.lastEventID = eventID
                     try write(session, projectID: scope.projectID, kind: "word_session", id: session.id.uuidString)
                     activeSession = session
+                    afterSession = session
+                } else {
+                    afterSession.position = 1
+                    afterSession.revision = 2
+                    afterSession.updatedAt = now
+                    afterSession.lastEventID = eventID
                 }
 
-                updatedViews.append(StudyWordView(word: wordCard, reviewCount: after.reviewCount, lastRating: after.lastRating, lastReviewedAt: after.lastReviewedAt, due: after.due))
+                let event = StudyWordEvent(
+                    id: eventID,
+                    beforeSession: beforeSession,
+                    afterSession: afterSession,
+                    beforeProgress: existing,
+                    afterProgress: after,
+                    source: source,
+                    date: now
+                )
+                try write(event, projectID: scope.projectID, kind: "word_event", id: eventID.uuidString)
+
+                views.append(StudyWordView(word: wordCard, reviewCount: after.reviewCount, lastRating: after.lastRating, lastReviewedAt: after.lastReviewedAt, due: after.due))
             }
-            return updatedViews
+            return views
         }
+
+        for outItem in outOfPackItems {
+            let label = ["easy": "轻松掌握", "good": "记得", "hard": "印象模糊", "again": "待加强"][outItem.canonicalRating] ?? "已聊"
+            _ = try saveMemoryFree(
+                scope: scope,
+                recordRef: nil,
+                action: "save",
+                category: "生词",
+                text: "\(outItem.word)（聊天/阅读随手记词 · \(label)）",
+                message: message
+            )
+            let fallbackWord = StudyWord(
+                id: "notebook:\(outItem.word.lowercased())",
+                word: outItem.word,
+                translation: "已自动记入项目生词本（\(label)）",
+                coreMeaning: "已自动记入项目生词本（\(label)）",
+                phonetic: nil,
+                meaningStatus: nil,
+                phoneticStatus: nil,
+                phoneticSourceURL: nil,
+                units: []
+            )
+            updatedViews.append(StudyWordView(word: fallbackWord, reviewCount: 1, lastRating: outItem.canonicalRating, lastReviewedAt: now, due: nil))
+        }
+        return updatedViews
     }
 
     private static func levenshtein(_ lhs: String, _ rhs: String) -> Int {

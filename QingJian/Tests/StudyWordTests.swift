@@ -273,8 +273,11 @@ final class StudyWordTests: XCTestCase {
         let summary = try store.wordPracticeSummary(projectID: scope.projectID, now: now.addingTimeInterval(5))
         XCTAssertEqual(summary.learnedWords, 2)
         XCTAssertEqual(summary.todayWords, 2)
+        XCTAssertEqual(Set(summary.todayWordsList.map(\.word.word)), Set(["adapt", "adopt"]))
+        XCTAssertTrue(summary.weakWordsList.contains("adopt"))
+        XCTAssertEqual(try store.wordEvents(projectID: scope.projectID).filter { !$0.undone }.count, 2)
 
-        // Undo by word name reverts the latest FSRS review cleanly
+        // Undo by word name reverts the latest FSRS review cleanly and marks the word_event undone
         let undone = try store.gradeWordsFree(
             scope: scope,
             items: [(word: "adopt", rating: "undo")],
@@ -283,5 +286,17 @@ final class StudyWordTests: XCTestCase {
         )
         XCTAssertEqual(undone.first?.reviewCount, 0)
         XCTAssertEqual(try store.wordPracticeSummary(projectID: scope.projectID, now: now.addingTimeInterval(15)).learnedWords, 1)
+        XCTAssertEqual(try store.wordEvents(projectID: scope.projectID).filter { !$0.undone }.count, 1)
+
+        // Out-of-pack word casually discussed in any window is saved into 生词 memory instead of throwing
+        let outOfPack = try store.gradeWordsFree(
+            scope: scope,
+            items: [(word: "conspicuous", rating: "hard")],
+            message: unrelatedTurn,
+            now: now.addingTimeInterval(20)
+        )
+        XCTAssertEqual(outOfPack.first?.word.word, "conspicuous")
+        let records = try store.records(projectID: scope.projectID)
+        XCTAssertTrue(records.contains { $0.category == "生词" && $0.text.contains("conspicuous") })
     }
 }

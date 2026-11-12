@@ -42,6 +42,16 @@ struct StudyToolExecutor {
                 ledgerParts.append("真题阅读 \(readingIndex.count) 篇（累计已答 \(answeredCount) 题）")
             }
             result += "\n[学习账本概况] " + ledgerParts.joined(separator: "；")
+            if !wordSummary.todayWordsList.isEmpty {
+                let todayLabels = wordSummary.todayWordsList.prefix(25).map { view -> String in
+                    let rating = view.lastRating ?? "good"
+                    return "\(view.word.word)(\(rating))"
+                }.joined(separator: "、")
+                result += "\n今日各窗口已聊单词：\(todayLabels)"
+            }
+            if !wordSummary.weakWordsList.isEmpty {
+                result += "\n近期薄弱/易混词：" + wordSummary.weakWordsList.prefix(15).joined(separator: "、")
+            }
 
             if let reading = try store.readingState(scope: scope) {
                 let qSuffix = reading.question.map { "，待答第 \($0) 题" } ?? ""

@@ -29,8 +29,10 @@ final class OperationManualTests: XCTestCase {
         XCTAssertTrue(reading.content.contains("人设"))
 
         let words = try! XCTUnwrap(book.chapters.first { $0.id == "study-english-words" })
+        XCTAssertEqual(words.version, 4)
         XCTAssertTrue(words.content.contains("study_draw_words"))
         XCTAssertTrue(words.content.contains("光线"))
+        XCTAssertTrue(words.content.contains("今日各窗口已聊单词"))
     }
 
     func testNormalChatCanAccessGeneralManualAndSearchAllChaptersOnDemand() throws {
