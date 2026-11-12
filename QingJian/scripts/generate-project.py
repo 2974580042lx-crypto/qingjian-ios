@@ -76,7 +76,7 @@ for name in ["Debug", "Release"]:
         "INFOPLIST_FILE": "DeepSeekPocket/Info.plist",
         "GENERATE_INFOPLIST_FILE": "NO",
         "MARKETING_VERSION": "1.37.0",
-        "CURRENT_PROJECT_VERSION": "68",
+        "CURRENT_PROJECT_VERSION": "69",
         "OTHER_LDFLAGS": ["$(inherited)", "-lsqlite3"],
         "ASSETCATALOG_COMPILER_APPICON_NAME": "AppIcon",
         "ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME": "AccentColor",

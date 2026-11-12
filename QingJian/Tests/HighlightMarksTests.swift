@@ -36,4 +36,20 @@ final class HighlightMarksTests: XCTestCase {
         XCTAssertEqual(HighlightMarks.budgets(forBoldCounts: [1, 1], limit: 0), [0, 0])
         XCTAssertEqual(HighlightMarks.budgets(forBoldCounts: []), [])
     }
+
+    func testParseInlineRescuesCJKBoldAdjacentToFullWidthPunctuationWhilePreservingCode() {
+        let marne = HighlightMarks.parseInline("**1914年9月，第一次马恩河战役。**英法联军阻止了德军向巴黎方向的推进，迫使德军后撤。")
+        XCTAssertFalse(String(marne.characters).contains("**"))
+        XCTAssertEqual(
+            HighlightMarks.boldRanges(in: marne).map { String(marne[$0].characters) },
+            ["1914年9月，第一次马恩河战役。"]
+        )
+
+        let mixed = HighlightMarks.parseInline("在**“马恩河战役”**与**（第一次世界大战）**中，代码 `x ** 2 ** y` 保持原样。")
+        XCTAssertEqual(
+            HighlightMarks.boldRanges(in: mixed).map { String(mixed[$0].characters) },
+            ["“马恩河战役”", "（第一次世界大战）"]
+        )
+        XCTAssertTrue(String(mixed.characters).contains("x ** 2 ** y"))
+    }
 }

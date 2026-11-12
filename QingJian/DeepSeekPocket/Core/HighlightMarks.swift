@@ -37,4 +37,83 @@ enum HighlightMarks {
             return used
         }
     }
+
+    /// Parses inline Markdown and rescues CJK `**...**` strong emphasis spans that CommonMark's
+    /// flanking rules reject when `**` sits between full-width punctuation (`。，、“”‘’（）《》【】；：？！`) and CJK characters.
+    static func parseInline(_ text: String) -> AttributedString {
+        let attributed = (try? AttributedString(
+            markdown: text,
+            options: .init(interpretedSyntax: .inlineOnlyPreservingWhitespace)
+        )) ?? AttributedString(text)
+        guard text.contains("**") else { return attributed }
+        return rescueCJKBold(in: attributed)
+    }
+
+    private static func rescueCJKBold(in attributed: AttributedString) -> AttributedString {
+        var copy = attributed
+        var safety = 0
+        while safety < 64, let pair = findNextBoldPair(in: copy) {
+            safety += 1
+            let innerRange = pair.open.upperBound ..< pair.close.lowerBound
+            var subRanges: [(Range<AttributedString.Index>, InlinePresentationIntent)] = []
+            for run in copy.runs {
+                let lower = max(run.range.lowerBound, innerRange.lowerBound)
+                let upper = min(run.range.upperBound, innerRange.upperBound)
+                guard lower < upper, run.inlinePresentationIntent?.contains(.code) != true else { continue }
+                var intent = run.inlinePresentationIntent ?? []
+                intent.insert(.stronglyEmphasized)
+                subRanges.append((lower..<upper, intent))
+            }
+            for (range, intent) in subRanges {
+                copy[range].inlinePresentationIntent = intent
+            }
+            copy.removeSubrange(pair.close)
+            copy.removeSubrange(pair.open)
+        }
+        return copy
+    }
+
+    private static func findNextBoldPair(
+        in attributed: AttributedString
+    ) -> (open: Range<AttributedString.Index>, close: Range<AttributedString.Index>)? {
+        let chars = attributed.characters
+        var codeRanges: [Range<AttributedString.Index>] = []
+        for run in attributed.runs where run.inlinePresentationIntent?.contains(.code) == true {
+            codeRanges.append(run.range)
+        }
+        func isCode(_ idx: AttributedString.Index) -> Bool {
+            codeRanges.contains { $0.contains(idx) }
+        }
+
+        var i = chars.startIndex
+        var openRange: Range<AttributedString.Index>?
+
+        while i < chars.endIndex {
+            if chars[i].isNewline {
+                openRange = nil
+                i = chars.index(after: i)
+                continue
+            }
+            let next = chars.index(after: i)
+            if next < chars.endIndex,
+               chars[i] == "*", chars[next] == "*",
+               !isCode(i), !isCode(next) {
+                let afterPair = chars.index(after: next)
+                if openRange == nil {
+                    if afterPair < chars.endIndex, !chars[afterPair].isWhitespace, chars[afterPair] != "*" {
+                        openRange = i..<afterPair
+                        i = afterPair
+                        continue
+                    }
+                } else if let open = openRange {
+                    let beforeClose = chars.index(before: i)
+                    if i > open.upperBound, !chars[beforeClose].isWhitespace {
+                        return (open: open, close: i..<afterPair)
+                    }
+                }
+            }
+            i = next
+        }
+        return nil
+    }
 }

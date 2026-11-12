@@ -101,6 +101,23 @@ struct StudyMemoryView: View {
                                 Text("当前进行中：\(unit)（第 \(min(summary.activeSessionPosition + 1, summary.activeSessionCount)) / \(summary.activeSessionCount) 词）")
                                     .font(TypeScale.caption).foregroundStyle(Ink.ink2)
                             }
+                            if !summary.todayWordsList.isEmpty {
+                                VStack(alignment: .leading, spacing: 6) {
+                                    Text("今日各窗口已聊单词（\(summary.todayWordsList.count) 词）")
+                                        .font(TypeScale.caption.weight(.medium)).foregroundStyle(Ink.ink2)
+                                    ScrollView(.horizontal, showsIndicators: false) {
+                                        HStack(spacing: 6) {
+                                            ForEach(summary.todayWordsList.prefix(25), id: \.word.id) { item in
+                                                Text("\(item.word.word) · \(ratingLabel(item.lastRating))")
+                                                    .font(.system(size: 12.5, weight: .medium, design: .monospaced))
+                                                    .foregroundStyle(Ink.seal)
+                                                    .padding(.horizontal, 8).padding(.vertical, 3)
+                                                    .background(Ink.seal.opacity(0.12), in: Capsule())
+                                            }
+                                        }
+                                    }
+                                }
+                            }
                             if !summary.recentWords.isEmpty {
                                 DisclosureGroup("最近背过的单词（共 \(summary.learnedWords) 词）") {
                                     ForEach(summary.recentWords, id: \.word.id) { item in

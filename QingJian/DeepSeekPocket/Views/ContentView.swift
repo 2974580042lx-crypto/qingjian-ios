@@ -2144,7 +2144,7 @@ struct MarkdownAnswer: View, Equatable {
         }.frame(maxWidth: .infinity, alignment: .leading)
     }
     fileprivate static func inline(_ text: String, baseSize: CGFloat = 18) -> AttributedString {
-        ((try? AttributedString(markdown: text, options: .init(interpretedSyntax: .inlineOnlyPreservingWhitespace))) ?? AttributedString(text))
+        HighlightMarks.parseInline(text)
             .applyingTerracottaCodeAndEmphasis(baseSize: baseSize, boldColor: Ink.seal)
     }
     private static func codeBody(_ segment: String) -> String {
@@ -2189,7 +2189,7 @@ struct MarkdownParagraph: View, Equatable {
         lhs.text == rhs.text && lhs.marks == rhs.marks && lhs.style == rhs.style
     }
     private var parsed: AttributedString {
-        (try? AttributedString(markdown: text, options: .init(interpretedSyntax: .inlineOnlyPreservingWhitespace))) ?? AttributedString(text)
+        HighlightMarks.parseInline(text)
     }
     var body: some View {
         if text.hasPrefix("#") {
@@ -2200,7 +2200,7 @@ struct MarkdownParagraph: View, Equatable {
                 .foregroundStyle(Ink.ink)
         } else {
             let baseSize = CGFloat(UserDefaults.standard.object(forKey: "qingjian.reading.size") as? Double ?? 17.0)
-            Text(markdown: parsed, emphasisWeight: .semibold, baseSize: baseSize)
+            Text(markdown: parsed, emphasisWeight: .bold, baseSize: baseSize)
                 .readingStyle()
                 .lineSpacing(Personal.lineSpacing)
                 .chineseReading()

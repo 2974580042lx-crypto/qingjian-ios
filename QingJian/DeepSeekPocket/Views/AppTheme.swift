@@ -480,10 +480,10 @@ enum Personal {
         return Color.adaptive(light: 0xEFECE4, dark: 0x2A2926)
     }
     @MainActor static func setMediumBody(_ on: Bool) {
-        UserDefaults.standard.set(on ? "1" : "", forKey: mediumKey)
+        UserDefaults.standard.set(on ? "1" : "0", forKey: mediumKey)
         StyleAppearance.shared.bump()
     }
-    static var mediumBody: Bool { stored(mediumKey) == "1" }
+    static var mediumBody: Bool { stored(mediumKey) != "0" }
     /// Line spacing inside a paragraph and the gap between paragraphs.
     static var lineSpacing: CGFloat {
         switch stored(spacingKey) { case "compact": return 4.5; case "loose": return 10; default: return 7 }

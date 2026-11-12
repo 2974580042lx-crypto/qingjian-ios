@@ -189,6 +189,25 @@ struct ProjectPageView: View {
                 }
                 .buttonStyle(.plain)
                 .accessibilityIdentifier("project-memory")
+                if project?.studySubject == .english,
+                   let todayList = (try? store.studyWordSummary(projectID: projectID))?.todayWordsList,
+                   !todayList.isEmpty {
+                    ScrollView(.horizontal, showsIndicators: false) {
+                        HStack(spacing: 6) {
+                            Text("今日各窗口已聊")
+                                .font(TypeScale.tiny.weight(.medium))
+                                .foregroundStyle(Ink.ink3)
+                            ForEach(todayList.prefix(16), id: \.word.id) { item in
+                                Text(item.word.word)
+                                    .font(.system(size: 12.5, weight: .medium, design: .monospaced))
+                                    .foregroundStyle(Ink.seal)
+                                    .padding(.horizontal, 8).padding(.vertical, 3)
+                                    .background(Ink.seal.opacity(0.12), in: Capsule())
+                            }
+                        }
+                        .padding(.horizontal, 20).padding(.bottom, 6)
+                    }
+                }
             }
             if threads.isEmpty {
                 Spacer()
@@ -356,22 +375,21 @@ struct ProjectPageView: View {
                     Label("跨对话备忘", systemImage: "brain")
                 }
             }
-            // Off by default, so role-play and other projects never see any tools.
-            Toggle(isOn: Binding(get: { project?.driveTools == true },
+            }
+            Toggle(isOn: Binding(get: { project?.driveTools ?? store.drive.connected },
                                  set: { value in editProject(store, projectID) { $0.driveTools = value } })) {
                 Label("谷歌云盘工具", systemImage: "externaldrive")
             }
-            Toggle(isOn: Binding(get: { project?.githubTools == true },
+            Toggle(isOn: Binding(get: { project?.githubTools ?? store.github.connected },
                                  set: { value in editProject(store, projectID) { $0.githubTools = value } })) {
                 Label("GitHub 工具", systemImage: "chevron.left.forwardslash.chevron.right")
             }
-            Toggle(isOn: Binding(get: { project?.webTools == true },
+            Toggle(isOn: Binding(get: { project?.webTools != false },
                                  set: { value in editProject(store, projectID) { $0.webTools = value } })) {
                 Label("联网工具", systemImage: "globe")
             }
-            }
-            // After a long gap (or on a conversation's first message) the model hears what time it is.
-            Toggle(isOn: Binding(get: { project?.timeAwareness == true },
+            // Enabled by default across all projects and chats unless explicitly switched off.
+            Toggle(isOn: Binding(get: { project?.timeAwareness != false },
                                  set: { value in editProject(store, projectID) { $0.timeAwareness = value } })) {
                 Label("告诉角色时间流逝", systemImage: "clock")
             }
