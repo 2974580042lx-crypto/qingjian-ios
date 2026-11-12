@@ -229,4 +229,59 @@ final class StudyWordTests: XCTestCase {
         XCTAssertTrue(input.contains { $0["type"] as? String == "function_call" && $0["namespace"] as? String == "study" })
         XCTAssertTrue(input.contains { $0["type"] as? String == "function_call_output" && $0["call_id"] as? String == "call_1" })
     }
+
+    func testDrawWordsReturnsFullBatchAndShuffleOverridesPreviousQueue() throws {
+        // Start an ordered queue first
+        _ = try start(2)
+        // Calling drawWords with shuffle immediately returns all 3 words in the pack without locking behind position 0
+        let drawn = try store.drawWords(scope: scope, mode: "shuffle", count: 10, unitID: "", now: now)
+        XCTAssertEqual(drawn.mode, "shuffle")
+        XCTAssertEqual(drawn.totalInPack, 3)
+        XCTAssertEqual(Set(drawn.words.map(\.word.word)), Set(["adapt", "adopt", "effect"]))
+        // Units overview returns unit breakdown cleanly
+        let unitsResult = try store.drawWords(scope: scope, mode: "units_overview", count: 10, unitID: "", now: now)
+        XCTAssertEqual(unitsResult.units?.count, 2)
+    }
+
+    func testFindWordsLookalikeRanksAdoptNearAdapt() throws {
+        let extra = #"{"schema_version":"yanxi.private-import.v2-stage1","cards":[{"id":"word-adept","word":"adept","translation_zh":"熟练的","unit_order":[{"collection":"required","unit":1,"position":3}]},{"id":"word-banana","word":"banana","translation_zh":"香蕉","unit_order":[{"collection":"basic","unit":1,"position":2}]}]}"#
+        try store.importWords(StudyWordPack.decode(Data(extra.utf8)), projectID: scope.projectID)
+        let lookalikes = try store.findWords(projectID: scope.projectID, query: "adapt", matchMode: "lookalike", limit: 4)
+        let names = lookalikes.map(\.word.word)
+        XCTAssertTrue(names.prefix(3).contains("adapt"))
+        XCTAssertTrue(names.prefix(3).contains("adopt"))
+        XCTAssertTrue(names.prefix(3).contains("adept"))
+        XCTAssertFalse(names.prefix(3).contains("banana"))
+    }
+
+    func testGradeWordsFreeWorksAcrossTurnsWithoutSessionOrQuoteLock() throws {
+        // No active word_session at all; user answered in an earlier turn and asks a totally different question now
+        let unrelatedTurn = ChatMessage(role: .user, content: "可以打乱顺序背吗")
+        let graded = try store.gradeWordsFree(
+            scope: scope,
+            items: [(word: "adapt", rating: "good"), (word: "adopt", rating: "again")],
+            message: unrelatedTurn,
+            now: now
+        )
+        XCTAssertEqual(graded.count, 2)
+        XCTAssertEqual(graded[0].word.word, "adapt")
+        XCTAssertEqual(graded[0].reviewCount, 1)
+        XCTAssertEqual(graded[0].lastRating, "good")
+        XCTAssertEqual(graded[1].word.word, "adopt")
+        XCTAssertEqual(graded[1].lastRating, "again")
+
+        let summary = try store.wordPracticeSummary(projectID: scope.projectID, now: now.addingTimeInterval(5))
+        XCTAssertEqual(summary.learnedWords, 2)
+        XCTAssertEqual(summary.todayWords, 2)
+
+        // Undo by word name reverts the latest FSRS review cleanly
+        let undone = try store.gradeWordsFree(
+            scope: scope,
+            items: [(word: "adopt", rating: "undo")],
+            message: unrelatedTurn,
+            now: now.addingTimeInterval(10)
+        )
+        XCTAssertEqual(undone.first?.reviewCount, 0)
+        XCTAssertEqual(try store.wordPracticeSummary(projectID: scope.projectID, now: now.addingTimeInterval(15)).learnedWords, 1)
+    }
 }

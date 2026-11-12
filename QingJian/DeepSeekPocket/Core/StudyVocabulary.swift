@@ -121,6 +121,16 @@ struct StudyWordPracticeSummary: Sendable {
     let recentWords: [StudyWordView]
 }
 
+struct StudyWordDrawResult: Codable, Sendable {
+    let mode: String
+    let totalInPack: Int
+    let learnedCount: Int
+    let dueCount: Int
+    let unitID: String?
+    let words: [StudyWordView]
+    let units: [StudyWordUnitOverview]?
+}
+
 struct StudyWordState: Encodable, Sendable {
     let session: StudyWordSession?
     let currentWord: StudyWord?
@@ -344,5 +354,343 @@ extension StudyMemoryStore {
             try write(session, projectID: scope.projectID, kind: "word_session", id: session.id.uuidString)
             return StudyWordReceipt(session: session, event: nil, message: "已暂停，当前词和进度已保存")
         }
+    }
+
+    // MARK: - Lock-Free High-Freedom Vocabulary APIs
+
+    func drawWords(scope: StudyScope, mode rawMode: String, count rawCount: Int, unitID rawUnitID: String, now: Date = Date()) throws -> StudyWordDrawResult {
+        guard scope.subject == .english else { throw StudyMemoryError.invalid("请在考研英语项目中背词。") }
+        guard let pack = try wordPack(projectID: scope.projectID) else {
+            throw StudyMemoryError.invalid("请先在项目记忆页导入私人词库，只需导入一次。")
+        }
+        let count = min(max(rawCount > 0 ? rawCount : 10, 1), 30)
+        let modeLower = rawMode.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        let isShuffle = ["shuffle", "random", "乱序", "随机"].contains(modeLower)
+            || ["random", "shuffle", "乱序", "随机"].contains(rawUnitID.trimmingCharacters(in: .whitespacesAndNewlines).lowercased())
+        let normalizedMode = isShuffle ? "shuffle" : (modeLower.isEmpty ? "smart" : modeLower)
+        let resolvedUnitID = Self.normalizeUnitID(rawUnitID, in: pack)
+
+        return try transaction {
+            let progressList = try rows(projectID: scope.projectID, kind: "word_progress").map { try StudyCoding.decode(StudyWordProgress.self, from: $0) }
+            let lookup = Dictionary(uniqueKeysWithValues: progressList.map { ($0.wordID, $0) })
+            let learnedTotal = progressList.filter { $0.reviewCount > 0 }.count
+            let dueTotal = progressList.filter { $0.reviewCount > 0 && $0.due <= now }.count
+
+            func view(for word: StudyWord) -> StudyWordView {
+                let p = lookup[word.id]
+                return StudyWordView(word: word, reviewCount: p?.reviewCount ?? 0, lastRating: p?.lastRating, lastReviewedAt: p?.lastReviewedAt, due: p?.due)
+            }
+
+            if ["units_overview", "units", "单元"].contains(normalizedMode) {
+                var unitsMap: [String: StudyWord.Unit] = [:]
+                for word in pack.cards { for unit in word.units where unit.isCore { unitsMap[unit.id] = unit } }
+                let ordered = unitsMap.values.sorted { ($0.collection == "required" ? 0 : 1, $0.number) < ($1.collection == "required" ? 0 : 1, $1.number) }
+                let overviews = ordered.map { unit in
+                    let words = pack.cards.filter { $0.units.contains { $0.id == unit.id } }
+                    return StudyWordUnitOverview(
+                        id: unit.id,
+                        title: unit.title,
+                        total: words.count,
+                        learned: words.filter { (lookup[$0.id]?.reviewCount ?? 0) > 0 }.count,
+                        due: words.filter { lookup[$0.id].map { $0.reviewCount > 0 && $0.due <= now } == true }.count
+                    )
+                }
+                return StudyWordDrawResult(mode: "units_overview", totalInPack: pack.cards.count, learnedCount: learnedTotal, dueCount: dueTotal, unitID: nil, words: [], units: overviews)
+            }
+
+            if normalizedMode == "continue" || normalizedMode == "resume" {
+                let sessions = try wordSessions(scope.projectID).filter { !$0.completed }
+                if var existing = sessions.first(where: { $0.threadID == scope.threadID }) ?? sessions.first {
+                    existing.threadID = scope.threadID
+                    existing.paused = false
+                    existing.updatedAt = now
+                    existing.revision += 1
+                    try write(existing, projectID: scope.projectID, kind: "word_session", id: existing.id.uuidString)
+                    let cardByID = Dictionary(uniqueKeysWithValues: pack.cards.map { ($0.id, $0) })
+                    let remainingIDs = Array(existing.wordIDs.dropFirst(min(existing.position, existing.wordIDs.count)))
+                    let remaining = remainingIDs.compactMap { cardByID[$0] }.map(view(for:))
+                    if !remaining.isEmpty {
+                        return StudyWordDrawResult(mode: "continue", totalInPack: pack.cards.count, learnedCount: learnedTotal, dueCount: dueTotal, unitID: existing.unitID.isEmpty ? nil : existing.unitID, words: remaining, units: nil)
+                    }
+                }
+            }
+
+            var candidates: [StudyWord]
+            if resolvedUnitID.isEmpty {
+                candidates = pack.cards
+            } else {
+                candidates = pack.cards.filter { word in word.units.contains { $0.isCore && $0.id == resolvedUnitID } }
+                if candidates.isEmpty {
+                    // Fallback gracefully to whole pack instead of throwing a rigid error if AI guessed an unknown unit tag
+                    candidates = pack.cards
+                } else {
+                    candidates.sort { ($0.units.first { $0.id == resolvedUnitID }?.position ?? 0) < ($1.units.first { $0.id == resolvedUnitID }?.position ?? 0) }
+                }
+            }
+
+            let dueCards = candidates.filter { lookup[$0.id].map { $0.reviewCount > 0 && $0.due <= now } == true }
+                .sorted { lookup[$0.id]!.due < lookup[$1.id]!.due }
+            let weakCards = candidates.filter { ["again", "hard"].contains(lookup[$0.id]?.lastRating ?? "") }
+                .sorted { (lookup[$0.id]?.lastReviewedAt ?? .distantPast) > (lookup[$1.id]?.lastReviewedAt ?? .distantPast) }
+            let freshCards = candidates.filter { (lookup[$0.id]?.reviewCount ?? 0) == 0 }
+            let practicedCards = candidates.filter { (lookup[$0.id]?.reviewCount ?? 0) > 0 }
+
+            var chosen: [StudyWord] = []
+            if normalizedMode == "shuffle" {
+                let duePick = Array(dueCards.shuffled().prefix(max(1, count / 3)))
+                let chosenIDs = Set(duePick.map(\.id))
+                let freshPool = freshCards.filter { !chosenIDs.contains($0.id) }.shuffled()
+                chosen = duePick + Array(freshPool.prefix(max(0, count - duePick.count)))
+                if chosen.count < count {
+                    let used = Set(chosen.map(\.id))
+                    chosen += Array(candidates.filter { !used.contains($0.id) }.shuffled().prefix(count - chosen.count))
+                }
+                chosen.shuffle()
+            } else if normalizedMode == "review" {
+                var pool = dueCards
+                let dueSet = Set(pool.map(\.id))
+                for w in weakCards where !dueSet.contains(w.id) { pool.append(w) }
+                if pool.isEmpty { pool = practicedCards.sorted { (lookup[$0.id]?.due ?? .distantFuture) < (lookup[$1.id]?.due ?? .distantFuture) } }
+                chosen = Array((pool.isEmpty ? freshCards : pool).prefix(count))
+            } else {
+                chosen = Array((dueCards + freshCards).prefix(count))
+                if chosen.count < count {
+                    let used = Set(chosen.map(\.id))
+                    chosen += Array(practicedCards.filter { !used.contains($0.id) }.prefix(count - chosen.count))
+                }
+            }
+
+            let sessionUnitLabel = normalizedMode == "shuffle" ? (resolvedUnitID.isEmpty ? "乱序抽词" : "\(resolvedUnitID)·乱序") : resolvedUnitID
+            // Replace any unfinished session on this thread so UI summary reflects the latest batch cleanly
+            for var old in try wordSessions(scope.projectID) where old.threadID == scope.threadID && !old.completed {
+                old.position = old.wordIDs.count
+                old.paused = false
+                old.updatedAt = now
+                try write(old, projectID: scope.projectID, kind: "word_session", id: old.id.uuidString)
+            }
+            let session = StudyWordSession(
+                id: UUID(),
+                threadID: scope.threadID,
+                unitID: sessionUnitLabel,
+                mode: normalizedMode == "review" ? .review : .start,
+                wordIDs: chosen.map(\.id),
+                position: 0,
+                revision: 1,
+                paused: false,
+                updatedAt: now,
+                questionIssuedAt: now,
+                promptMessageID: nil,
+                lastEventID: nil
+            )
+            try write(session, projectID: scope.projectID, kind: "word_session", id: session.id.uuidString)
+
+            return StudyWordDrawResult(
+                mode: normalizedMode,
+                totalInPack: pack.cards.count,
+                learnedCount: learnedTotal,
+                dueCount: dueTotal,
+                unitID: resolvedUnitID.isEmpty ? nil : resolvedUnitID,
+                words: chosen.map(view(for:)),
+                units: nil
+            )
+        }
+    }
+
+    func findWords(projectID: UUID, query rawQuery: String, matchMode rawMode: String = "auto", limit rawLimit: Int = 15) throws -> [StudyWordView] {
+        guard let pack = try wordPack(projectID: projectID) else {
+            throw StudyMemoryError.invalid("请先在项目记忆页导入私人词库。")
+        }
+        let limit = min(max(rawLimit > 0 ? rawLimit : 15, 1), 25)
+        let progressList = try wordProgress(projectID: projectID)
+        let lookup = Dictionary(uniqueKeysWithValues: progressList.map { ($0.wordID, $0) })
+        func toView(_ word: StudyWord) -> StudyWordView {
+            let p = lookup[word.id]
+            return StudyWordView(word: word, reviewCount: p?.reviewCount ?? 0, lastRating: p?.lastRating, lastReviewedAt: p?.lastReviewedAt, due: p?.due)
+        }
+
+        let query = rawQuery.trimmingCharacters(in: .whitespacesAndNewlines.union(CharacterSet(charactersIn: "`\"'")))
+        let qLower = query.lowercased()
+        let mode = rawMode.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+
+        if query.isEmpty || ["random", "shuffle", "随机", "抽查", "any"].contains(qLower) {
+            let fresh = pack.cards.filter { (lookup[$0.id]?.reviewCount ?? 0) == 0 }.shuffled()
+            let picked = fresh.isEmpty ? Array(pack.cards.shuffled().prefix(limit)) : Array(fresh.prefix(limit))
+            return picked.map(toView)
+        }
+
+        let isLatinQuery = qLower.unicodeScalars.allSatisfy { ($0.value >= 97 && $0.value <= 122) || $0.value == 45 || $0.value == 32 }
+        let wantsLookalike = ["lookalike", "similar", "形近", "形近词", "相似"].contains(mode)
+
+        if wantsLookalike && isLatinQuery && qLower.count >= 2 {
+            let scored: [(StudyWord, Int)] = pack.cards.compactMap { card in
+                let w = card.word.lowercased()
+                let lenDiff = abs(w.count - qLower.count)
+                if w == qLower { return (card, 0) }
+                if lenDiff <= 3 {
+                    let dist = Self.levenshtein(qLower, w)
+                    if dist == 1 { return (card, 10 + lenDiff) }
+                    if dist == 2 && qLower.count >= 4 {
+                        let sameEdge = w.first == qLower.first || w.last == qLower.last
+                        return (card, (sameEdge ? 20 : 28) + lenDiff)
+                    }
+                    if dist == 3 && qLower.count >= 6 && w.prefix(2) == qLower.prefix(2) {
+                        return (card, 40 + lenDiff)
+                    }
+                }
+                if qLower.count >= 3 && (w.contains(qLower) || qLower.contains(w)) {
+                    return (card, 34 + lenDiff)
+                }
+                return nil
+            }
+            return scored.sorted { $0.1 == $1.1 ? $0.0.word < $1.0.word : $0.1 < $1.1 }.prefix(limit).map { toView($0.0) }
+        }
+
+        // Direct substring / root / Chinese meaning search, supplemented by lookalikes when Latin query has few hits
+        let direct = pack.cards.filter {
+            $0.id.caseInsensitiveCompare(query) == .orderedSame
+                || $0.word.localizedCaseInsensitiveContains(query)
+                || $0.meaning.localizedCaseInsensitiveContains(query)
+                || $0.translation.localizedCaseInsensitiveContains(query)
+        }.sorted { a, b in
+            let aw = a.word.lowercased(), bw = b.word.lowercased()
+            let aRank = aw == qLower ? 0 : (aw.hasPrefix(qLower) ? 1 : (aw.contains(qLower) ? 2 : 3))
+            let bRank = bw == qLower ? 0 : (bw.hasPrefix(qLower) ? 1 : (bw.contains(qLower) ? 2 : 3))
+            if aRank != bRank { return aRank < bRank }
+            return a.word.count < b.word.count
+        }
+
+        var results = Array(direct.prefix(limit))
+        if isLatinQuery && qLower.count >= 4 && results.count < min(6, limit) {
+            let existingIDs = Set(results.map(\.id))
+            let near = pack.cards.filter { !existingIDs.contains($0.id) && abs($0.word.count - qLower.count) <= 2 }
+                .compactMap { card -> (StudyWord, Int)? in
+                    let d = Self.levenshtein(qLower, card.word.lowercased())
+                    return d <= 2 ? (card, d) : nil
+                }
+                .sorted { $0.1 == $1.1 ? $0.0.word < $1.0.word : $0.1 < $1.1 }
+                .prefix(limit - results.count)
+                .map(\.0)
+            results.append(contentsOf: near)
+        }
+        return results.map(toView)
+    }
+
+    func gradeWordsFree(scope: StudyScope, items: [(word: String, rating: String)], message: ChatMessage, now: Date = Date()) throws -> [StudyWordView] {
+        guard scope.subject == .english else { throw StudyMemoryError.invalid("请在考研英语项目中记录单词评分。") }
+        guard !items.isEmpty else { throw StudyMemoryError.invalid("请提供要记录评分的单词。") }
+        guard let pack = try wordPack(projectID: scope.projectID) else {
+            throw StudyMemoryError.invalid("请先在项目记忆页导入私人词库。")
+        }
+
+        let ratingMap: [String: (String, Rating)] = [
+            "easy": ("easy", .easy), "轻松": ("easy", .easy), "熟练": ("easy", .easy),
+            "good": ("good", .good), "记得": ("good", .good), "认识": ("good", .good), "pass": ("good", .good),
+            "hard": ("hard", .hard), "模糊": ("hard", .hard), "不熟": ("hard", .hard),
+            "again": ("again", .again), "忘了": ("again", .again), "不认识": ("again", .again), "wrong": ("again", .again), "forgot": ("again", .again)
+        ]
+        let undoTokens: Set<String> = ["undo", "revert", "撤销", "撤回"]
+
+        return try transaction {
+            var activeSession = try wordSessions(scope.projectID).first { $0.threadID == scope.threadID && !$0.completed }
+            let cardByID = Dictionary(uniqueKeysWithValues: pack.cards.map { ($0.id, $0) })
+            let scheduler = FSRS(parameters: FSRSParameters(w: FSRSDefaults.defaultWv6, enableFuzz: false))
+            var updatedViews: [StudyWordView] = []
+
+            for item in items {
+                let cleanedWord = item.word.trimmingCharacters(in: .whitespacesAndNewlines.union(CharacterSet(charactersIn: "`\"'")))
+                let cleanedRating = item.rating.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+
+                let targetCard: StudyWord?
+                if cleanedWord.isEmpty || cleanedWord.lowercased() == "current" {
+                    targetCard = activeSession?.currentWordID.flatMap { cardByID[$0] }
+                } else {
+                    targetCard = pack.cards.first { $0.word.caseInsensitiveCompare(cleanedWord) == .orderedSame }
+                        ?? pack.cards.first { $0.id.caseInsensitiveCompare(cleanedWord) == .orderedSame }
+                }
+                guard let wordCard = targetCard else {
+                    throw StudyMemoryError.invalid("词库中未找到单词「\(cleanedWord)」；如果是课外生词，可用 study_remember 存入生词本。")
+                }
+
+                let existing = try read(StudyWordProgress.self, projectID: scope.projectID, kind: "word_progress", id: wordCard.id)
+                    ?? StudyWordProgress(wordID: wordCard.id, card: nil)
+
+                if undoTokens.contains(cleanedRating) {
+                    var reverted = existing
+                    if !reverted.logs.isEmpty {
+                        reverted.logs.removeLast()
+                    }
+                    if reverted.logs.isEmpty {
+                        reverted.card = nil
+                        reverted.lastRating = nil
+                        reverted.lastReviewedAt = nil
+                    } else {
+                        var replayCard = Card(due: reverted.logs[0].review)
+                        var lastName = "good"
+                        for log in reverted.logs {
+                            let step = try scheduler.next(card: replayCard, now: log.review, grade: log.rating)
+                            replayCard = step.card
+                            switch log.rating {
+                            case .easy: lastName = "easy"
+                            case .good: lastName = "good"
+                            case .hard: lastName = "hard"
+                            case .again, .manual: lastName = "again"
+                            }
+                        }
+                        reverted.card = replayCard
+                        reverted.lastRating = lastName
+                        reverted.lastReviewedAt = reverted.logs.last?.review
+                    }
+                    try write(reverted, projectID: scope.projectID, kind: "word_progress", id: wordCard.id)
+                    updatedViews.append(StudyWordView(word: wordCard, reviewCount: reverted.reviewCount, lastRating: reverted.lastRating, lastReviewedAt: reverted.lastReviewedAt, due: reverted.card?.due))
+                    continue
+                }
+
+                guard let (canonicalRating, fsrsRating) = ratingMap[cleanedRating] else {
+                    throw StudyMemoryError.invalid("评分请使用 easy（轻松）、good（记得）、hard（模糊）、again（忘了）或 undo（撤回）。")
+                }
+
+                let scheduled = try scheduler.next(card: existing.card ?? Card(due: now), now: now, grade: fsrsRating)
+                var after = existing
+                after.card = scheduled.card
+                after.logs.append(scheduled.log)
+                after.lastRating = canonicalRating
+                after.lastReviewedAt = now
+                try write(after, projectID: scope.projectID, kind: "word_progress", id: wordCard.id)
+
+                if var session = activeSession {
+                    if session.currentWordID == wordCard.id {
+                        session.position += 1
+                    } else if let idx = session.wordIDs.firstIndex(of: wordCard.id), idx >= session.position {
+                        session.wordIDs.remove(at: idx)
+                        session.wordIDs.insert(wordCard.id, at: session.position)
+                        session.position += 1
+                    }
+                    session.revision += 1
+                    session.updatedAt = now
+                    try write(session, projectID: scope.projectID, kind: "word_session", id: session.id.uuidString)
+                    activeSession = session
+                }
+
+                updatedViews.append(StudyWordView(word: wordCard, reviewCount: after.reviewCount, lastRating: after.lastRating, lastReviewedAt: after.lastReviewedAt, due: after.due))
+            }
+            return updatedViews
+        }
+    }
+
+    private static func levenshtein(_ lhs: String, _ rhs: String) -> Int {
+        let a = Array(lhs.utf8), b = Array(rhs.utf8)
+        if a.isEmpty { return b.count }
+        if b.isEmpty { return a.count }
+        var prev = Array(0...b.count)
+        var curr = Array(repeating: 0, count: b.count + 1)
+        for i in 1...a.count {
+            curr[0] = i
+            for j in 1...b.count {
+                let cost = a[i - 1] == b[j - 1] ? 0 : 1
+                curr[j] = min(prev[j] + 1, curr[j - 1] + 1, prev[j - 1] + cost)
+            }
+            swap(&prev, &curr)
+        }
+        return prev[b.count]
     }
 }
