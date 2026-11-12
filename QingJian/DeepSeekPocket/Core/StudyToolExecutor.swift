@@ -36,6 +36,8 @@ struct StudyToolExecutor {
             let state = try store.wordState(scope: scope)
             if state.session != nil {
                 result += "\n当前背词现场：" + String(decoding: try StudyCoding.encode(state), as: UTF8.self)
+            } else {
+                result += "\n当前背词现场：尚未开启本轮背词（若用户要求背词或让你抽词考他，直接调用 1 次 study_start_words(unit_id: \"\", count: 10, mode: \"start\") 即可，不要先调 study_word_units 或 study_find_word）。"
             }
         }
         return result
@@ -127,9 +129,25 @@ struct StudyToolExecutor {
         let lookup = Dictionary(uniqueKeysWithValues: progress.map { ($0.wordID, $0) })
         if action.name == "study_find_word" {
             let query = try action.text("query").trimmingCharacters(in: .whitespacesAndNewlines)
-            guard !query.isEmpty else { throw StudyMemoryError.invalid("请提供要查的词或释义。") }
-            let found = pack.cards.filter { $0.id == query || $0.word.localizedCaseInsensitiveContains(query) || $0.meaning.localizedCaseInsensitiveContains(query) || $0.translation.localizedCaseInsensitiveContains(query) }.prefix(12)
-            return try json(found.map { word in StudyWordView(word: word, reviewCount: lookup[word.id]?.reviewCount ?? 0,
+            let isRandom = query.isEmpty || ["random", "随机", "抽查", "any"].contains(query.lowercased())
+            let matched: [StudyWord]
+            if isRandom {
+                matched = Array(pack.cards.filter { (lookup[$0.id]?.reviewCount ?? 0) == 0 }.prefix(5))
+            } else {
+                let raw = pack.cards.filter {
+                    $0.id == query || $0.word.localizedCaseInsensitiveContains(query)
+                        || $0.meaning.localizedCaseInsensitiveContains(query)
+                        || $0.translation.localizedCaseInsensitiveContains(query)
+                }
+                let qLower = query.lowercased()
+                matched = Array(raw.sorted { a, b in
+                    let aExact = a.word.lowercased() == qLower ? 0 : (a.word.lowercased().hasPrefix(qLower) ? 1 : 2)
+                    let bExact = b.word.lowercased() == qLower ? 0 : (b.word.lowercased().hasPrefix(qLower) ? 1 : 2)
+                    if aExact != bExact { return aExact < bExact }
+                    return a.word.count < b.word.count
+                }.prefix(6))
+            }
+            return try json(matched.map { word in StudyWordView(word: word, reviewCount: lookup[word.id]?.reviewCount ?? 0,
                 lastRating: lookup[word.id]?.lastRating, lastReviewedAt: lookup[word.id]?.lastReviewedAt, due: lookup[word.id]?.due) })
         }
         var units: [String: StudyWord.Unit] = [:]

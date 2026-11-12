@@ -29,16 +29,54 @@ final class OperationManualTests: XCTestCase {
         XCTAssertTrue(reading.content.contains("人设"))
     }
 
-    func testNormalChatWithoutToolsInjectsZeroManualCharacters() {
+    func testNormalChatCanAccessGeneralManualAndSearchAllChaptersOnDemand() throws {
         let book = OperationManualBook.defaultBook()
-        let result = OperationManualTools.systemPromptNote(
+        // When allowGeneralOnly is false (e.g. story / book discussion), returns nil:
+        XCTAssertNil(OperationManualTools.systemPromptNote(
+            book: book,
+            studySubject: nil,
+            usesDrive: false,
+            usesGitHub: false,
+            usesWeb: false,
+            allowGeneralOnly: false
+        ))
+
+        // In normal projects and general chats (allowGeneralOnly: true), injects general/custom catalog and mounts tools:
+        let generalNote = try XCTUnwrap(OperationManualTools.systemPromptNote(
+            book: book,
+            studySubject: nil,
+            usesDrive: false,
+            usesGitHub: false,
+            usesWeb: false,
+            allowGeneralOnly: true
+        ))
+        XCTAssertTrue(generalNote.includeTools)
+        XCTAssertTrue(generalNote.note.contains("[app-backup-guide]"))
+        XCTAssertFalse(generalNote.note.contains("[study-english-reading]"))
+
+        // And when the user asks a normal project "你能看文档规范吗？", manual_search and manual_read can access all enabled chapters!
+        let searchAll = ToolCall(id: "s1", name: "manual_search", arguments: #"{"query":""}"#)
+        let searchRes = try OperationManualTools.execute(
+            searchAll,
             book: book,
             studySubject: nil,
             usesDrive: false,
             usesGitHub: false,
             usesWeb: false
         )
-        XCTAssertNil(result)
+        XCTAssertTrue(searchRes.output.contains("[study-english-reading]"))
+        XCTAssertTrue(searchRes.output.contains("[app-backup-guide]"))
+
+        let readInNormalProject = ToolCall(id: "r1", name: "manual_read", arguments: #"{"chapter_ids":"study-english-words"}"#)
+        let readRes = try OperationManualTools.execute(
+            readInNormalProject,
+            book: book,
+            studySubject: nil,
+            usesDrive: false,
+            usesGitHub: false,
+            usesWeb: false
+        )
+        XCTAssertTrue(readRes.output.contains(#"<operation_manual id="study-english-words""#))
     }
 
     func testScopeFilteringIsolatesSubjectsAndExternalTools() throws {

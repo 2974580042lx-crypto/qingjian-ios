@@ -160,6 +160,20 @@ final class StudyWordTests: XCTestCase {
         XCTAssertEqual(practice.session.currentWordID, "word-adapt")
     }
 
+    func testFuzzyUnitIDAndWordPracticeSummaryTrackRealTimeProgress() throws {
+        // Fuzzy unit ID like "Unit 1" or "random" resolves cleanly without throwing "找不到这个单元"
+        let fuzzySession = try store.startWords(scope: scope, unitID: "Unit 1", count: 2, mode: .start, now: now).session
+        XCTAssertEqual(fuzzySession.unitID, "required-1")
+        XCTAssertEqual(fuzzySession.currentWordID, "word-adapt")
+
+        _ = try store.gradeWord(grade(fuzzySession, rating: "good"), scope: scope, operationID: "fuzzy-grade-1", now: now)
+        let summary = try store.wordPracticeSummary(projectID: scope.projectID, now: now.addingTimeInterval(10))
+        XCTAssertEqual(summary.totalWords, 3)
+        XCTAssertEqual(summary.learnedWords, 1)
+        XCTAssertEqual(summary.recentWords.first?.word.word, "adapt")
+        XCTAssertEqual(summary.recentWords.first?.lastRating, "good")
+    }
+
     func testOtherProjectCannotReadWordsOrProgress() throws {
         let session = try start(); _ = try store.gradeWord(grade(session), scope: scope, operationID: "answer", now: now)
         let other = StudyScope(projectID: StudySubject.history.projectID, threadID: UUID(), subject: .history)

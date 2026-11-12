@@ -10,7 +10,7 @@ struct OperationManualView: View {
     var body: some View {
         List {
             Section {
-                Text("平时普通聊天不注入任何字数；进入学习项目或开启工具时，系统只附带简短的一句话目录，AI 需要用到对应操作时才会自行翻阅正文。所有规范只管后台工具怎么调、数据怎么如实存，绝不限制你设定的人设、语气和陪伴感。")
+                Text("所有项目与普通对话中的 AI 都自带规范查阅工具（manual_search / manual_read）。平时系统只附带极简的一句话目录，不占上下文；当你问起规范或需要执行对应操作时，AI 会自己翻阅正文，绝不会让你手动发文件。所有规范只约束后台数据真实性，100% 尊重你设定的人设与语气。")
                     .font(TypeScale.caption)
                     .foregroundStyle(Ink.ink2)
                     .padding(.vertical, 2)

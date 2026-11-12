@@ -11,7 +11,8 @@ struct ToolActivityList: View {
                 HStack(alignment: .firstTextBaseline, spacing: 8) {
                     icon(for: item.status).frame(width: 16)
                     VStack(alignment: .leading, spacing: 3) {
-                        Text(item.title).font(TypeScale.serif(14)).foregroundStyle(Ink.ink2).lineLimit(2)
+                        Text(item.title).font(TypeScale.serif(14).weight(item.status == .running ? .medium : .regular))
+                            .foregroundStyle(item.status == .running ? Ink.seal : Ink.ink2).lineLimit(2)
                         if let detail = item.detail {
                             Text(detail).font(TypeScale.serif(12)).foregroundStyle(Ink.ink3).lineLimit(3)
                         }
@@ -36,12 +37,13 @@ struct ToolActivityList: View {
                 if item.status == .done, let excerpts = item.studyExcerpts {
                     ForEach(Array(excerpts.enumerated()), id: \.offset) { _, excerpt in
                         VStack(alignment: .leading, spacing: 10) {
-                            Text("资料原文 · " + excerpt.title).font(TypeScale.caption).foregroundStyle(Ink.ink3)
+                            Text("资料原文 · " + excerpt.title).font(TypeScale.caption.weight(.semibold)).foregroundStyle(Ink.seal)
                             Text(excerpt.text).font(TypeScale.body).foregroundStyle(Ink.ink).textSelection(.enabled)
                             Text(excerpt.source).font(TypeScale.caption).foregroundStyle(Ink.ink3)
                         }
                         .frame(maxWidth: .infinity, alignment: .leading).padding(14)
                         .background(Ink.raised, in: InkRounded(radius: 14))
+                        .overlay(InkRounded(radius: 14).stroke(Ink.seal.opacity(0.25), lineWidth: 1))
                     }
                 }
             }
@@ -52,11 +54,11 @@ struct ToolActivityList: View {
 
     @ViewBuilder private func icon(for status: ToolActivity.Status) -> some View {
         switch status {
-        case .running: ProgressView().controlSize(.mini)
-        case .done: Image(systemName: "checkmark").font(.system(size: 12)).foregroundStyle(Ink.ink3)
-        case .failed: Image(systemName: "exclamationmark.triangle").font(.system(size: 12)).foregroundStyle(Ink.ink3)
+        case .running: ProgressView().controlSize(.mini).tint(Ink.seal)
+        case .done: Image(systemName: "checkmark.circle.fill").font(.system(size: 13)).foregroundStyle(Ink.seal)
+        case .failed: Image(systemName: "exclamationmark.triangle.fill").font(.system(size: 12)).foregroundStyle(Ink.seal)
         case .declined: Image(systemName: "hand.raised").font(.system(size: 12)).foregroundStyle(Ink.ink3)
-        case .needsSignIn: Image(systemName: "person.crop.circle.badge.exclamationmark").font(.system(size: 12)).foregroundStyle(Ink.ink3)
+        case .needsSignIn: Image(systemName: "person.crop.circle.badge.exclamationmark").font(.system(size: 12)).foregroundStyle(Ink.seal)
         }
     }
 }

@@ -3,14 +3,14 @@ import Foundation
 enum StudyWordTools {
     static let names: Set<String> = ["study_word_units", "study_start_words", "study_word_state", "study_find_word", "study_grade_word", "study_undo_word", "study_pause_words"]
     static let specs: [ToolSpec] = [
-        .init(name: "study_word_units", description: "查看已导入词库的单元、已学和到期复习数量。用户让你抽模块时据此选择。", parameters: ToolSpec.object([], required: [])),
-        .init(name: "study_start_words", description: "准备或接续一轮背词。优先接续当前未完成任务，一次只提问当前单词。", parameters: ToolSpec.object([
-            ("unit_id", "string", "单元目录中的 ID；空字符串按到期复习和词库顺序选择"),
+        .init(name: "study_word_units", description: "仅当用户明确询问词库有哪些单元可选时调用。日常开始背词或抽词请直接调 study_start_words(unit_id: "", count: 10, mode: "start")，不要先调本工具。", parameters: ToolSpec.object([], required: [])),
+        .init(name: "study_start_words", description: "一步开始或接续一轮背词并直接返回第 1 个待考单词（调用前无需先调 study_word_units 或 study_word_state）。优先接续未完成任务，一次只提问当前这 1 个单词。", parameters: ToolSpec.object([
+            ("unit_id", "string", "传空字符串 "" 自动按到期复习和词库顺序抽词；也可传 required-1、basic-1 或单元序号"),
             ("count", "integer", "本轮 1 至 30 词，通常 10"),
             ("mode", "string", "start 开始，continue 接续上次（可跨窗口），review 只选到期词，practice 在用户明确要求时额外练已学词")], required: ["unit_id", "count", "mode"])),
-        .init(name: "study_word_state", description: "只读取当前窗口的背词现场，不解除暂停。若 paused=true 且用户要求继续，随后必须调用 study_start_words，mode=continue，取得 paused=false 的回执后再继续提问。", parameters: ToolSpec.object([], required: [])),
-        .init(name: "study_find_word", description: "从当前项目私人词库查单词及实际复习记录，用于解释、比较和找回学过的词。", parameters: ToolSpec.object([
-            ("query", "string", "单词、词形片段或中文释义")], required: ["query"])),
+        .init(name: "study_word_state", description: "仅读取当前窗口的背词现场。若要开始背词、抽词考用户或恢复暂停，请直接调用 study_start_words，无需先调本工具。", parameters: ToolSpec.object([], required: [])),
+        .init(name: "study_find_word", description: "按具体英文单词或中文释义查词库记录（仅用于用户点名查某个词；若要抽词考用户请直接调 study_start_words，切勿用本工具反复搜词）。", parameters: ToolSpec.object([
+            ("query", "string", "要查的具体单词或中文词义")], required: ["query"])),
         .init(name: "study_grade_word", description: "用户已回答或明确自评后记录当前词的评分并推进一词。单纯追问或看答案不应算作答。", parameters: ToolSpec.object([
             ("session_id", "string", "当前背词任务 ID"), ("expected_revision", "integer", "当前任务版本"),
             ("word_id", "string", "当前提问词条 ID"), ("rating", "string", "again 忘了，hard 模糊，good 记得，easy 轻松"),
@@ -30,7 +30,7 @@ enum StudyWordTools {
         return ToolSpec(name: spec.name, description: spec.description, parameters: .object(parameters))
     }
     static let note = """
-背词在聊天里进行。开始、继续和找回进度必须先读取应用数据；用实际词条，不编造已学、已掌握或完成数量。
+背词在聊天里进行。当用户要求开始背词、继续背词或让你找个单词考他时，直接调用 1 次 study_start_words(unit_id: "", count: 10, mode: "start" 或 "continue") 即可拿到待考词，不要提前调用 study_word_units 或 study_word_state，也不要用 study_find_word 反复搜索，以节省 Token。用实际词条，不编造已学、已掌握或完成数量。
 session_id 和 word_id 固定传 current，由客户端绑定当前窗口的任务和词；不要抄写或构造内部 UUID。expected_revision 仍使用回执给出的版本。
 暂停任务的恢复必须执行 study_start_words，mode=continue。study_word_state 只读取状态，不能把读取成功说成已恢复；以 paused=false 的应用回执为准。
 每次只问当前一个词，通常只显示单词和音标，给用户回答机会。工具返回的释义用于判断，不要在提问时提前说出答案。

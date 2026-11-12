@@ -13,8 +13,10 @@ struct StudyMemoryView: View {
     @State private var loadError: String?
     @State private var importingWordsBusy = false
     @State private var wordCount = 0
+    @State private var wordSummary: StudyWordPracticeSummary?
     @State private var importingReadingsBusy = false
     @State private var readingCount = 0
+    @State private var readingAnsweredCount = 0
     @State private var reviewKind: ReviewTarget?
     @State private var topics: [StudyTopic] = []
     @State private var practices: [StudyPractice] = []
@@ -83,14 +85,54 @@ struct StudyMemoryView: View {
                     }
                 }
                 if subject == .english {
-                    Section("私人词库") {
-                        Text(wordCount == 0 ? "导入一次后，在聊天里说“开始背词”即可。" : "已导入 \(wordCount) 个词，可以在聊天里开始或继续。")
+                    Section("私人词库与背词进度") {
+                        Text(wordCount == 0 ? "导入一次后，在聊天里说“开始背词”即可。" : "已导入 \(wordCount) 个词，每次在聊天中作答判分都会实时记录在这里。")
                             .font(TypeScale.caption).foregroundStyle(Ink.ink3)
+                        if let summary = wordSummary, summary.totalWords > 0 {
+                            HStack(spacing: 12) {
+                                Text("已背 \(summary.learnedWords) 词")
+                                    .font(TypeScale.caption.weight(.semibold)).foregroundStyle(Ink.seal)
+                                Text("今日已练 \(summary.todayWords) 词")
+                                    .font(TypeScale.caption).foregroundStyle(Ink.ink2)
+                                Text("待复习 \(summary.dueWords) 词")
+                                    .font(TypeScale.caption).foregroundStyle(summary.dueWords > 0 ? Ink.seal : Ink.ink3)
+                            }
+                            if let unit = summary.activeSessionUnit, summary.activeSessionCount > 0 {
+                                Text("当前进行中：\(unit)（第 \(min(summary.activeSessionPosition + 1, summary.activeSessionCount)) / \(summary.activeSessionCount) 词）")
+                                    .font(TypeScale.caption).foregroundStyle(Ink.ink2)
+                            }
+                            if !summary.recentWords.isEmpty {
+                                DisclosureGroup("最近背过的单词（共 \(summary.learnedWords) 词）") {
+                                    ForEach(summary.recentWords, id: \.word.id) { item in
+                                        VStack(alignment: .leading, spacing: 4) {
+                                            HStack {
+                                                Text(item.word.word).font(TypeScale.body.weight(.semibold)).foregroundStyle(Ink.seal)
+                                                if let phonetic = item.word.phonetic, !phonetic.isEmpty {
+                                                    Text(phonetic).font(TypeScale.caption).foregroundStyle(Ink.ink3)
+                                                }
+                                                Spacer()
+                                                Text(ratingLabel(item.lastRating))
+                                                    .font(TypeScale.tiny.weight(.medium))
+                                                    .foregroundStyle(Ink.seal)
+                                                    .padding(.horizontal, 6).padding(.vertical, 2)
+                                                    .background(Ink.seal.opacity(0.12), in: Capsule())
+                                            }
+                                            Text(item.word.meaning).font(TypeScale.caption).foregroundStyle(Ink.ink2).lineLimit(2)
+                                            if let reviewedAt = item.lastReviewedAt {
+                                                Text("已练 \(item.reviewCount) 次 · 最近：\(reviewedAt.formatted(date: .abbreviated, time: .shortened))")
+                                                    .font(TypeScale.tiny).foregroundStyle(Ink.ink3)
+                                            }
+                                        }
+                                        .padding(.vertical, 3)
+                                    }
+                                }
+                            }
+                        }
                         Button(importingWordsBusy ? "正在导入…" : "导入词库 JSON") { pickVocabulary() }.disabled(importingWordsBusy)
                     }
-                    Section("阅读资料") {
-                        Text(readingCount == 0 ? "导入后，在聊天里说“开始某年 Text 4”或“继续上次阅读”。" : "已导入 \(readingCount) 篇。正文按段读取，原文和待答题留在聊天中。")
-                            .font(TypeScale.caption).foregroundStyle(Ink.ink3)
+                    Section("阅读资料与做题进度") {
+                        Text(readingCount == 0 ? "导入后，在聊天里说“开始某年 Text 4”或“继续上次阅读”。" : "已导入 \(readingCount) 篇 · 累计已作答 \(readingAnsweredCount) 道阅读题。正文按段读取，原文和待答题留在聊天中。")
+                            .font(TypeScale.caption).foregroundStyle(readingAnsweredCount > 0 ? Ink.seal : Ink.ink3)
                         Button(importingReadingsBusy ? "正在导入…" : "导入阅读 JSON") { pickReadings() }.disabled(importingReadingsBusy)
                     }
                 }
@@ -246,12 +288,23 @@ struct StudyMemoryView: View {
             }
             if subject == .english {
                 wordCount = try store.studyVocabularyCount(projectID: projectID)
+                wordSummary = try store.studyWordSummary(projectID: projectID)
                 readingCount = try store.studyReadingCount(projectID: projectID)
+                readingAnsweredCount = (try? store.studyReadingAnsweredCount(projectID: projectID)) ?? 0
             }
             loadError = nil
         } catch {
             records = []; events = []; pending = []; topics = []; practices = []; historyOutlineCount = 0; historyReferenceCount = 0; temporaryMap = nil
             loadError = error.localizedDescription; store.studyIssue = error.localizedDescription
+        }
+    }
+    private func ratingLabel(_ rating: String?) -> String {
+        switch rating {
+        case "easy": return "轻松"
+        case "good": return "记得"
+        case "hard": return "模糊"
+        case "again": return "忘了"
+        default: return "已练"
         }
     }
     private func sourceName(_ kind: StudySource.Kind) -> String {

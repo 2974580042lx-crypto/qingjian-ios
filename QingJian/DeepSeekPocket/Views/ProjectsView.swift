@@ -53,7 +53,10 @@ struct ProjectsView: View {
                 ForEach(store.projects) { project in
                     Button { open(project.id) } label: {
                         HStack(spacing: 14) {
-                            Image(systemName: project.isLocked ? "lock" : "folder").font(.system(size: 17)).foregroundStyle(Ink.ink2).frame(width: 24)
+                            Image(systemName: project.isLocked ? "lock" : (project.studySubject != nil ? "graduationcap.fill" : "folder"))
+                                .font(.system(size: 17))
+                                .foregroundStyle(project.studySubject != nil ? Ink.seal : Ink.ink2)
+                                .frame(width: 24)
                             VStack(alignment: .leading, spacing: 3) {
                                 Text(project.name).font(TypeScale.serif(17)).foregroundStyle(Ink.ink)
                                 Text(project.isLocked && store.isLocked(project.id) ? "已上锁" : "\(store.threads(in: project.id).count) 个对话")
@@ -169,10 +172,17 @@ struct ProjectPageView: View {
                     else { ProjectMemoryView(projectID: projectID) }
                 } label: {
                     HStack(spacing: 10) {
-                        Image(systemName: "brain").font(.system(size: 15)).foregroundStyle(Ink.ink2).frame(width: 24)
-                        Text(project?.studySubject != nil ? "学习档案与进度" : "项目备忘（跨对话）").font(TypeScale.serif(17)).foregroundStyle(Ink.ink)
+                        Image(systemName: project?.studySubject != nil ? "graduationcap.fill" : "brain")
+                            .font(.system(size: 15))
+                            .foregroundStyle(project?.studySubject != nil ? Ink.seal : Ink.ink2)
+                            .frame(width: 24)
+                        Text(project?.studySubject != nil ? "学习档案与进度" : "项目备忘（跨对话）")
+                            .font(TypeScale.serif(17))
+                            .foregroundStyle(Ink.ink)
                         Spacer()
-                        Text(memorySummary).font(TypeScale.tiny).foregroundStyle(Ink.ink3)
+                        Text(memorySummary)
+                            .font(TypeScale.tiny.weight(project?.studySubject != nil ? .medium : .regular))
+                            .foregroundStyle(project?.studySubject != nil ? Ink.seal : Ink.ink3)
                         Image(systemName: "chevron.right").font(.system(size: 12)).foregroundStyle(Ink.ink3)
                     }
                     .padding(.horizontal, 20).frame(height: 44).contentShape(Rectangle())
@@ -379,9 +389,33 @@ struct ProjectPageView: View {
     }
 
     private var memorySummary: String {
-        if project?.studySubject != nil {
-            guard let count = try? store.studyRecords(for: projectID).count else { return "暂时无法读取" }
-            return "\(count) 条学习记录"
+        _ = store.studyRevision
+        if let subject = project?.studySubject {
+            guard let noteCount = try? store.studyRecords(for: projectID).count else { return "暂时无法读取" }
+            if subject == .english {
+                let wordSum = try? store.studyWordSummary(projectID: projectID)
+                let learned = wordSum?.learnedWords ?? 0
+                let today = wordSum?.todayWords ?? 0
+                let totalWords = wordSum?.totalWords ?? 0
+                let answeredReadings = (try? store.studyReadingAnsweredCount(projectID: projectID)) ?? 0
+                let totalReadings = (try? store.studyReadingCount(projectID: projectID)) ?? 0
+                if learned > 0 || answeredReadings > 0 || noteCount > 0 {
+                    let wordPart = today > 0 ? "已背 \(learned) 词(今\(today))" : "已背 \(learned) 词"
+                    return "\(wordPart) · 阅读 \(answeredReadings) 题 · \(noteCount) 笔记"
+                } else if totalWords > 0 || totalReadings > 0 {
+                    return "词库 \(totalWords) 词 · 阅读 \(totalReadings) 篇"
+                } else {
+                    return "点击导入词库 / 真题包"
+                }
+            } else {
+                let topicCount = (try? store.studyTopics(projectID: projectID).count) ?? 0
+                let practiceCount = (try? store.studyPractices(projectID: projectID).count) ?? 0
+                if topicCount > 0 || practiceCount > 0 || noteCount > 0 {
+                    return "专题 \(topicCount) · 练习 \(practiceCount) 题 · \(noteCount) 笔记"
+                } else {
+                    return "0 条学习记录"
+                }
+            }
         }
         if store.memorizingProjectID == projectID { return "正在整理…" }
         let count = (project?.memory ?? "").components(separatedBy: .newlines).filter { !$0.trimmingCharacters(in: .whitespaces).isEmpty }.count
@@ -507,6 +541,15 @@ struct ProjectFilesView: View {
             if project == nil {
                 Text("项目已上锁或不存在，请返回后重新打开。").foregroundStyle(Ink.ink3)
             } else {
+            if project?.studySubject != nil {
+                Section {
+                    NavigationLink { StudyMemoryView(projectID: projectID) } label: {
+                        Label("词库、阅读真题包与学习进度请点此管理（或在下方直接选 JSON 自动识别导入）", systemImage: "graduationcap.fill")
+                            .font(TypeScale.caption.weight(.medium))
+                            .foregroundStyle(Ink.seal)
+                    }
+                }
+            }
             Section {
                 if visibleDocuments.isEmpty {
                     Text(query.isEmpty ? "还没有资料，可以导入文件或粘贴文字。" : "没有匹配的资料，试试名称或正文中的其他关键词。")

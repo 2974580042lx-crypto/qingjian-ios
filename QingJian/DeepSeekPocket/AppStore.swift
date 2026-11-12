@@ -286,7 +286,11 @@ final class AppStore: ObservableObject {
         } catch { studyIssue = error.localizedDescription; return false }
     }
     func studyVocabularyCount(projectID: UUID) throws -> Int { try studyStore(for: projectID).wordPack(projectID: projectID)?.cards.count ?? 0 }
+    func studyWordSummary(projectID: UUID) throws -> StudyWordPracticeSummary { try studyStore(for: projectID).wordPracticeSummary(projectID: projectID) }
     func studyReadingCount(projectID: UUID) throws -> Int { try studyStore(for: projectID).readingCatalog(projectID: projectID).count }
+    func studyReadingAnsweredCount(projectID: UUID) throws -> Int {
+        try studyStore(for: projectID).readingAnswers(projectID: projectID).filter { !$0.skipped && $0.choice != nil }.count
+    }
     func studyTopics(projectID: UUID) throws -> [StudyTopic] { try studyStore(for: projectID).studyTopics(projectID: projectID) }
     func studyPractices(projectID: UUID) throws -> [StudyPractice] { try studyStore(for: projectID).studyPractices(projectID: projectID) }
     func historyPack(projectID: UUID, kind: String) throws -> StudyHistoryPack? { try studyStore(for: projectID).studyHistoryPack(projectID: projectID, kind: kind) }
@@ -351,8 +355,20 @@ final class AppStore: ObservableObject {
 
     var isGenerating: Bool { generatingThreadID != nil }
     var hasKey: Bool { !apiKey.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }
-    // A project answers with the service it was set to; other conversations use the default one.
-    func provider(for thread: ChatThread?) -> AIProvider { thread?.modelSelection?.provider ?? project(thread?.projectID)?.service ?? settings.selectedProvider }
+    // A project answers with the service it was set to; if a built-in study project's default service is not connected, fall back to the user's ready service.
+    func provider(for thread: ChatThread?) -> AIProvider {
+        let base = thread?.modelSelection?.provider ?? project(thread?.projectID)?.service ?? settings.selectedProvider
+        if !isReady(base), project(thread?.projectID)?.studySubject != nil {
+            if isReady(settings.selectedProvider) { return settings.selectedProvider }
+            if hasKey { return .deepSeek }
+            if subscription.ready { return .chatGPT }
+        }
+        return base
+    }
+    func isStudyThread(_ thread: ChatThread?) -> Bool {
+        guard let thread, thread.bookDiscussion == nil, thread.story == nil else { return false }
+        return project(thread.projectID)?.studySubject != nil
+    }
     func settings(for thread: ChatThread?) -> AppSettings {
         (thread?.modelSelection ?? ChatModelSelection(settings: settings, project: project(thread?.projectID))).applying(to: settings)
     }
@@ -623,7 +639,13 @@ final class AppStore: ObservableObject {
 
     private func applyDefaults(of projectID: UUID?, force: Bool = false) {
         guard let index = threads.firstIndex(where: { $0.id == activeThreadID }), force || threads[index].modelSelection == nil else { return }
-        threads[index].modelSelection = ChatModelSelection(settings: settings, project: project(projectID))
+        var selection = ChatModelSelection(settings: settings, project: project(projectID))
+        if !isReady(selection.provider), project(projectID)?.studySubject != nil {
+            if isReady(settings.selectedProvider) { selection.provider = settings.selectedProvider }
+            else if hasKey { selection.provider = .deepSeek }
+            else if subscription.ready { selection.provider = .chatGPT }
+        }
+        threads[index].modelSelection = selection
     }
 
     // The project a new chat starts in: the last one picked on a blank page.
@@ -1446,7 +1468,7 @@ final class AppStore: ObservableObject {
                 previewAnswer.discussionCharacter = threads[ti].messages.last(where: { $0.role == .user })?.discussionCharacter
             }
             threads[ti].messages.append(previewAnswer)
-            if settings.shouldSuggestReplies {
+            if settings.shouldSuggestReplies, !isStudyThread(threads[ti]) {
                 generateReplySuggestions(threadID: threadID, messageID: previewAnswer.id)
             }
             return true
@@ -1481,13 +1503,16 @@ final class AppStore: ObservableObject {
         if useDrive { specs += DriveTools.specs; notes.append(DriveTools.systemNote) }
         if useGitHub { specs += GitHubTools.specs; notes.append(GitHubTools.systemNote) }
         if useWeb { specs += WebTools.specs; notes.append(WebTools.systemNote) }
-        if !specs.isEmpty,
+        let canCallManualTools = discussion == nil && threads[ti].story == nil
+            && (provider == .deepSeek || provider == .chatGPT || (provider == .colab && settings.colabOptions.tools))
+        if canCallManualTools,
            let manualBundle = OperationManualTools.systemPromptNote(
                book: operationManual,
                studySubject: hasStudyTools ? chatProject?.studySubject : nil,
                usesDrive: useDrive,
                usesGitHub: useGitHub,
-               usesWeb: useWeb
+               usesWeb: useWeb,
+               allowGeneralOnly: true
            ) {
             if manualBundle.includeTools { specs += OperationManualTools.specs }
             notes.append(manualBundle.note)
@@ -1592,7 +1617,8 @@ final class AppStore: ObservableObject {
             self.persistNow()
             self.refreshStoryMemory(threadID: threadID, force: false)
             self.updateMemoryAfterAnswer(threadID: threadID)
-            if self.settings.shouldSuggestReplies, self.activeThreadID == threadID {
+            if self.settings.shouldSuggestReplies, self.activeThreadID == threadID,
+               !self.isStudyThread(self.threads.first(where: { $0.id == threadID })) {
                 self.generateReplySuggestions(threadID: threadID, messageID: answerID)
             }
         }
@@ -1811,14 +1837,8 @@ final class AppStore: ObservableObject {
             throw ToolError.disabledTool(call.name)
         }
         if OperationManualTools.names.contains(call.name) {
-            let flags = manualToolScope(for: thread)
-            let active = operationManual.activeChapters(
-                studySubject: flags.studySubject,
-                usesDrive: flags.usesDrive,
-                usesGitHub: flags.usesGitHub,
-                usesWeb: flags.usesWeb
-            )
-            guard !active.isEmpty else {
+            guard thread.bookDiscussion == nil, thread.story == nil,
+                  operationManual.chapters.contains(where: \.isEnabled) else {
                 throw ToolError.disabledTool(call.name)
             }
             return
@@ -2301,7 +2321,8 @@ final class AppStore: ObservableObject {
     func generateReplySuggestions(threadID: UUID, messageID: UUID) {
         guard settings.shouldSuggestReplies, !isGenerating, canPersist,
               activeThreadID == threadID,
-              let thread = threads.first(where: { $0.id == threadID }), isReady(self.provider(for: thread)),
+              let thread = threads.first(where: { $0.id == threadID }), !isStudyThread(thread),
+              isReady(self.provider(for: thread)),
               let answer = thread.messages.last, answer.id == messageID,
               answer.role == .assistant, answer.state == .complete,
               answer.replySuggestions == nil,

@@ -110,6 +110,17 @@ struct StudyWordGrade: Codable, Sendable {
     }
 }
 
+struct StudyWordPracticeSummary: Sendable {
+    let totalWords: Int
+    let learnedWords: Int
+    let todayWords: Int
+    let dueWords: Int
+    let activeSessionUnit: String?
+    let activeSessionPosition: Int
+    let activeSessionCount: Int
+    let recentWords: [StudyWordView]
+}
+
 struct StudyWordState: Encodable, Sendable {
     let session: StudyWordSession?
     let currentWord: StudyWord?
@@ -176,6 +187,55 @@ extension StudyMemoryStore {
     func wordProgress(projectID: UUID) throws -> [StudyWordProgress] {
         try transaction { try rows(projectID: projectID, kind: "word_progress").map { try StudyCoding.decode(StudyWordProgress.self, from: $0) } }
     }
+    func wordPracticeSummary(projectID: UUID, now: Date = Date()) throws -> StudyWordPracticeSummary {
+        let pack = try wordPack(projectID: projectID)
+        let progress = try wordProgress(projectID: projectID)
+        let sessions = try transaction { try wordSessions(projectID) }
+        let active = sessions.first { !$0.completed }
+        let cardByID = Dictionary(uniqueKeysWithValues: (pack?.cards ?? []).map { ($0.id, $0) })
+        let practiced = progress.filter { $0.reviewCount > 0 }.sorted { ($0.lastReviewedAt ?? .distantPast) > ($1.lastReviewedAt ?? .distantPast) }
+        let calendar = Calendar.current
+        let todayCount = practiced.filter { $0.lastReviewedAt.map { calendar.isDateInToday($0) } == true }.count
+        let dueCount = practiced.filter { $0.due <= now }.count
+        let recent: [StudyWordView] = practiced.prefix(30).compactMap { p in
+            guard let word = cardByID[p.wordID] else { return nil }
+            return StudyWordView(word: word, reviewCount: p.reviewCount, lastRating: p.lastRating, lastReviewedAt: p.lastReviewedAt, due: p.due)
+        }
+        return StudyWordPracticeSummary(
+            totalWords: pack?.cards.count ?? 0,
+            learnedWords: practiced.count,
+            todayWords: todayCount,
+            dueWords: dueCount,
+            activeSessionUnit: active.map { $0.unitID.isEmpty ? "智能顺序/复习" : $0.unitID },
+            activeSessionPosition: active?.position ?? 0,
+            activeSessionCount: active?.wordIDs.count ?? 0,
+            recentWords: recent
+        )
+    }
+    private static func normalizeUnitID(_ raw: String, in pack: StudyWordPack) -> String {
+        let trimmed = raw.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return "" }
+        let lower = trimmed.lowercased()
+        if ["all", "random", "default", "auto", "any", "current", "随机", "全部", "默认", "任意"].contains(lower) {
+            return ""
+        }
+        if pack.cards.contains(where: { word in word.units.contains { $0.isCore && $0.id.caseInsensitiveCompare(trimmed) == .orderedSame } }) {
+            return lower
+        }
+        let digits = trimmed.split(whereSeparator: { !$0.isNumber }).compactMap { Int($0) }.first
+        if let num = digits {
+            let prefersBasic = lower.contains("basic") || lower.contains("基础")
+            let candidateID = "\(prefersBasic ? "basic" : "required")-\(num)"
+            if pack.cards.contains(where: { word in word.units.contains { $0.isCore && $0.id == candidateID } }) {
+                return candidateID
+            }
+            let altID = "\(prefersBasic ? "required" : "basic")-\(num)"
+            if pack.cards.contains(where: { word in word.units.contains { $0.isCore && $0.id == altID } }) {
+                return altID
+            }
+        }
+        return trimmed
+    }
     func wordState(scope: StudyScope) throws -> StudyWordState {
         let pack = try wordPack(projectID: scope.projectID)
         let progress = try wordProgress(projectID: scope.projectID)
@@ -190,10 +250,11 @@ extension StudyMemoryStore {
     func startWords(scope: StudyScope, unitID: String, count: Int, mode: StudyWordMode, sourceMessageID: UUID? = nil, now: Date = Date()) throws -> StudyWordReceipt {
         guard scope.subject == .english, (1...30).contains(count) else { throw StudyMemoryError.invalid("请选择英语项目，每轮 1 至 30 个词。") }
         guard let pack = try wordPack(projectID: scope.projectID) else { throw StudyMemoryError.invalid("请先在项目记忆页导入私人词库，只需导入一次。") }
+        let resolvedUnitID = Self.normalizeUnitID(unitID, in: pack)
         return try transaction {
             let unfinished = try wordSessions(scope.projectID).filter { !$0.completed }
-            let local = unfinished.first { $0.threadID == scope.threadID && (unitID.isEmpty || $0.unitID == unitID) && (mode == .resume || $0.mode == mode) }
-            if var existing = local ?? (mode == .resume ? unfinished.first(where: { unitID.isEmpty || $0.unitID == unitID }) : nil) {
+            let local = unfinished.first { $0.threadID == scope.threadID && (resolvedUnitID.isEmpty || $0.unitID == resolvedUnitID) && (mode == .resume || $0.mode == mode) }
+            if var existing = local ?? (mode == .resume ? unfinished.first(where: { resolvedUnitID.isEmpty || $0.unitID == resolvedUnitID }) : nil) {
                 if existing.questionIssuedAt == nil { existing.questionIssuedAt = existing.updatedAt }
                 existing.threadID = scope.threadID; existing.paused = false; existing.updatedAt = now; existing.revision += 1
                 try write(existing, projectID: scope.projectID, kind: "word_session", id: existing.id.uuidString)
@@ -201,15 +262,15 @@ extension StudyMemoryStore {
             }
             let progress = try rows(projectID: scope.projectID, kind: "word_progress").map { try StudyCoding.decode(StudyWordProgress.self, from: $0) }
             let lookup = Dictionary(uniqueKeysWithValues: progress.map { ($0.wordID, $0) })
-            var candidates = pack.cards.filter { word in word.units.contains { $0.isCore && (unitID.isEmpty || $0.id == unitID) } }
-            if !unitID.isEmpty { candidates.sort { ($0.units.first { $0.id == unitID }?.position ?? 0) < ($1.units.first { $0.id == unitID }?.position ?? 0) } }
+            var candidates = pack.cards.filter { word in word.units.contains { $0.isCore && (resolvedUnitID.isEmpty || $0.id == resolvedUnitID) } }
+            if !resolvedUnitID.isEmpty { candidates.sort { ($0.units.first { $0.id == resolvedUnitID }?.position ?? 0) < ($1.units.first { $0.id == resolvedUnitID }?.position ?? 0) } }
             guard !candidates.isEmpty else { throw StudyMemoryError.invalid("找不到这个单元。") }
             let due = candidates.filter { lookup[$0.id].map { $0.reviewCount > 0 && $0.due <= now } == true }.sorted { lookup[$0.id]!.due < lookup[$1.id]!.due }
             let fresh = mode == .review ? [] : candidates.filter { (lookup[$0.id]?.reviewCount ?? 0) == 0 }
             let practice = candidates.filter { (lookup[$0.id]?.reviewCount ?? 0) > 0 }.sorted { (lookup[$0.id]?.lastReviewedAt ?? .distantPast) > (lookup[$1.id]?.lastReviewedAt ?? .distantPast) }
             let chosen = Array((mode == .practice ? practice : due + fresh).prefix(count))
             guard !chosen.isEmpty else { throw StudyMemoryError.invalid("当前范围暂时没有到期复习词或未学新词。可以选择别的单元。") }
-            let session = StudyWordSession(id: UUID(), threadID: scope.threadID, unitID: unitID, mode: mode,
+            let session = StudyWordSession(id: UUID(), threadID: scope.threadID, unitID: resolvedUnitID, mode: mode,
                 wordIDs: chosen.map(\.id), position: 0, revision: 1, paused: false, updatedAt: now, questionIssuedAt: now, promptMessageID: sourceMessageID, lastEventID: nil)
             try write(session, projectID: scope.projectID, kind: "word_session", id: session.id.uuidString)
             return StudyWordReceipt(session: session, event: nil, message: "本轮已准备，等待用户回答第一个词")

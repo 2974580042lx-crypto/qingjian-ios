@@ -18,14 +18,12 @@ enum OperationManualScope: String, Codable, CaseIterable, Identifiable, Sendable
         case .studyHistory: return "313 历史项目"
         case .studyPolitics: return "考研政治项目"
         case .externalTools: return "外部工具（云盘/GitHub/联网）"
-        case .general: return "所有开启工具的对话"
-        case .custom: return "自定义通用（开启工具时可用）"
+        case .general: return "所有项目与对话通用"
+        case .custom: return "自定义通用（所有项目与对话）"
         }
     }
 
     func matches(studySubject: StudySubject?, usesDrive: Bool, usesGitHub: Bool, usesWeb: Bool) -> Bool {
-        let hasAnyTool = studySubject != nil || usesDrive || usesGitHub || usesWeb
-        guard hasAnyTool else { return false }
         switch self {
         case .studyAll:
             return studySubject != nil
@@ -287,7 +285,7 @@ struct OperationManualBook: Codable, Equatable, Sendable {
             whenToRead: "开始或继续背单词、聊天抽查词义判分、中途问词根例句或撤回上一题评分时查阅",
             content: """
             1. 边聊边背，保留人设温度：全程用你在项目指令中的人设和自然口吻陪用户过词，不要变成冷冰冰的报词机器。
-            2. 从真实词库取词，一次只考一词：选单元或随机抽查前可先调 `study_word_units` 看已导入单元与到期复习数，再调 `study_start_words` 开启。每次只抛出当前这 1 个词（展示单词和已有音标；词库未附音标时直接省略，若用户主动让你补音标或词根拆解，顺口说明是模型补充、供参考）。提问时不要提前把中文释义漏出来，给用户留出猜词和回想的余地。
+            2. 一步直达抽词，禁止多余调用（省 Token 铁律）：当用户说“开始背词 / 考我几个单词 / 找个单词考我 / 继续背词”时，**直接调用 1 次 `study_start_words(unit_id: "", count: 5, mode: "start")`（或 `"continue"`）即可直接拿到当前待考词**！严禁提前去调 `study_word_units` 或 `study_word_state`，也不要用 `study_find_word` 反复盲搜。只有当用户明确问“有哪些单元可以选”时才调 `study_word_units`；只有当用户点名查某个具体词（如“帮我查下 abandon”）时才调 `study_find_word`。每次只抛出当前这 1 个词（可用反引号如 `word` 标出单词，展示单词和已有音标；词库未附音标时直接省略），提问时不要提前把中文释义漏出来。
             3. `session_id` 与 `word_id` 固定传 `"current"`：调用 `study_grade_word`、`study_pause_words`、`study_undo_word` 时，`session_id` 和 `word_id` 一律固定填字符串 `"current"`（由客户端自动绑定当前窗口任务与当前词，切勿手抄或自造 UUID）；`expected_revision` 填最近一次工具回执给出的整数版本号。
             4. 中途追问与闲聊不算作答：用户在猜词中途问“这个词跟另一个词怎么区分？”“能给个例句提示吗？”或者随口闲聊两句时，尽管自然解答或给一点不直接漏底的小提示，**不要调用 `study_grade_word`**，当前待考词保持原位，聊完顺势拉回这个词即可。
             5. 口语作答判分与随时撤回：等用户给出词义猜测或明确自评（如“想不起来了”“是不是妥协的意思？”“这个超熟”）后，结合工具返回的释义调用 `study_grade_word` 记录评分（`again` 忘了、`hard` 模糊或靠提示才想出、`good` 记得、`easy` 熟练秒答；`evidence_quote` 逐字引用本轮用户原话），再自然带出回执里的下一个词。若用户说“刚才说错了其实我认识/撤回上一个”，调 `study_undo_word` 即可退回上一词。
@@ -295,7 +293,7 @@ struct OperationManualBook: Codable, Equatable, Sendable {
             """,
             scope: .studyEnglish,
             isEnabled: true,
-            version: 1,
+            version: 2,
             isCustom: false,
             isUserModified: false,
             updatedAt: seedDate
@@ -515,14 +513,14 @@ enum OperationManualTools {
     static let specs: [ToolSpec] = [
         ToolSpec(
             name: "manual_search",
-            description: "检索当前对话可用的内置文档规范目录，按关键词匹配章节标题、适用时机和要点；不确定该读哪一章规范时调用。",
+            description: "检索 Sermo 内置文档规范目录（含学习规范、外部工具规范、备份说明及自建规范）。当用户询问你能不能看文档规范、平时怎么看规范，或不确定该读哪一章时直接调用，绝不要让用户手动发规范给你。",
             parameters: ToolSpec.object([
-                ("query", "string", "搜索关键词，如 阅读、背词、错题、历史、周报；传空字符串列出当前全部可用章节")
+                ("query", "string", "搜索关键词，如 阅读、背词、错题、历史、周报、规范；传空字符串列出全部可用章节")
             ], required: ["query"])
         ),
         ToolSpec(
             name: "manual_read",
-            description: "按章节 ID 查阅内置文档规范的完整操作细则（如 study-english-reading）。仅在本轮实际用到对应工具流程且本对话尚未读过该章时按需调用；说话语气与人设仍完全遵循用户的项目指令。",
+            description: "按章节 ID 查阅内置文档规范的完整内容（如 study-english-reading、study-english-words、app-backup-guide）。当用户询问或让你查看某章规范，或本轮实际用到对应工具流程且本对话尚未读过该章时直接调用；说话语气与人设仍完全遵循用户的项目指令。",
             parameters: ToolSpec.object([
                 ("chapter_ids", "string", "要查阅的章节 ID，例如 study-english-reading；一次最多 3 章，多个用英文逗号分隔")
             ], required: ["chapter_ids"])
@@ -535,16 +533,17 @@ enum OperationManualTools {
     - 后台真实回执：凡涉及找回进度、背词判分、阅读看题判分、保存记忆/错题或生成周报，均以应用工具返回的真实回执为准，未收到成功回执前不声称已保存或已生成；内部记录 ID 与版本号仅供工具调用，不必念给用户听。
     """
 
-    /// Returns `(note, includeTools)` for active tool sessions, or `nil` when no tools are active (0 characters in normal chats).
+    /// Returns `(note, includeTools)` for sessions with manual access.
     static func systemPromptNote(
         book: OperationManualBook,
         studySubject: StudySubject?,
         usesDrive: Bool,
         usesGitHub: Bool,
-        usesWeb: Bool
+        usesWeb: Bool,
+        allowGeneralOnly: Bool = false
     ) -> (note: String, includeTools: Bool)? {
         let hasAnyTool = studySubject != nil || usesDrive || usesGitHub || usesWeb
-        guard hasAnyTool else { return nil }
+        guard hasAnyTool || allowGeneralOnly else { return nil }
 
         let active = book.activeChapters(
             studySubject: studySubject,
@@ -552,6 +551,7 @@ enum OperationManualTools {
             usesGitHub: usesGitHub,
             usesWeb: usesWeb
         )
+        let anyEnabled = book.chapters.contains(where: \.isEnabled)
 
         var blocks: [String] = []
         if studySubject != nil {
@@ -560,9 +560,15 @@ enum OperationManualTools {
         if !active.isEmpty {
             let lines = active.map { "- [\($0.id)] \($0.title) — \($0.whenToRead)" }.joined(separator: "\n")
             blocks.append("""
-            【内置文档规范目录（按需查阅）】
-            以下规范正文默认不展开。仅当本轮对话需要执行对应后台操作、且当前对话上下文里还没读过该章时，先调用 `manual_read` 查阅对应章节 ID；日常闲聊与情感互动无需查阅：
+            【内置文档规范目录（按需调用 manual_read / manual_search 查阅）】
+            你手边随时备有 Sermo 内置文档规范工具（`manual_search` / `manual_read`）。当用户问你“能不能看文档规范 / 平时怎么看规范”、点名让你看某章规范，或本轮需要执行对应操作且尚未读过该章时，请直接调用工具自行翻阅，绝不要让用户手动发文件给你；翻阅后依然用你自己的角色语气自然交流，不要背诵说明书：
             \(lines)
+            """)
+            return (blocks.joined(separator: "\n\n"), true)
+        } else if anyEnabled && allowGeneralOnly {
+            blocks.append("""
+            【内置文档规范（按需查阅）】
+            你手边备有 Sermo 内置文档规范工具（`manual_search` / `manual_read`）。当用户问起能不能看文档规范或让你查看某章规范时，直接调用 `manual_search(query: "")` 或 `manual_read` 查阅，不要让用户发给你。
             """)
             return (blocks.joined(separator: "\n\n"), true)
         }
@@ -608,26 +614,29 @@ enum OperationManualTools {
             throw ToolError.unknownTool(call.name)
         }
         let args = try call.argumentObject()
-        let available = book.activeChapters(
+        let scopedAvailable = book.activeChapters(
             studySubject: studySubject,
             usesDrive: usesDrive,
             usesGitHub: usesGitHub,
             usesWeb: usesWeb
         )
+        // In general/normal projects (studySubject == nil), allow manual_search and manual_read to access all enabled chapters on demand so the AI can inspect any manual chapter when asked by the user.
+        let searchablePool = studySubject == nil ? book.chapters.filter(\.isEnabled) : scopedAvailable
 
         if call.name == "manual_search" {
             let query = ((args["query"] as? String) ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
             let tokens = query.split(whereSeparator: { $0.isWhitespace || $0 == "," || $0 == "，" }).map(String.init)
             let matched: [OperationManualChapter]
             if tokens.isEmpty {
-                matched = available
+                matched = searchablePool
             } else {
-                matched = available.filter { chapter in
+                matched = searchablePool.filter { chapter in
                     let haystack = "\(chapter.id) \(chapter.title) \(chapter.whenToRead) \(chapter.content)"
                     return tokens.contains { haystack.localizedCaseInsensitiveContains($0) }
                 }
             }
-            let list = (matched.isEmpty ? available : matched)
+            let fallbackPool = searchablePool
+            let list = (matched.isEmpty ? fallbackPool : matched)
                 .map { "- [\($0.id)] \($0.title)（v\($0.version)）— 何时查阅：\($0.whenToRead)" }
                 .joined(separator: "\n")
             let header = matched.isEmpty
@@ -635,7 +644,7 @@ enum OperationManualTools {
                 : "找到 \(matched.count) 个相关规范章节（需要细则时请调用 manual_read 传入章节 ID）："
             return (
                 completedTitle: "已检索内置规范目录",
-                detail: matched.isEmpty ? "返回当前可用目录（\(available.count) 章）" : "匹配 \(matched.count) 章",
+                detail: matched.isEmpty ? "返回当前可用目录（\(fallbackPool.count) 章）" : "匹配 \(matched.count) 章",
                 output: list.isEmpty ? "当前对话没有已启用的规范章节。" : "\(header)\n\(list)"
             )
         }
@@ -648,12 +657,13 @@ enum OperationManualTools {
         var found: [OperationManualChapter] = []
         var missing: [String] = []
         for reqID in ids {
-            if let hit = available.first(where: { $0.id.caseInsensitiveCompare(reqID) == .orderedSame }) {
+            if let hit = searchablePool.first(where: { $0.id.caseInsensitiveCompare(reqID) == .orderedSame }) {
                 found.append(hit)
             } else {
                 missing.append(reqID)
             }
         }
+        let available = searchablePool
 
         guard !found.isEmpty else {
             let validList = available.map { "[\($0.id)] \($0.title)" }.joined(separator: "、")

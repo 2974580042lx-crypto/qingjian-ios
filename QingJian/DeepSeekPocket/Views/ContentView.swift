@@ -341,7 +341,8 @@ struct ChatScreen: View {
     // composer; send takes it as is, a tap on it puts it in to edit, 「换一条」 cycles.
     @State private var suggestionIndex = 0
     private var ghostSource: ChatMessage? {
-        guard !swiss, store.settings.shouldSuggestReplies, !store.isGenerating, let thread = store.activeThread,
+        guard !swiss, store.settings.shouldSuggestReplies, store.activeProject?.studySubject == nil,
+              !store.isGenerating, let thread = store.activeThread,
               !store.isHidden(thread), let last = thread.messages.last, last.role == .assistant,
               last.state == .complete, let batch = last.replySuggestions, !batch.replies.isEmpty else { return nil }
         return last
@@ -820,7 +821,7 @@ struct ChatScreen: View {
         }
         return MessageView(message: message, threadID: threadID, isLast: isLast,
                     isGenerating: store.isGenerating, canRegenerate: store.canChat,
-                    showsSuggestions: store.settings.shouldSuggestReplies,
+                    showsSuggestions: store.settings.shouldSuggestReplies && store.activeProject?.studySubject == nil,
                     edit: { focusComposer(false); editingThreadID = threadID; editedMessage = message },
                     regenerate: regeneratePreservingDraftImages,
                     openThinking: { if let threadID { thinkingTarget = ThinkingTarget(threadID: threadID, messageID: message.id) } },
@@ -2085,7 +2086,7 @@ struct MarkdownAnswer: View, Equatable {
                                         .font(TypeScale.mono(13)).foregroundStyle(Ink.seal)
                                         .frame(minWidth: 24, alignment: .leading)
                                 } else {
-                                    Text(item.marker).readingStyle().monospacedDigit().foregroundStyle(Ink.ink3)
+                                    Text(item.marker).readingStyle(heavy: true).monospacedDigit().foregroundStyle(Ink.seal)
                                         .frame(minWidth: item.marker.count > 1 ? 22 : 12, alignment: .leading)
                                 }
                                 MarkdownParagraph(text: item.text, marks: item.marks, style: style).equatable()
@@ -2099,7 +2100,7 @@ struct MarkdownAnswer: View, Equatable {
                         .padding(.leading, 14)
                         .overlay(alignment: .leading) {
                             RoundedRectangle(cornerRadius: swiss ? 0 : 1.25, style: .continuous)
-                                .fill(swiss ? Ink.ink : Ink.ink3.opacity(0.45)).frame(width: swiss ? 3 : 2.5)
+                                .fill(swiss ? Ink.ink : Ink.seal.opacity(0.75)).frame(width: swiss ? 3 : 2.5)
                         }
                 case .table(let header, let rows, let alignments):
                     // Wide tables scroll sideways inside the answer instead of squeezing.
@@ -2127,9 +2128,9 @@ struct MarkdownAnswer: View, Equatable {
                 case .code(let segment):
                     VStack(alignment: .leading, spacing: 8) {
                         HStack {
-                            Text(swiss ? "CODE" : "代码").font(swiss ? TypeScale.mono(10) : TypeScale.tiny).foregroundStyle(Ink.ink3)
+                            Text(swiss ? "CODE" : "代码").font(swiss ? TypeScale.mono(10) : TypeScale.tiny.weight(.semibold)).foregroundStyle(Ink.seal)
                             Spacer()
-                            Button { UIPasteboard.general.string = Self.codeBody(segment) } label: { Image(systemName: "doc.on.doc") }
+                            Button { UIPasteboard.general.string = Self.codeBody(segment) } label: { Image(systemName: "doc.on.doc").foregroundStyle(Ink.seal) }
                                 .font(.system(size: 11)).accessibilityLabel("复制代码")
                         }
                         ScrollView(.horizontal) {
@@ -2142,7 +2143,8 @@ struct MarkdownAnswer: View, Equatable {
         }.frame(maxWidth: .infinity, alignment: .leading)
     }
     private static func inline(_ text: String) -> AttributedString {
-        (try? AttributedString(markdown: text, options: .init(interpretedSyntax: .inlineOnlyPreservingWhitespace))) ?? AttributedString(text)
+        ((try? AttributedString(markdown: text, options: .init(interpretedSyntax: .inlineOnlyPreservingWhitespace))) ?? AttributedString(text))
+            .applyingTerracottaCodeAndEmphasis()
     }
     private static func codeBody(_ segment: String) -> String {
         guard let newline = segment.firstIndex(of: "\n") else { return segment }
