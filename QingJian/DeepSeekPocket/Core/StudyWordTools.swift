@@ -3,9 +3,9 @@ import Foundation
 enum StudyWordTools {
     static let names: Set<String> = ["study_word_units", "study_start_words", "study_word_state", "study_find_word", "study_grade_word", "study_undo_word", "study_pause_words"]
     static let specs: [ToolSpec] = [
-        .init(name: "study_word_units", description: "仅当用户明确询问词库有哪些单元可选时调用。日常开始背词或抽词请直接调 study_start_words(unit_id: "", count: 10, mode: "start")，不要先调本工具。", parameters: ToolSpec.object([], required: [])),
+        .init(name: "study_word_units", description: "仅当用户明确询问词库有哪些单元可选时调用。日常开始背词或抽词请直接调 study_start_words(unit_id='', count=10, mode='start')，不要先调本工具。", parameters: ToolSpec.object([], required: [])),
         .init(name: "study_start_words", description: "一步开始或接续一轮背词并直接返回第 1 个待考单词（调用前无需先调 study_word_units 或 study_word_state）。优先接续未完成任务，一次只提问当前这 1 个单词。", parameters: ToolSpec.object([
-            ("unit_id", "string", "传空字符串 "" 自动按到期复习和词库顺序抽词；也可传 required-1、basic-1 或单元序号"),
+            ("unit_id", "string", "传空字符串自动按到期复习和词库顺序抽词；也可传 required-1、basic-1 或单元序号"),
             ("count", "integer", "本轮 1 至 30 词，通常 10"),
             ("mode", "string", "start 开始，continue 接续上次（可跨窗口），review 只选到期词，practice 在用户明确要求时额外练已学词")], required: ["unit_id", "count", "mode"])),
         .init(name: "study_word_state", description: "仅读取当前窗口的背词现场。若要开始背词、抽词考用户或恢复暂停，请直接调用 study_start_words，无需先调本工具。", parameters: ToolSpec.object([], required: [])),
