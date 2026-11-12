@@ -156,10 +156,17 @@ final class AppStore: ObservableObject {
     private func updateChatModel(_ change: (inout ChatModelSelection) -> Void) {
         guard canPersist, !isGenerating, let index = threads.firstIndex(where: { $0.id == activeThreadID }), !isHidden(threads[index]) else { return }
         let previous = threads[index].modelSelection
+        let previousSettings = settings
         var selection = previous ?? ChatModelSelection(settings: settings, project: activeProject)
         change(&selection)
         threads[index].modelSelection = selection
-        if !persistNow() { threads[index].modelSelection = previous }
+        if threads[index].projectID == nil {
+            settings = selection.applying(to: settings).validated()
+        }
+        if !persistNow() {
+            threads[index].modelSelection = previous
+            settings = previousSettings
+        }
     }
     private func studyScope(for thread: ChatThread) throws -> StudyScope {
         guard !isHidden(thread), let project = project(thread.projectID), let subject = project.studySubject,
@@ -685,13 +692,17 @@ final class AppStore: ObservableObject {
     private func apply(_ draft: ProjectDraft, to project: inout ChatProject, includingMemory: Bool) {
         project.name = draft.name
         project.instructions = draft.instructions
-        // ChatGPT projects remember unless switched off; DeepSeek ones only once switched on.
-        project.autoMemory = draft.autoMemory
         project.timeAwareness = draft.timeAwareness
-        if includingMemory {
-            let memory = draft.memory.trimmingCharacters(in: .whitespacesAndNewlines)
-            project.memory = memory.isEmpty ? nil : memory
-            project.memoryUpdatedAt = Date()
+        if project.studySubject != nil {
+            project.autoMemory = true
+        } else {
+            // ChatGPT projects remember unless switched off; DeepSeek ones only once switched on.
+            project.autoMemory = draft.autoMemory
+            if includingMemory {
+                let memory = draft.memory.trimmingCharacters(in: .whitespacesAndNewlines)
+                project.memory = memory.isEmpty ? nil : memory
+                project.memoryUpdatedAt = Date()
+            }
         }
     }
 
@@ -845,6 +856,10 @@ final class AppStore: ObservableObject {
         activeThreadID = id
         if let index = threads.firstIndex(where: { $0.id == id }) { threads[index].updatedAt = Date() }
         if !persistNow() { activeThreadID = oldID; threads = oldThreads; return false }
+        if let projID = thread.projectID, project(projID)?.studySubject != nil {
+            let family = ConversationHistory.memberIDs(for: id, in: threads).subtracting([id])
+            try? studyMemory?.rebindSessions(from: family, to: id, projectID: projID)
+        }
         return true
     }
 
@@ -1118,10 +1133,14 @@ final class AppStore: ObservableObject {
         do { try KeychainStore.save(cleanKey) }
         catch { errorMessage = error.localizedDescription; return false }
         let old = settings
+        let oldThreads = threads
         apiKey = cleanKey
         settings = next.validated()
+        for i in threads.indices where threads[i].projectID == nil && threads[i].messages.isEmpty {
+            threads[i].modelSelection = ChatModelSelection(settings: settings, project: nil)
+        }
         cancelReplySuggestions()
-        if !persistNow() { settings = old; return false }
+        if !persistNow() { settings = old; threads = oldThreads; return false }
         return true
     }
     func toggleThinking() {
@@ -1240,10 +1259,19 @@ final class AppStore: ObservableObject {
                 }
                 projects[pi].memorizedCounts?[replacement.id.uuidString] = min(count, unchangedSettled)
             }
+            let previousThreadID = threads[index].id
+            if let projID = replacement.projectID, project(projID)?.studySubject != nil {
+                try? studyMemory?.rebindSessions(from: [previousThreadID], to: replacement.id, projectID: projID)
+            }
             threads.insert(replacement, at: 0)
             activeThreadID = replacement.id
             let saved = startGeneration(threadID: replacement.id, providerOverride: providerOverride)
-            if !saved { threads = old; projects = oldProjects; activeThreadID = oldID }
+            if !saved {
+                if let projID = replacement.projectID, project(projID)?.studySubject != nil {
+                    try? studyMemory?.rebindSessions(from: [replacement.id], to: previousThreadID, projectID: projID)
+                }
+                threads = old; projects = oldProjects; activeThreadID = oldID
+            }
             return saved
         }
         threads[index] = replacement
@@ -1363,9 +1391,9 @@ final class AppStore: ObservableObject {
         if chatProject?.studySubject != nil {
             do { notes.append(try studyContext(for: threads[ti])) }
             catch { studyIssue = error.localizedDescription; errorMessage = error.localizedDescription; return false }
-            if chatProject?.autoMemory != false, provider == .deepSeek || provider == .chatGPT || (provider == .colab && settings.colabOptions.tools) {
+            if provider == .deepSeek || provider == .chatGPT || (provider == .colab && settings.colabOptions.tools) {
                 specs += StudyTools.specs; notes.append(StudyTools.note)
-                if let subject = chatProject?.studySubject { specs += StudyLessonTools.specs(for: subject); notes.append(StudyLessonTools.note) }
+                if let subject = chatProject?.studySubject { specs += StudyLessonTools.specs(for: subject); notes.append(StudyLessonTools.note(for: subject)) }
                 if chatProject?.studySubject == .english {
                     specs += StudyWordTools.specs + StudyReadingTools.specs
                     notes.append(StudyWordTools.note); notes.append(StudyReadingTools.note)
@@ -1650,7 +1678,7 @@ final class AppStore: ObservableObject {
         if StudyTools.names.contains(call.name) {
             _ = try studyScope(for: thread)
             let provider = thread.messages.last?.provider ?? provider(for: thread)
-            guard project(thread.projectID)?.autoMemory != false,
+            guard project(thread.projectID)?.studySubject != nil,
                   provider == .deepSeek || provider == .chatGPT || (provider == .colab && settings(for: thread).colabOptions.tools) else {
                 throw ToolError.disabledTool(call.name)
             }

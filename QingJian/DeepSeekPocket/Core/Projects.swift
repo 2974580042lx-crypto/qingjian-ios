@@ -207,7 +207,7 @@ struct ChatProject: Identifiable, Codable, Equatable, Sendable {
             parts.append("以下是这个项目的资料，回答时可以参考：")
             for document in included { parts.append("《\(document.name)》\n\(document.text)") }
         }
-        if let memory = memory?.trimmingCharacters(in: .whitespacesAndNewlines), !memory.isEmpty {
+        if studySubject == nil, let memory = memory?.trimmingCharacters(in: .whitespacesAndNewlines), !memory.isEmpty {
             parts.append("以下是这个项目以往对话里记下的要点，回答时可以参考，不必复述：\n\(memory)")
         }
         return parts.joined(separator: "\n\n")

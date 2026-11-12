@@ -57,6 +57,7 @@ enum StudyLessonTools {
             return !spec.name.hasPrefix("study_history_") || subject == .history
         }
     }
+    static let weeklyReportNote = "只有study_weekly_report返回generated，才能声称本轮周报生成/更新成功；保存记忆或出题不等于写入周报。普通“记到周报”先保存学习记录，需生成周报时再调用对应工具。"
     static let note = """
 学习仍以聊天为主，不自动加题库。历史按用户纸质书核对，参考词条的AI整理与正式大纲分开；未导入已核对大纲时使用自主专题，不虚构考纲范围。
 temporary临时地图全部是网络整理、待核，保留多个来源和差异，不代表官方或完整考纲。按地图学习时把netmap:条目ID交给专题工具，进度绑稳定条目而非标题；不要因模型改写标题另建进度。
@@ -67,6 +68,9 @@ temporary临时地图全部是网络整理、待核，保留多个来源和差�
 记录日期是记录日期。用户说几个月前学过，不能写成今天新学会。复习列表按记录时间排序，并非科学间隔或掌握度保证。
 只有study_weekly_report返回generated，才能声称本轮周报生成/更新成功；保存记忆或出题不等于写入周报。普通“记到周报”先保存学习记录，需生成周报时再调用对应工具。
 """
+    static func note(for subject: StudySubject) -> String {
+        subject == .english ? weeklyReportNote : note
+    }
 }
 
 extension StudyToolExecutor {

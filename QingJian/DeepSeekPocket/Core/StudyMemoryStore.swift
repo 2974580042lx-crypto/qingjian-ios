@@ -168,10 +168,6 @@ final class StudyMemoryStore: @unchecked Sendable {
     private func commit(_ event: StudyMemoryEvent, fingerprint: String) throws -> StudyReceipt {
         try write(event.after, projectID: event.projectID, kind: "memory", id: event.after.id.uuidString)
         try write(event, projectID: event.projectID, kind: "event", id: event.id.uuidString)
-        for var summary in try summaries(projectID: event.projectID) where summary.isValid && summary.sources.contains(where: { $0.recordID == event.after.id }) {
-            summary.isValid = false
-            try write(summary, projectID: event.projectID, kind: "summary", id: summary.id.uuidString)
-        }
         let receipt = StudyReceipt(event: event)
         try write(CommittedOperation(fingerprint: fingerprint, receipt: receipt), projectID: event.projectID, kind: "operation", id: event.operationID)
         try remove(projectID: event.projectID, kind: "pending", id: event.operationID)
@@ -193,32 +189,30 @@ final class StudyMemoryStore: @unchecked Sendable {
     func discardPending(projectID: UUID, operationID: String) throws {
         try transaction { try remove(projectID: projectID, kind: "pending", id: operationID) }
     }
-    func checkpoint(scope: StudyScope) throws -> StudyCheckpoint? {
-        try synchronized { try read(StudyCheckpoint.self, projectID: scope.projectID, kind: "checkpoint", id: scope.threadID.uuidString) }
-    }
-    func saveCheckpoint(_ checkpoint: StudyCheckpoint, scope: StudyScope, expectedRevision: Int) throws {
-        guard checkpoint.threadID == scope.threadID, checkpoint.revision == expectedRevision + 1,
-              checkpoint.position >= 0, checkpoint.position <= checkpoint.itemIDs.count,
-              checkpoint.itemIDs.count <= 1000, checkpoint.itemIDs.allSatisfy({ !$0.isEmpty && $0.count <= 300 }),
-              (checkpoint.materialID?.count ?? 0) <= 300, (checkpoint.pendingQuestion?.count ?? 0) <= 20_000 else {
-            throw StudyMemoryError.invalid("学习现场参数不正确。")
-        }
+    func rebindSessions(from oldThreadIDs: Set<UUID>, to newThreadID: UUID, projectID: UUID) throws {
+        guard !oldThreadIDs.isEmpty else { return }
         try transaction {
-            guard (try self.checkpoint(scope: scope)?.revision ?? 0) == expectedRevision else { throw StudyMemoryError.conflict }
-            try write(checkpoint, projectID: scope.projectID, kind: "checkpoint", id: scope.threadID.uuidString)
-        }
-    }
-    func summaries(projectID: UUID) throws -> [StudySummary] {
-        try synchronized { try rows(projectID: projectID, kind: "summary").map { try StudyCoding.decode(StudySummary.self, from: $0) } }
-    }
-    func saveSummary(_ summary: StudySummary, projectID: UUID) throws {
-        guard !summary.sources.isEmpty, summary.text.count <= 20_000, summary.isValid else { throw StudyMemoryError.invalid("摘要需要有效来源。") }
-        try transaction {
-            for source in summary.sources {
-                guard let current = try read(StudyMemoryRecord.self, projectID: projectID, kind: "memory", id: source.recordID.uuidString),
-                      current.revision == source.revision, !current.isDeleted else { throw StudyMemoryError.conflict }
+            for data in try rows(projectID: projectID, kind: "word_session") {
+                var s = try StudyCoding.decode(StudyWordSession.self, from: data)
+                if oldThreadIDs.contains(s.threadID) {
+                    s.threadID = newThreadID
+                    try write(s, projectID: projectID, kind: "word_session", id: s.id.uuidString)
+                }
             }
-            try write(summary, projectID: projectID, kind: "summary", id: summary.id.uuidString)
+            for data in try rows(projectID: projectID, kind: "reading_session") {
+                var s = try StudyCoding.decode(StudyReadingSession.self, from: data)
+                if oldThreadIDs.contains(s.threadID) {
+                    s.threadID = newThreadID
+                    try write(s, projectID: projectID, kind: "reading_session", id: s.id.uuidString)
+                }
+            }
+            for data in try rows(projectID: projectID, kind: "topic_session") {
+                var s = try StudyCoding.decode(StudyTopicSession.self, from: data)
+                if oldThreadIDs.contains(s.threadID) {
+                    s.threadID = newThreadID
+                    try write(s, projectID: projectID, kind: "topic_session", id: s.id.uuidString)
+                }
+            }
         }
     }
     func context(scope: StudyScope, query: String) throws -> String {
@@ -235,11 +229,6 @@ final class StudyMemoryStore: @unchecked Sendable {
             let line = "[\(record.toolReference) v\(record.revision)] \(record.category)：\(record.text)"
             guard used + line.count <= 6000 else { continue }
             lines.append(line); used += line.count
-        }
-        if let checkpoint = try checkpoint(scope: scope) {
-            let current = checkpoint.itemIDs.indices.contains(checkpoint.position) ? checkpoint.itemIDs[checkpoint.position] : "本轮结束"
-            lines.append("当前窗口学习现场：资料 \(checkpoint.materialID ?? "未选择")，位置 \(checkpoint.position)/\(checkpoint.itemIDs.count)，当前条目 \(current)，暂停 \(checkpoint.paused)。")
-            if let question = checkpoint.pendingQuestion { lines.append("待回答：" + String(question.prefix(2000))) }
         }
         lines.append("以上为本次选取的记录。完整记录可在项目记忆中查看。资料提取与模型推断需要核对出处。")
         return lines.joined(separator: "\n")

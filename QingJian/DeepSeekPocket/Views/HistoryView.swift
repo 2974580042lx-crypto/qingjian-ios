@@ -6,7 +6,6 @@ import UIKit
 // and a new-conversation button.
 @MainActor
 struct HistorySidebar: View {
-    @AppStorage(HighlightStyle.key) private var highlightHex = ""
     @Environment(\.colorScheme) private var colorScheme
     @EnvironmentObject private var store: AppStore
     @EnvironmentObject private var profile: ProfileStore

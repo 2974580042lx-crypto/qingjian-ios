@@ -117,12 +117,9 @@ final class StudyMemoryTests: XCTestCase {
         XCTAssertTrue(try store.pending(projectID: scope.projectID).isEmpty)
     }
 
-    func testUndoKeepsHistoryAndInvalidatesSummary() throws {
+    func testUndoKeepsHistory() throws {
         let first = try store.apply(command(), scope: scope, operationID: "first")
-        let summary = StudySummary(id: UUID(), text: "这周的易混词", sources: [.init(recordID: first.event.after.id, revision: 1)], isValid: true)
-        try store.saveSummary(summary, projectID: scope.projectID)
         let correction = try store.apply(command(text: "纠正内容", record: first.event.after), scope: scope, operationID: "correct")
-        XCTAssertEqual(try store.summaries(projectID: scope.projectID).first?.isValid, false)
         let undone = try store.undo(projectID: scope.projectID, eventID: correction.event.id, expectedRevision: 2)
         XCTAssertEqual(undone.event.after.text, first.event.after.text)
         XCTAssertEqual(undone.event.after.revision, 3)
@@ -149,15 +146,16 @@ final class StudyMemoryTests: XCTestCase {
         XCTAssertTrue(try store.events(projectID: scope.projectID).isEmpty)
     }
 
-    func testCheckpointsArePerWindowAndSurviveRestart() throws {
-        let checkpoint = StudyCheckpoint(threadID: scope.threadID, revision: 1, materialID: "unit-3",
-            itemIDs: ["adapt", "adopt"], position: 1, pendingQuestion: "adopt 是什么意思？", paused: true)
-        try store.saveCheckpoint(checkpoint, scope: scope, expectedRevision: 0)
-        let other = StudyScope(projectID: scope.projectID, threadID: UUID(), subject: .english)
-        XCTAssertNil(try store.checkpoint(scope: other))
-        store = nil; store = try StudyMemoryStore(url: url)
-        XCTAssertEqual(try store.checkpoint(scope: scope), checkpoint)
-        XCTAssertThrowsError(try store.saveCheckpoint(checkpoint, scope: scope, expectedRevision: 0))
+    func testRebindSessionsMovesActiveStudySessionsOnRetryOrVersionSwitch() throws {
+        try store.importWords(StudyWordPack.decode(Data(#"{"schema_version":"yanxi.private-import.v2-stage1","cards":[{"id":"w1","word":"adapt","translation_zh":"适应","unit_order":[{"collection":"required","unit":1,"position":1}]}]}"#.utf8)), projectID: scope.projectID)
+        _ = try store.startWords(scope: scope, unitID: "required-1", count: 1, mode: .start, sourceMessageID: message.id)
+        XCTAssertNotNil(try store.wordState(scope: scope).session)
+
+        let retryThreadID = UUID()
+        let retryScope = StudyScope(projectID: scope.projectID, threadID: retryThreadID, subject: .english)
+        try store.rebindSessions(from: [scope.threadID], to: retryThreadID, projectID: scope.projectID)
+        XCTAssertNotNil(try store.wordState(scope: retryScope).session)
+        XCTAssertEqual(try store.wordState(scope: retryScope).currentWord?.word, "adapt")
     }
 
     func testAppSideMemoryReadIsIdenticalAfterSavedModelSwitches() throws {

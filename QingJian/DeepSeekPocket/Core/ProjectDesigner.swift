@@ -20,7 +20,7 @@ struct ProjectDraft: Codable, Equatable, Sendable {
 
     init(_ project: ChatProject) {
         self.init(name: project.name, instructions: project.instructions, memory: project.memory ?? "",
-                  autoMemory: project.remembers, timeAwareness: project.timeAwareness == true)
+                  autoMemory: project.studySubject != nil ? true : project.remembers, timeAwareness: project.timeAwareness == true)
         sourceProvider = project.service
     }
 

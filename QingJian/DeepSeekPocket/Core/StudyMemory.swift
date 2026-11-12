@@ -187,24 +187,6 @@ struct StudyReceipt: Codable, Equatable, Sendable {
     }
 }
 
-struct StudyCheckpoint: Codable, Equatable, Sendable {
-    let threadID: UUID
-    var revision: Int
-    var materialID: String?
-    var itemIDs: [String]
-    var position: Int
-    var pendingQuestion: String?
-    var paused: Bool
-}
-
-struct StudySummary: Codable, Equatable, Identifiable, Sendable {
-    struct Reference: Codable, Equatable, Sendable { let recordID: UUID; let revision: Int }
-    let id: UUID
-    var text: String
-    let sources: [Reference]
-    var isValid: Bool
-}
-
 struct StudyPendingOperation: Codable, Equatable, Identifiable, Sendable {
     let id: String
     let scopeProject: UUID

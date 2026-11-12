@@ -170,7 +170,7 @@ struct ProjectPageView: View {
                 } label: {
                     HStack(spacing: 10) {
                         Image(systemName: "brain").font(.system(size: 15)).foregroundStyle(Ink.ink2).frame(width: 24)
-                        Text("项目记忆").font(TypeScale.serif(17)).foregroundStyle(Ink.ink)
+                        Text(project?.studySubject != nil ? "学习档案与进度" : "项目备忘（跨对话）").font(TypeScale.serif(17)).foregroundStyle(Ink.ink)
                         Spacer()
                         Text(memorySummary).font(TypeScale.tiny).foregroundStyle(Ink.ink3)
                         Image(systemName: "chevron.right").font(.system(size: 12)).foregroundStyle(Ink.ink3)
@@ -287,9 +287,11 @@ struct ProjectPageView: View {
                         ForEach(SubscriptionEffort.allCases) { Text($0.title).tag($0.rawValue) }
                     }
                 }
-                Toggle(isOn: Binding(get: { project?.autoMemory != false },
-                                     set: { value in editProject(store, projectID) { $0.autoMemory = value } })) {
-                    Label("自动整理记忆", systemImage: "brain")
+                if project?.studySubject == nil {
+                    Toggle(isOn: Binding(get: { project?.autoMemory != false },
+                                         set: { value in editProject(store, projectID) { $0.autoMemory = value } })) {
+                        Label("自动整理备忘", systemImage: "brain")
+                    }
                 }
             } else {
             if project?.service == .deepSeek {
@@ -321,10 +323,12 @@ struct ProjectPageView: View {
             } else {
                 Text("Colab 模型与思考在 Colab 设置页配置")
             }
-            // Off by default, so one-scene role-play projects never carry anything across chats.
-            Toggle(isOn: Binding(get: { project?.autoMemory == true },
-                                 set: { value in editProject(store, projectID) { $0.autoMemory = value } })) {
-                Label("跨对话记忆", systemImage: "brain")
+            if project?.studySubject == nil {
+                // Off by default, so one-scene role-play projects never carry anything across chats.
+                Toggle(isOn: Binding(get: { project?.autoMemory == true },
+                                     set: { value in editProject(store, projectID) { $0.autoMemory = value } })) {
+                    Label("跨对话备忘", systemImage: "brain")
+                }
             }
             // Off by default, so role-play and other projects never see any tools.
             Toggle(isOn: Binding(get: { project?.driveTools == true },
@@ -415,7 +419,7 @@ struct ProjectMemoryView: View {
         .font(TypeScale.body)
         .scrollContentBackground(.hidden)
         .background(AppBackground())
-        .navigationTitle("项目记忆")
+        .navigationTitle("项目备忘（跨对话）")
         .navigationBarTitleDisplayMode(.inline)
         .toolbar {
             ToolbarItem(placement: .cancellationAction) { Button("取消") { dismiss() } }
@@ -600,7 +604,11 @@ struct ProjectFilesView: View {
                     let included = try saveImported(content)
                     imported += 1
                     var result = "✓ \(url.lastPathComponent) · \(content.text.count.formatted())字"
-                    if !included { result += "\n已保存，引用开关先关闭：启用资料合计会超过10万字。" }
+                    if !included {
+                        result += project?.studySubject != nil
+                            ? "\n已保存：学习项目默认由工具按需查阅资料，不随每次提问整篇发送。"
+                            : "\n已保存，引用开关先关闭：启用资料合计会超过10万字。"
+                    }
                     if !content.warnings.isEmpty { result += "\n" + content.warnings.joined(separator: "\n") }
                     lines.append(result)
                 } catch is CancellationError {
@@ -620,7 +628,11 @@ struct ProjectFilesView: View {
         }
         guard latest.documents.count < 50 else { throw ChatError.server("项目已达到50份资料上限，这份文件没有导入。") }
         var document = ProjectDocument(name: imported.name, text: imported.text)
-        document.isIncluded = latest.includedCharacters + document.text.count <= ChatProject.documentCharacterLimit
+        if latest.studySubject != nil {
+            document.isIncluded = false
+        } else {
+            document.isIncluded = latest.includedCharacters + document.text.count <= ChatProject.documentCharacterLimit
+        }
         latest.documents.append(document)
         guard store.updateProject(latest) else { throw ChatError.server(store.errorMessage ?? "资料没有保存成功，请稍后重试。") }
         return document.isIncluded
@@ -1008,9 +1020,11 @@ struct ProjectDesignerView: View {
                         .padding(12).background(Ink.raised, in: InkRounded(radius: 16))
                 }
                 VStack(alignment: .leading, spacing: 4) {
-                    Toggle("跨对话记忆", isOn: binding.autoMemory)
-                    if usesChatGPT {
-                        Text("ChatGPT 项目关掉这里即停止自动整理。").font(TypeScale.tiny).foregroundStyle(Ink.ink3)
+                    if project?.studySubject == nil {
+                        Toggle("跨对话备忘", isOn: binding.autoMemory)
+                        if usesChatGPT {
+                            Text("ChatGPT 项目关掉这里即停止自动整理。").font(TypeScale.tiny).foregroundStyle(Ink.ink3)
+                        }
                     }
                     Toggle("告诉角色时间流逝", isOn: binding.timeAwareness)
                 }
