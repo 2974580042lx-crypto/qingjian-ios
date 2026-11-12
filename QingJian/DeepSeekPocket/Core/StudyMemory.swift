@@ -25,8 +25,24 @@ enum StudySubject: String, Codable, CaseIterable, Sendable {
 enum StudyProjects {
     static func seed(projects: inout [ChatProject], installed: inout [StudySubject]) throws {
         var next = projects, marks = Set(installed)
+        // Always repair built-in study projects whose studySubject field was lost after an older version saved conversations.json.
+        for subject in StudySubject.allCases {
+            if let idx = next.firstIndex(where: { $0.id == subject.projectID }) {
+                if next[idx].studySubject == nil {
+                    next[idx].studySubject = subject
+                    next[idx].autoMemory = true
+                }
+                marks.insert(subject)
+            }
+        }
         for subject in StudySubject.allCases where !marks.contains(subject) {
             if next.contains(where: { $0.studySubject == subject }) { marks.insert(subject); continue }
+            if let idx = next.firstIndex(where: { $0.name == subject.title && $0.studySubject == nil && $0.instructions.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }) {
+                next[idx].studySubject = subject
+                next[idx].autoMemory = true
+                marks.insert(subject)
+                continue
+            }
             guard next.count < 200, !next.contains(where: { $0.id == subject.projectID }) else {
                 throw StudyMemoryError.invalid("学习项目初始化遇到项目数量或标识冲突。")
             }

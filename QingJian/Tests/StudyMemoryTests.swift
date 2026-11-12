@@ -49,6 +49,15 @@ final class StudyMemoryTests: XCTestCase {
         projects.removeAll { $0.studySubject == .politics }
         try StudyProjects.seed(projects: &projects, installed: &marks)
         XCTAssertFalse(projects.contains { $0.studySubject == .politics })
+
+        // Simulate downgrade/round-trip where built-in project IDs kept their UUIDs but lost `studySubject = nil` and `installed = []`.
+        for i in projects.indices where projects[i].id == StudySubject.english.projectID || projects[i].id == StudySubject.history.projectID {
+            projects[i].studySubject = nil
+        }
+        var emptyMarks: [StudySubject] = []
+        XCTAssertNoThrow(try StudyProjects.seed(projects: &projects, installed: &emptyMarks))
+        XCTAssertEqual(projects.first(where: { $0.id == StudySubject.english.projectID })?.studySubject, .english)
+        XCTAssertEqual(projects.first(where: { $0.id == StudySubject.history.projectID })?.studySubject, .history)
     }
 
     func testSaveCorrectReopenAndSourceHistory() throws {

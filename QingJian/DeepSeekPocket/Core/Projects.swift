@@ -14,7 +14,7 @@ enum DocumentTextImporter {
     static let maximumTextBytes = 2 * 1024 * 1024
     static let maximumPDFPages = 1000
     static var allowedContentTypes: [UTType] {
-        [.pdf, .plainText, .text, UTType(filenameExtension: "md") ?? .plainText]
+        [.pdf, .plainText, .text, .json, UTType(filenameExtension: "md") ?? .plainText]
     }
 
     static func load(_ url: URL, maxCharacters: Int = ChatProject.documentCharacterLimit) async throws -> ImportedTextDocument {

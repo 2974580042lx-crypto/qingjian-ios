@@ -266,6 +266,22 @@ struct ProjectPageView: View {
         Menu {
             Button("让 AI 调整项目", systemImage: "sparkles") { adjusting = true }
             Button("重命名", systemImage: "pencil") { renameText = project?.name ?? ""; renaming = true }
+            Menu("学习科目", systemImage: "graduationcap") {
+                Picker("学习科目", selection: Binding(
+                    get: { project?.studySubject?.rawValue ?? "none" },
+                    set: { value in
+                        editProject(store, projectID) { proj in
+                            proj.studySubject = StudySubject(rawValue: value)
+                            if proj.studySubject != nil { proj.autoMemory = true }
+                        }
+                    }
+                )) {
+                    Text("普通项目（无）").tag("none")
+                    ForEach(StudySubject.allCases, id: \.rawValue) { subj in
+                        Text(subj.title).tag(subj.rawValue)
+                    }
+                }
+            }
             Menu("服务", systemImage: "server.rack") {
                 Picker("服务", selection: Binding(get: { project?.service ?? .deepSeek },
                                                 set: { value in editProject(store, projectID) { $0.provider = value } })) {
@@ -598,6 +614,12 @@ struct ProjectFilesView: View {
                 importProgress = "\(index + 1) / \(urls.count) · \(url.lastPathComponent)"
                 do {
                     guard project != nil, store.canPersist else { throw ChatError.server("项目已上锁、被删除或暂时不能保存，请重新打开后导入。") }
+                    if url.pathExtension.lowercased() == "json",
+                       let studyNotice = await tryImportStudyJSONIfRecognized(url) {
+                        imported += 1
+                        lines.append(studyNotice)
+                        continue
+                    }
                     guard (project?.documents.count ?? 0) < 50 else { throw ChatError.server("项目已达到50份资料上限，这份文件没有导入。") }
                     let content = try await DocumentTextImporter.load(url)
                     try Task.checkCancellation()
@@ -619,6 +641,51 @@ struct ProjectFilesView: View {
                 }
             }
         }
+    }
+
+    private func tryImportStudyJSONIfRecognized(_ url: URL) async -> String? {
+        let scoped = url.startAccessingSecurityScopedResource()
+        defer { if scoped { url.stopAccessingSecurityScopedResource() } }
+        guard let size = try? url.resourceValues(forKeys: [.fileSizeKey]).fileSize,
+              size > 0, size <= 32 * 1024 * 1024,
+              let data = try? Data(contentsOf: url) else {
+            return nil
+        }
+        if (try? StudyWordPack.decode(data)) != nil {
+            if project?.studySubject != .english {
+                editProject(store, projectID) { $0.studySubject = .english; $0.autoMemory = true }
+            }
+            if await store.importStudyVocabulary(projectID: projectID, url: url) {
+                let count = (try? store.studyVocabularyCount(projectID: projectID)) ?? 0
+                return "✓ \(url.lastPathComponent)\n已自动识别为【英语词库】并导入学习数据库（当前词库共 \(count) 词，可在「学习档案与进度」查看或在聊天中直接说“开始背单词”）。"
+            }
+        }
+        if (try? StudyReadingPack.decode(data)) != nil {
+            if project?.studySubject != .english {
+                editProject(store, projectID) { $0.studySubject = .english; $0.autoMemory = true }
+            }
+            if await store.importStudyReadings(projectID: projectID, url: url) {
+                let count = (try? store.studyReadingCount(projectID: projectID)) ?? 0
+                return "✓ \(url.lastPathComponent)\n已自动识别为【英语阅读资料】并导入学习数据库（当前共 \(count) 篇，可在聊天中直接说年份和 Text 编号开始精读）。"
+            }
+        }
+        if let pack = try? StudyHistoryPack.decode(data) {
+            if project?.studySubject != .history {
+                editProject(store, projectID) { $0.studySubject = .history; $0.autoMemory = true }
+            }
+            if store.importHistoryPack(projectID: projectID, pack: pack, confirmed: pack.kind == "outline") {
+                return "✓ \(url.lastPathComponent)\n已自动识别为【313 历史资料（\(pack.entries.count) 条）】并导入学习数据库。"
+            }
+        }
+        if (try? StudyTemporaryMap.decode(data)) != nil {
+            if project?.studySubject != .history {
+                editProject(store, projectID) { $0.studySubject = .history; $0.autoMemory = true }
+            }
+            if await store.importTemporaryHistoryMap(projectID: projectID, url: url) {
+                return "✓ \(url.lastPathComponent)\n已自动识别为【313 历史网络临时学习地图】并导入学习数据库。"
+            }
+        }
+        return nil
     }
 
     // Resolve the current project after each await, preserving new memory and concurrent edits.
