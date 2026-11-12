@@ -125,4 +125,54 @@ final class ProjectsAndUsageTests: XCTestCase {
         let request = try ProjectDesigner.request("健身教练", base: draft)
         XCTAssertNotNil(request)
     }
+
+    func testPureRoleplaySnapshotRoundTripAndCleanChatRequestWithoutReasoningEcho() throws {
+        var project = ChatProject(name: "夜谈角色", instructions: "你是直男哥哥，自然生活化地回弟弟的话。")
+        project.pureRoleplay = true
+        project.documents = [ProjectDocument(name: "人物设定", text: "怕痒，护短，爱嘴硬。")]
+        var standalone = ChatThread(title: "单独角色扮演")
+        standalone.pureRoleplay = true
+
+        let restored = try AppSnapshot.decode(AppSnapshot(
+            settings: AppSettings(),
+            threads: [standalone],
+            activeThreadID: standalone.id,
+            projects: [project]
+        ).encoded())
+        XCTAssertEqual(restored.projects?.first?.pureRoleplay, true)
+        XCTAssertEqual(restored.projects?.first?.isPureRoleplay, true)
+        XCTAssertEqual(restored.threads.first?.pureRoleplay, true)
+
+        let rpDraft = try ProjectDesigner.parse("{\"name\":\"小剧场\",\"instructions\":\"保持人设\",\"pureRoleplay\":true}")
+        XCTAssertTrue(rpDraft.pureRoleplay)
+        let defaultDraft = try ProjectDesigner.parse("{\"name\":\"助手\",\"instructions\":\"帮我查资料\"}")
+        XCTAssertFalse(defaultDraft.pureRoleplay)
+
+        var settings = AppSettings()
+        settings.model = .pro
+        settings.thinkingEnabled = true
+        settings.effort = .max
+        let history = [
+            ChatMessage(role: .user, content: "哥，明天带我出去玩呗"),
+            ChatMessage(role: .assistant, content: "行啊，几点起得来？", reasoning: "已思考 1 秒的简短摘要"),
+            ChatMessage(role: .user, content: "九点我就到你楼下"),
+        ]
+        let built = ChatRequest(
+            settings: settings,
+            messages: history,
+            systemPrompt: project.systemPrompt,
+            includeReasoning: false
+        ).withTools([])
+
+        let data = try JSONEncoder().encode(built)
+        let payload = try XCTUnwrap(JSONSerialization.jsonObject(with: data) as? [String: Any])
+        XCTAssertNil(payload["tools"])
+        XCTAssertEqual(payload["reasoning_effort"] as? String, "max")
+        XCTAssertEqual((payload["thinking"] as? [String: Any])?["type"] as? String, "enabled")
+        let messages = try XCTUnwrap(payload["messages"] as? [[String: Any]])
+        XCTAssertTrue((messages.first?["content"] as? String)?.contains("怕痒，护短，爱嘴硬。") == true)
+        let assistantMessages = messages.filter { ($0["role"] as? String) == "assistant" }
+        XCTAssertEqual(assistantMessages.count, 1)
+        XCTAssertNil(assistantMessages.first?["reasoning_content"])
+    }
 }

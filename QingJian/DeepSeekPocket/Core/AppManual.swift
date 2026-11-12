@@ -4,7 +4,7 @@ import Foundation
 // "Sermo 说明书" project (as its document) and the feature overview in Settings.
 // Update it with every feature, and bump `revision` so the project refreshes.
 enum AppManual {
-    static let revision = 21
+    static let revision = 22
     static let projectID = UUID(uuidString: "5E2B0D6A-3C1F-4A7E-9B21-5E5E2B0D6A01")!
     static let projectName = "Sermo 说明书"
     static let documentName = "Sermo 使用说明"
@@ -64,7 +64,8 @@ enum AppManual {
             Item(name: "新建与打开", how: "侧栏进入项目页，右上角加号新建；可以固定到侧栏。"),
             Item(name: "指令和资料", how: "项目页的「添加指令」写身份、语气和规矩；「添加文件」放资料，每份资料可单独开关，打开的资料每次都会随请求发送。"),
             Item(name: "查看和修改资料", how: "打开项目资料页，可以按名称或正文搜索，打开一份资料查看、复制、分享，或修改名称与正文后保存。资料开关仍决定是否随提问发送；每份最多10万字，启用的资料合计也不能超过10万字。"),
-            Item(name: "项目「⋯」菜单", how: "重命名、服务（DeepSeek 或 ChatGPT 订阅）、默认模型与思考、谷歌云盘工具、GitHub 工具、联网工具、告诉角色时间流逝、面容 ID 锁、删除项目。"),
+            Item(name: "项目「⋯」菜单", how: "重命名、服务（DeepSeek 或 ChatGPT 订阅）、默认模型与思考、纯角色扮演模式、谷歌云盘工具、GitHub 工具、联网工具、告诉角色时间流逝、面容 ID 锁、删除项目。"),
+            Item(name: "纯角色扮演模式", how: "在角色扮演项目或独立对话右上角「⋯」里打开后，该对话不再挂载云盘、GitHub、联网工具和内置操作规范，也不回传历史旧思考内容，而项目指令、人物资料、记忆与时间流逝感知完整保留，让模型专注深度揣摩人物心理与台词；学习项目和普通聊天不受影响。"),
             Item(name: "让 AI 帮我建项目", how: "项目列表右上角「+」→「让 AI 帮我建」，用一两句话描述想要的项目，生成名称、指令、记忆开关和初始记忆，先预览、可修改或继续提要求，确认后才创建。已有项目在「⋯ → 让 AI 调整项目」里说怎么改，只改提到的部分，不动记忆和资料。使用 DeepSeek V4 Pro（没有密钥时用 ChatGPT 订阅），每次生成单独计费。"),
             Item(name: "项目记忆", how: "所有项目都可打开「项目记忆」手动填写、修改或清空长期要求和已确认结论，最多4000字。ChatGPT订阅项目默认自动整理，离开对话后整理要点。DeepSeek项目可在项目选项里打开「跨对话记忆」（默认关）：离开对话、切到后台、长对话每约20条，或消息以「记住…」「忘掉…」开头时，用Flash整理进来，本项目新开的对话都会带上。"),
             Item(name: "面容 ID 锁", how: "上锁的项目打开前要验证；App 退到后台后会重新上锁。"),

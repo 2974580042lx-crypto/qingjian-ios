@@ -946,6 +946,15 @@ struct ChatScreen: View {
                     Button("剧情控制、记忆与存档", systemImage: "arrow.triangle.branch") { storyPlayFor = thread.id }
                     Button("本局设定", systemImage: "slider.horizontal.3") { storySettingsFor = thread.id }
                 }
+                if thread.story == nil, thread.bookDiscussion == nil,
+                   store.canUsePureRoleplay(store.activeProject) {
+                    Toggle(isOn: Binding(
+                        get: { store.isPureRoleplay(thread) },
+                        set: { store.setPureRoleplay($0, for: thread.id) }
+                    )) {
+                        Label("纯角色扮演模式", systemImage: "theatermasks")
+                    }
+                }
                 Button("重命名", systemImage: "pencil") { renameText = thread.title; renaming = true }
                 Button(thread.isPinned == true ? "取消置顶" : "置顶", systemImage: "pin") { store.togglePinned(thread.id) }
                 Menu("移到项目", systemImage: "folder") {

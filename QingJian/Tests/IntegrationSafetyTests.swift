@@ -57,6 +57,44 @@ final class ProjectToolAccessTests: XCTestCase {
             XCTAssertNoThrow(try access.require(spec.name), spec.name)
         }
     }
+
+    func testPureRoleplayBlocksExternalToolsOnProjectsAndStandaloneThreadsWhileKeepingStudySafe() throws {
+        var rpProject = ChatProject(name: "哥哥")
+        rpProject.pureRoleplay = true
+        rpProject.driveTools = true; rpProject.githubTools = true; rpProject.webTools = true
+        XCTAssertTrue(rpProject.isPureRoleplay)
+        let projectAccess = ProjectToolAccess(
+            project: rpProject,
+            provider: .deepSeek,
+            driveDefault: true,
+            githubDefault: true,
+            webDefault: true
+        )
+        for name in ["drive_read", "github_read", "web_search", "web_read"] {
+            XCTAssertThrowsError(try projectAccess.require(name), name)
+        }
+
+        let standaloneAccess = ProjectToolAccess(
+            project: nil,
+            provider: .deepSeek,
+            driveDefault: true,
+            githubDefault: true,
+            webDefault: true,
+            pureRoleplay: true
+        )
+        for name in ["drive_read", "github_read", "web_search", "web_read"] {
+            XCTAssertThrowsError(try standaloneAccess.require(name), name)
+        }
+
+        var studyProject = ChatProject(name: "考研英语")
+        studyProject.studySubject = .english
+        studyProject.pureRoleplay = true
+        XCTAssertFalse(studyProject.isPureRoleplay)
+
+        var manual = AppManual.newProject()
+        manual.pureRoleplay = true
+        XCTAssertFalse(manual.isPureRoleplay)
+    }
 }
 
 final class ProjectPromptTemplateTests: XCTestCase {

@@ -156,6 +156,8 @@ struct ChatThread: Identifiable, Codable, Equatable, Sendable {
     var storyCheckpoints: [StoryCheckpoint]?
     // A copy selected for this conversation; library edits cannot silently change it.
     var systemPromptPreset: SystemPromptPreset?
+    // Pure role-play mode (1.37): omits external tool schemas, manual notes, and historical reasoning echo.
+    var pureRoleplay: Bool?
     var preview: String {
         messages.last(where: { !$0.content.isEmpty })?.content.replacingOccurrences(of: "\n", with: " ") ?? "暂无消息"
     }

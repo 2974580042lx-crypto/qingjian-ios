@@ -376,17 +376,25 @@ struct ProjectPageView: View {
                 }
             }
             }
-            Toggle(isOn: Binding(get: { project?.driveTools ?? store.drive.connected },
-                                 set: { value in editProject(store, projectID) { $0.driveTools = value } })) {
-                Label("谷歌云盘工具", systemImage: "externaldrive")
+            if store.canUsePureRoleplay(project) {
+                Toggle(isOn: Binding(get: { project?.isPureRoleplay == true },
+                                     set: { value in editProject(store, projectID) { $0.pureRoleplay = value } })) {
+                    Label("纯角色扮演模式", systemImage: "theatermasks")
+                }
             }
-            Toggle(isOn: Binding(get: { project?.githubTools ?? store.github.connected },
-                                 set: { value in editProject(store, projectID) { $0.githubTools = value } })) {
-                Label("GitHub 工具", systemImage: "chevron.left.forwardslash.chevron.right")
-            }
-            Toggle(isOn: Binding(get: { project?.webTools != false },
-                                 set: { value in editProject(store, projectID) { $0.webTools = value } })) {
-                Label("联网工具", systemImage: "globe")
+            if project?.isPureRoleplay != true {
+                Toggle(isOn: Binding(get: { project?.driveTools ?? store.drive.connected },
+                                     set: { value in editProject(store, projectID) { $0.driveTools = value } })) {
+                    Label("谷歌云盘工具", systemImage: "externaldrive")
+                }
+                Toggle(isOn: Binding(get: { project?.githubTools ?? store.github.connected },
+                                     set: { value in editProject(store, projectID) { $0.githubTools = value } })) {
+                    Label("GitHub 工具", systemImage: "chevron.left.forwardslash.chevron.right")
+                }
+                Toggle(isOn: Binding(get: { project?.webTools != false },
+                                     set: { value in editProject(store, projectID) { $0.webTools = value } })) {
+                    Label("联网工具", systemImage: "globe")
+                }
             }
             // Enabled by default across all projects and chats unless explicitly switched off.
             Toggle(isOn: Binding(get: { project?.timeAwareness != false },
@@ -1148,7 +1156,8 @@ struct ProjectDesignerView: View {
                         .padding(12).background(Ink.raised, in: InkRounded(radius: 16))
                 }
                 VStack(alignment: .leading, spacing: 4) {
-                    if projectID.flatMap({ store.project($0) })?.studySubject == nil {
+                    if store.canUsePureRoleplay(projectID.flatMap { store.project($0) }) {
+                        Toggle("纯角色扮演模式", isOn: binding.pureRoleplay)
                         Toggle("跨对话备忘", isOn: binding.autoMemory)
                         if usesChatGPT {
                             Text("ChatGPT 项目关掉这里即停止自动整理。").font(TypeScale.tiny).foregroundStyle(Ink.ink3)

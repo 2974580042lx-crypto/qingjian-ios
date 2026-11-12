@@ -9,18 +9,20 @@ struct ProjectDraft: Codable, Equatable, Sendable {
     var memory: String
     var autoMemory: Bool
     var timeAwareness: Bool
+    var pureRoleplay: Bool
     var summary: String
     var sourceProvider: AIProvider?
 
     init(name: String, instructions: String, memory: String = "", autoMemory: Bool = false,
-         timeAwareness: Bool = false, summary: String = "") {
+         timeAwareness: Bool = false, pureRoleplay: Bool = false, summary: String = "") {
         self.name = name; self.instructions = instructions; self.memory = memory
-        self.autoMemory = autoMemory; self.timeAwareness = timeAwareness; self.summary = summary
+        self.autoMemory = autoMemory; self.timeAwareness = timeAwareness; self.pureRoleplay = pureRoleplay; self.summary = summary
     }
 
     init(_ project: ChatProject) {
         self.init(name: project.name, instructions: project.instructions, memory: project.memory ?? "",
-                  autoMemory: project.studySubject != nil ? true : project.remembers, timeAwareness: project.timeAwareness == true)
+                  autoMemory: project.studySubject != nil ? true : project.remembers, timeAwareness: project.timeAwareness == true,
+                  pureRoleplay: project.isPureRoleplay)
         sourceProvider = project.service
     }
 
@@ -32,6 +34,7 @@ struct ProjectDraft: Codable, Equatable, Sendable {
         memory = (try? c.decode(String.self, forKey: .memory)) ?? ""
         autoMemory = (try? c.decode(Bool.self, forKey: .autoMemory)) ?? false
         timeAwareness = (try? c.decode(Bool.self, forKey: .timeAwareness)) ?? false
+        pureRoleplay = (try? c.decode(Bool.self, forKey: .pureRoleplay)) ?? false
         summary = (try? c.decode(String.self, forKey: .summary)) ?? ""
     }
 
@@ -77,6 +80,7 @@ enum ProjectDesigner {
         - autoMemory：项目是否需要跨对话记住用户的进度和情况。学习、训练、长期计划、持续咨询类为 true；
           一次性问答、角色扮演、创作玩耍类为 false。
         - timeAwareness：是否需要让模型知道当前日期时间和距上次对话过了多久（计划、打卡、陪伴类通常为 true）。
+        - pureRoleplay：是否为纯角色扮演/小说人物互动类项目（角色扮演、恋爱陪伴、故事演绎类为 true，不挂载外部查资料或代码工具，专注人物心理与沉浸感；学习、工作、日常助手类为 false）。
         - summary：一句话说明这个项目会怎么帮用户，不超过 50 字。
 
         current 不为空时：只改 request 要求改的部分，其余保持原样（包括原指令中用户写的内容和语气）；

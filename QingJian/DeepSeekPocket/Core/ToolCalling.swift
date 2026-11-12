@@ -151,8 +151,13 @@ struct ProjectToolAccess {
         colabTools: Bool = false,
         driveDefault: Bool = false,
         githubDefault: Bool = false,
-        webDefault: Bool = false
+        webDefault: Bool = false,
+        pureRoleplay: Bool = false
     ) {
+        if pureRoleplay || project?.isPureRoleplay == true {
+            names = []
+            return
+        }
         var specs: [ToolSpec] = []
         let canRunTools = provider == .deepSeek || provider == .chatGPT || (provider == .colab && colabTools)
         if canRunTools {

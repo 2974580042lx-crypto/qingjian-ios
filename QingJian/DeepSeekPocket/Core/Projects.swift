@@ -179,11 +179,15 @@ struct ChatProject: Identifiable, Codable, Equatable, Sendable {
     // The model's own web search and page reading.
     var webTools: Bool?
     var studySubject: StudySubject?
+    // Pure role-play mode (1.37): keeps persona instructions, documents, memory, and time awareness,
+    // while omitting external tools, built-in manual notes, and historical reasoning echo.
+    var pureRoleplay: Bool?
 
     var service: AIProvider { provider ?? .deepSeek }
     var usesDriveTools: Bool { driveTools == true }
     var usesGitHubTools: Bool { githubTools == true }
     var usesWebTools: Bool { webTools == true }
+    var isPureRoleplay: Bool { studySubject == nil && id != AppManual.projectID && pureRoleplay == true }
     var remembers: Bool { studySubject == nil && (service == .chatGPT ? autoMemory != false : autoMemory == true) }
     var includedCharacters: Int { documents.filter(\.isIncluded).reduce(0) { $0 + $1.text.count } }
 

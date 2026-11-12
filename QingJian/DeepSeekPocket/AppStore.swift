@@ -408,6 +408,37 @@ final class AppStore: ObservableObject {
     func threads(in projectID: UUID) -> [ChatThread] { sortedThreads.filter { $0.projectID == projectID && isEntry($0) } }
     func project(_ id: UUID?) -> ChatProject? { id.flatMap { id in projects.first(where: { $0.id == id }) } }
     var activeProject: ChatProject? { project(activeThread?.projectID) }
+    func canUsePureRoleplay(_ project: ChatProject?) -> Bool {
+        guard let project else { return true }
+        return project.studySubject == nil && project.id != AppManual.projectID
+    }
+    func isPureRoleplay(_ thread: ChatThread) -> Bool {
+        guard thread.bookDiscussion == nil, thread.story == nil else { return false }
+        if let proj = project(thread.projectID) {
+            guard canUsePureRoleplay(proj) else { return false }
+            if let explicit = proj.pureRoleplay { return explicit }
+            return thread.pureRoleplay == true
+        }
+        return thread.pureRoleplay == true
+    }
+    func setPureRoleplay(_ enabled: Bool, for threadID: UUID) {
+        guard let idx = threads.firstIndex(where: { $0.id == threadID }) else { return }
+        let thread = threads[idx]
+        guard thread.bookDiscussion == nil, thread.story == nil else { return }
+        if let projID = thread.projectID, var proj = project(projID) {
+            guard canUsePureRoleplay(proj) else { return }
+            proj.pureRoleplay = enabled
+            _ = updateProject(proj)
+            if threads[idx].pureRoleplay != nil {
+                threads[idx].pureRoleplay = nil
+                _ = persistNow()
+            }
+        } else {
+            threads[idx].pureRoleplay = enabled
+            threads[idx].updatedAt = Date()
+            _ = persistNow()
+        }
+    }
     func isLocked(_ projectID: UUID) -> Bool {
         project(projectID)?.isLocked == true && !unlockedProjectIDs.contains(projectID)
     }
@@ -727,7 +758,11 @@ final class AppStore: ObservableObject {
         project.timeAwareness = draft.timeAwareness
         if project.studySubject != nil {
             project.autoMemory = true
+            project.pureRoleplay = nil
         } else {
+            if project.id != AppManual.projectID && (project.pureRoleplay != nil || draft.pureRoleplay) {
+                project.pureRoleplay = draft.pureRoleplay
+            }
             // ChatGPT projects remember unless switched off; DeepSeek ones only once switched on.
             project.autoMemory = draft.autoMemory
             if includingMemory {
@@ -1491,8 +1526,9 @@ final class AppStore: ObservableObject {
         let discussion = threads[ti].bookDiscussion
         let story = threads[ti].story
         let chatProject = discussion == nil ? project(threads[ti].projectID) : nil
+        let pureRP = isPureRoleplay(threads[ti])
         var specs: [ToolSpec] = [], notes: [String] = []
-        let canRunTools = discussion == nil && story == nil
+        let canRunTools = discussion == nil && story == nil && !pureRP
             && (provider == .deepSeek || provider == .chatGPT || (provider == .colab && settings.colabOptions.tools))
         let hasStudyTools = chatProject?.studySubject != nil && canRunTools
         let useDrive = canRunTools && (chatProject?.driveTools ?? drive.connected)
@@ -1772,7 +1808,7 @@ final class AppStore: ObservableObject {
         let proj = thread.bookDiscussion == nil && thread.story == nil && !isHidden(thread) ? project(thread.projectID) : nil
         let provider = thread.messages.last?.provider ?? self.provider(for: thread)
         let colabTools = settings(for: thread).colabOptions.tools
-        let canRunTools = thread.bookDiscussion == nil && thread.story == nil
+        let canRunTools = thread.bookDiscussion == nil && thread.story == nil && !isPureRoleplay(thread)
             && (provider == .deepSeek || provider == .chatGPT || (provider == .colab && colabTools))
         let studyOK = proj?.studySubject != nil && canRunTools
         return (
@@ -1858,8 +1894,9 @@ final class AppStore: ObservableObject {
         guard let thread = threads.first(where: { $0.id == threadID }) else {
             throw ToolError.disabledTool(call.name)
         }
+        let pureRP = isPureRoleplay(thread)
         if OperationManualTools.names.contains(call.name) {
-            guard thread.bookDiscussion == nil, thread.story == nil,
+            guard !pureRP, thread.bookDiscussion == nil, thread.story == nil,
                   operationManual.chapters.contains(where: \.isEnabled) else {
                 throw ToolError.disabledTool(call.name)
             }
@@ -1880,7 +1917,8 @@ final class AppStore: ObservableObject {
             colabTools: settings(for: thread).colabOptions.tools,
             driveDefault: drive.connected,
             githubDefault: github.connected,
-            webDefault: true
+            webDefault: true,
+            pureRoleplay: pureRP
         ).require(call.name)
     }
 
