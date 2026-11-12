@@ -34,7 +34,7 @@ struct StudyToolExecutor {
 
             var ledgerParts: [String] = []
             if wordSummary.totalWords > 0 {
-                ledgerParts.append("词库共 \(wordSummary.totalWords) 词（已学 \(wordSummary.learnedWords) · 今日已练 \(wordSummary.todayReviewedWords) · 当前待复习 \(wordSummary.dueWords)）")
+                ledgerParts.append("词库共 \(wordSummary.totalWords) 词（已学 \(wordSummary.learnedWords) · 今日已练 \(wordSummary.todayWords) · 当前待复习 \(wordSummary.dueWords)）")
             } else {
                 ledgerParts.append("词库尚未导入")
             }

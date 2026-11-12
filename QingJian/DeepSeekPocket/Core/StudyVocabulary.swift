@@ -110,7 +110,7 @@ struct StudyWordGrade: Codable, Sendable {
     }
 }
 
-struct StudyWordPracticeSummary: Sendable {
+struct StudyWordPracticeSummary: Codable, Sendable {
     let totalWords: Int
     let learnedWords: Int
     let todayWords: Int
