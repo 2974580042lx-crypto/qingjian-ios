@@ -36,8 +36,8 @@ enum DeepSeekOCRProtocol {
     static func cleanOCRText(_ raw: String) -> String {
         var text = raw.replacingOccurrences(of: "\r\n", with: "\n").replacingOccurrences(of: "\r", with: "\n")
         for (pattern, template) in [
-            (#"<[｜|]box[｜|]>.*?<[｜|]/box[｜|]>"#, ""),
-            (#"<[｜|]ref[｜|]>\s*(?:image|figure|pic|picture|插图|图片)\s*<[｜|]/ref[｜|]>"#, ""),
+            (#"<[｜|](?:box|det)[｜|]>.*?<[｜|]/(?:box|det)[｜|]>"#, ""),
+            (#"<[｜|]ref[｜|]>\s*(?:image|figure|pic|picture|text|title|sub_title|table|table_caption|figure_caption|formula|header|footer|page_number|list|list_item|aside|footnote|插图|图片)\s*<[｜|]/ref[｜|]>"#, ""),
             (#"<[｜|]/?ref[｜|]>"#, ""),
             (#"<[｜|][^>\n]{1,40}[｜|]>"#, "")
         ] {
@@ -76,6 +76,125 @@ enum DeepSeekOCRProtocol {
     }
 
     fileprivate struct OCRError: LocalizedError {
+        let message: String
+        init(_ message: String) { self.message = message }
+        var errorDescription: String? { message }
+    }
+}
+
+enum DeepSeekVisionBridge {
+    static let endpoint = URL(string: "https://api.deepseek.com/chat/completions")!
+
+    static func requestBody(dataURLs: [String], userPrompt: String = "") throws -> Data {
+        let validURLs = dataURLs
+            .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
+            .filter { !$0.isEmpty }
+        guard !validURLs.isEmpty else {
+            throw BridgeError("未找到可识别的图片数据。")
+        }
+
+        let promptHint = userPrompt.trimmingCharacters(in: .whitespacesAndNewlines)
+        let baseInstruction = """
+        请完整、准确地提取并描述用户附带的图片内容（如有多张请按「附图 1」「附图 2」分别列出）：
+        1. 逐字完整抄录图中所有可见文字（包括聊天记录、发送人/时间、标题、正文、按钮、数字、表格、注释或标签等），不要遗漏或改写关键信息。
+        2. 简明说明图片的主要画面、界面结构、图表数据或场景细节。
+        3. 仅陈述图中真实可见的内容；若有模糊不清处请如实说明，不要猜测或编造。
+        """
+        let fullInstruction = promptHint.isEmpty
+            ? baseInstruction
+            : baseInstruction + "\n\n用户提问重点：\(promptHint)"
+
+        var contentParts: [[String: Any]] = [
+            ["type": "text", "text": fullInstruction]
+        ]
+        for url in validURLs {
+            contentParts.append([
+                "type": "image_url",
+                "image_url": ["url": url]
+            ])
+        }
+
+        let payload: [String: Any] = [
+            "model": "deepseek-flash",
+            "messages": [
+                [
+                    "role": "user",
+                    "content": contentParts
+                ]
+            ],
+            "thinking": ["type": "disabled"],
+            "max_tokens": 4096,
+            "stream": false
+        ]
+        return try JSONSerialization.data(withJSONObject: payload)
+    }
+
+    static func parseResponse(_ data: Data) throws -> String {
+        guard data.count <= 16_000_000,
+              let root = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else {
+            throw BridgeError("图片理解服务返回的数据无法读取。")
+        }
+        if let err = root["error"] as? [String: Any] {
+            let msg = (err["message"] as? String ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
+            throw BridgeError(msg.isEmpty ? "图片理解请求失败，请稍后重试。" : "图片理解请求失败：\(msg)")
+        }
+        if root["error"] != nil {
+            throw BridgeError("图片理解请求失败，请稍后重试。")
+        }
+        guard let choices = root["choices"] as? [[String: Any]],
+              let message = choices.first?["message"] as? [String: Any] else {
+            throw BridgeError("图片理解服务返回缺少内容。")
+        }
+
+        let rawText: String
+        if let str = message["content"] as? String {
+            rawText = str
+        } else if let parts = message["content"] as? [[String: Any]] {
+            rawText = parts.compactMap { $0["text"] as? String }.joined(separator: "\n")
+        } else {
+            rawText = ""
+        }
+
+        let cleaned = rawText.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !cleaned.isEmpty else {
+            throw BridgeError("图片理解服务未返回有效内容。")
+        }
+        return cleaned
+    }
+
+    static func describeImages(dataURLs: [String], userPrompt: String = "", key: String) async throws -> String {
+        let cleanKey = key.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !cleanKey.isEmpty else {
+            throw BridgeError("缺少 DeepSeek API Key。")
+        }
+
+        let body = try requestBody(dataURLs: dataURLs, userPrompt: userPrompt)
+        var request = URLRequest(url: endpoint)
+        request.httpMethod = "POST"
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        request.setValue("Bearer \(cleanKey)", forHTTPHeaderField: "Authorization")
+        request.httpBody = body
+        request.timeoutInterval = 60
+
+        let config = URLSessionConfiguration.ephemeral
+        config.timeoutIntervalForRequest = 60
+        config.timeoutIntervalForResource = 90
+        let session = URLSession(configuration: config)
+        defer { session.finishTasksAndInvalidate() }
+
+        let (data, response) = try await session.data(for: request)
+        if let http = response as? HTTPURLResponse, !(200...299).contains(http.statusCode) {
+            if let _ = try? parseResponse(data) {
+                // Unexpected non-2xx with valid content; fall through to parseResponse error/status check.
+            } else {
+                _ = try parseResponse(data) // Re-throws embedded API error message if present.
+            }
+            throw BridgeError("图片理解服务请求失败（HTTP \(http.statusCode)）。")
+        }
+        return try parseResponse(data)
+    }
+
+    private struct BridgeError: LocalizedError {
         let message: String
         init(_ message: String) { self.message = message }
         var errorDescription: String? { message }

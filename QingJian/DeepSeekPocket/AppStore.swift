@@ -1685,12 +1685,27 @@ final class AppStore: ObservableObject {
 
     private func extractImageOCRNote(imageNames: [String], key: String) async -> String? {
         guard !imageNames.isEmpty else { return nil }
+        let dataURLs = imageNames.compactMap { ImageStore.dataURL(named: $0) }
+        var hasReadableImage = !dataURLs.isEmpty
+        if !dataURLs.isEmpty {
+            do {
+                let visionText = try await DeepSeekVisionBridge.describeImages(dataURLs: dataURLs, key: key)
+                    .trimmingCharacters(in: .whitespacesAndNewlines)
+                if !visionText.isEmpty {
+                    return "【用户附图内容（已自动提取图中全部文字与画面信息）】\n\(visionText)"
+                }
+            } catch {
+                if error is CancellationError || Task.isCancelled { return nil }
+            }
+        }
+        if Task.isCancelled { return nil }
+
         let client = DeepSeekOCRClient()
         var blocks: [String] = []
-        var anyFailed = false
         for (index, name) in imageNames.enumerated() {
             if Task.isCancelled { return nil }
             guard let data = ImageStore.jpegData(named: name) else { continue }
+            hasReadableImage = true
             do {
                 let pages = try await client.recognize(
                     data: data,
@@ -1702,19 +1717,18 @@ final class AppStore: ObservableObject {
                     .compactMap { pages[$0] }
                     .filter { !$0.isEmpty }
                     .joined(separator: "\n")
-                if text.isEmpty {
-                    blocks.append("【附图 \(index + 1)】未识别出文字（可能是纯插画、表情或无文字图片）。")
-                } else {
+                if !text.isEmpty {
                     let trimmed = text.count > 12_000 ? String(text.prefix(12_000)) + "……" : text
                     blocks.append("【附图 \(index + 1) OCR 识别文字】\n\(trimmed)")
                 }
             } catch {
                 if error is CancellationError || Task.isCancelled { return nil }
-                anyFailed = true
             }
         }
         if blocks.isEmpty {
-            return anyFailed ? "（附图 OCR 识别暂时不可用，\(DeepSeekModel.pro.title) 当前仅依据你的文字描述作答。）" : nil
+            return hasReadableImage
+                ? "（当前未能自动提取附图内容，\(DeepSeekModel.pro.title) 暂无法查看图片细节，请根据文字作答或请用户补充描述。）"
+                : nil
         }
         return """
         以下为你附带的 \(imageNames.count) 张图片通过 DeepSeek OCR 提取的文字内容（\(DeepSeekModel.pro.title) 暂不直接接收图像像素，仅提供图中文字识别结果）：

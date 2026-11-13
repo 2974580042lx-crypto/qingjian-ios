@@ -160,4 +160,50 @@ final class WebSearchTests: XCTestCase {
         let embeddedError = Data(#"{"error":{"message":"OCR did not finish in time"}}"#.utf8)
         XCTAssertThrowsError(try DeepSeekOCRProtocol.parse(embeddedError))
     }
+
+    func testDeepSeekVisionBridgeRequestAndResponseParsing() throws {
+        XCTAssertThrowsError(try DeepSeekVisionBridge.requestBody(dataURLs: ["   "]))
+
+        let bodyData = try DeepSeekVisionBridge.requestBody(
+            dataURLs: ["data:image/jpeg;base64,abc"],
+            userPrompt: "这里说的啥"
+        )
+        let json = try JSONSerialization.jsonObject(with: bodyData) as? [String: Any]
+        XCTAssertEqual(json?["model"] as? String, "deepseek-flash")
+        XCTAssertEqual(json?["stream"] as? Bool, false)
+        let thinking = json?["thinking"] as? [String: Any]
+        XCTAssertEqual(thinking?["type"] as? String, "disabled")
+
+        let messages = json?["messages"] as? [[String: Any]]
+        XCTAssertEqual(messages?.count, 1)
+        XCTAssertEqual(messages?.first?["role"] as? String, "user")
+
+        let parts = messages?.first?["content"] as? [[String: Any]]
+        XCTAssertEqual(parts?.count, 2)
+        XCTAssertEqual(parts?.first?["type"] as? String, "text")
+        XCTAssertTrue((parts?.first?["text"] as? String ?? "").contains("这里说的啥"))
+        XCTAssertEqual(parts?.last?["type"] as? String, "image_url")
+        let imageObj = parts?.last?["image_url"] as? [String: Any]
+        XCTAssertEqual(imageObj?["url"] as? String, "data:image/jpeg;base64,abc")
+
+        let validResp = Data(#"""
+        {"choices":[{"message":{"content":"  微信聊天截图：20:12 提醒补充参考文献。  "}}]}
+        """#.utf8)
+        XCTAssertEqual(try DeepSeekVisionBridge.parseResponse(validResp), "微信聊天截图：20:12 提醒补充参考文献。")
+
+        let blankResp = Data(#"{"choices":[{"message":{"content":"   "}}]}"#.utf8)
+        XCTAssertThrowsError(try DeepSeekVisionBridge.parseResponse(blankResp))
+
+        let errResp = Data(#"{"error":{"message":"Model overloaded"}}"#.utf8)
+        XCTAssertThrowsError(try DeepSeekVisionBridge.parseResponse(errResp))
+
+        XCTAssertEqual(
+            DeepSeekOCRProtocol.cleanOCRText("<|ref|>text<|/ref|><|det|>[[10,20,30,40]]<|/det|> 正文"),
+            "正文"
+        )
+        XCTAssertEqual(
+            DeepSeekOCRProtocol.cleanOCRText("<｜ref｜>第一章 导论<｜/ref｜><｜det｜>[[0,0,10,10]]<｜/det｜>"),
+            "第一章 导论"
+        )
+    }
 }
