@@ -690,7 +690,7 @@ struct ProjectFilesView: View {
                         continue
                     }
                     guard (project?.documents.count ?? 0) < 50 else { throw ChatError.server("项目已达到50份资料上限，这份文件没有导入。") }
-                    let content = try await DocumentTextImporter.load(url)
+                    let content = try await DocumentTextImporter.load(url, apiKey: store.apiKey)
                     try Task.checkCancellation()
                     let included = try saveImported(content)
                     imported += 1

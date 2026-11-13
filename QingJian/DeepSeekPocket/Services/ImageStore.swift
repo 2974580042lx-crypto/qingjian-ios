@@ -61,9 +61,13 @@ enum ImageStore {
         return (count, total)
     }
 
+    static func jpegData(named name: String) -> Data? {
+        guard isSafe(name), let url = try? directory().appendingPathComponent(name) else { return nil }
+        return try? Data(contentsOf: url)
+    }
+
     static func dataURL(named name: String) -> String? {
-        guard isSafe(name), let url = try? directory().appendingPathComponent(name),
-              let data = try? Data(contentsOf: url) else { return nil }
+        guard let data = jpegData(named: name) else { return nil }
         return "data:image/jpeg;base64," + data.base64EncodedString()
     }
 

@@ -9,6 +9,123 @@ struct ImportedTextDocument: Sendable {
     let warnings: [String]
 }
 
+enum DeepSeekOCRProtocol {
+    static let endpoint = URL(string: "https://api.deepseek.com/v1/tools/ocr")!
+
+    static func multipartBody(data: Data, fileName: String, mimeType: String,
+                              purpose: String = "text_recognition", boundary: String) -> Data {
+        var body = Data()
+        let safeFileName = fileName
+            .replacingOccurrences(of: "\"", with: "_")
+            .replacingOccurrences(of: "\r", with: "")
+            .replacingOccurrences(of: "\n", with: "")
+        func append(_ string: String) {
+            body.append(Data(string.utf8))
+        }
+        append("--\(boundary)\r\n")
+        append("Content-Disposition: form-data; name=\"purpose\"\r\n\r\n")
+        append("\(purpose)\r\n")
+        append("--\(boundary)\r\n")
+        append("Content-Disposition: form-data; name=\"file\"; filename=\"\(safeFileName)\"\r\n")
+        append("Content-Type: \(mimeType)\r\n\r\n")
+        body.append(data)
+        append("\r\n--\(boundary)--\r\n")
+        return body
+    }
+
+    static func cleanOCRText(_ raw: String) -> String {
+        var text = raw.replacingOccurrences(of: "\r\n", with: "\n").replacingOccurrences(of: "\r", with: "\n")
+        for (pattern, template) in [
+            (#"<[｜|]box[｜|]>.*?<[｜|]/box[｜|]>"#, ""),
+            (#"<[｜|]ref[｜|]>\s*(?:image|figure|pic|picture|插图|图片)\s*<[｜|]/ref[｜|]>"#, ""),
+            (#"<[｜|]/?ref[｜|]>"#, ""),
+            (#"<[｜|][^>\n]{1,40}[｜|]>"#, "")
+        ] {
+            if let regex = try? NSRegularExpression(pattern: pattern, options: [.caseInsensitive, .dotMatchesLineSeparators]) {
+                text = regex.stringByReplacingMatches(in: text, range: NSRange(text.startIndex..., in: text), withTemplate: template)
+            }
+        }
+        while text.contains("\n\n\n") {
+            text = text.replacingOccurrences(of: "\n\n\n", with: "\n\n")
+        }
+        return text.trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+
+    static func parse(_ data: Data) throws -> [Int: String] {
+        guard data.count <= 32_000_000,
+              let root = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else {
+            throw OCRError("OCR 返回的数据无法读取，请稍后重试。")
+        }
+        if let err = root["error"] as? [String: Any] {
+            let msg = (err["message"] as? String ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
+            throw OCRError(msg.isEmpty ? "OCR 识别未完成，请稍后重试。" : "OCR 识别失败：\(msg)")
+        }
+        if root["error"] != nil {
+            throw OCRError("OCR 识别未完成，请稍后重试。")
+        }
+        guard let pages = root["pages"] as? [[String: Any]] else {
+            throw OCRError("OCR 返回结果缺少页面内容。")
+        }
+        var output: [Int: String] = [:]
+        for page in pages {
+            guard let index = page["index"] as? Int,
+                  let rawText = page["text"] as? String else { continue }
+            output[index] = cleanOCRText(rawText)
+        }
+        return output
+    }
+
+    fileprivate struct OCRError: LocalizedError {
+        let message: String
+        init(_ message: String) { self.message = message }
+        var errorDescription: String? { message }
+    }
+}
+
+final class DeepSeekOCRClient: @unchecked Sendable {
+    func recognize(data: Data, fileName: String, mimeType: String,
+                   purpose: String = "text_recognition", key: String) async throws -> [Int: String] {
+        let cleanKey = key.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !cleanKey.isEmpty else {
+            throw DeepSeekOCRProtocol.OCRError("未配置 DeepSeek API Key，无法执行 OCR 识别。")
+        }
+        let config = URLSessionConfiguration.ephemeral
+        config.timeoutIntervalForRequest = 180
+        config.timeoutIntervalForResource = 190
+        config.urlCache = nil
+        config.httpCookieStorage = nil
+        let session = URLSession(configuration: config)
+        defer { session.invalidateAndCancel() }
+        let boundary = "DeepSeekOCR-" + UUID().uuidString
+        var request = URLRequest(url: DeepSeekOCRProtocol.endpoint)
+        request.httpMethod = "POST"
+        request.setValue("Bearer \(cleanKey)", forHTTPHeaderField: "Authorization")
+        request.setValue("multipart/form-data; boundary=\(boundary)", forHTTPHeaderField: "Content-Type")
+        request.httpBody = DeepSeekOCRProtocol.multipartBody(
+            data: data,
+            fileName: fileName,
+            mimeType: mimeType,
+            purpose: purpose,
+            boundary: boundary
+        )
+        try Task.checkCancellation()
+        let (responseData, response) = try await session.data(for: request)
+        try Task.checkCancellation()
+        guard let http = response as? HTTPURLResponse else {
+            throw DeepSeekOCRProtocol.OCRError("OCR 服务没有返回有效响应。")
+        }
+        guard (200..<300).contains(http.statusCode) else {
+            if let root = try? JSONSerialization.jsonObject(with: responseData) as? [String: Any],
+               let err = root["error"] as? [String: Any],
+               let msg = err["message"] as? String, !msg.isEmpty {
+                throw DeepSeekOCRProtocol.OCRError("OCR 识别失败（HTTP \(http.statusCode)）：\(msg)")
+            }
+            throw DeepSeekOCRProtocol.OCRError("OCR 识别失败（HTTP \(http.statusCode)）。")
+        }
+        return try DeepSeekOCRProtocol.parse(responseData)
+    }
+}
+
 enum DocumentTextImporter {
     static let maximumPDFBytes = 30 * 1024 * 1024
     static let maximumTextBytes = 2 * 1024 * 1024
@@ -17,10 +134,11 @@ enum DocumentTextImporter {
         [.pdf, .plainText, .text, .json, UTType(filenameExtension: "md") ?? .plainText]
     }
 
-    static func load(_ url: URL, maxCharacters: Int = ChatProject.documentCharacterLimit) async throws -> ImportedTextDocument {
+    static func load(_ url: URL, maxCharacters: Int = ChatProject.documentCharacterLimit,
+                     apiKey: String = "") async throws -> ImportedTextDocument {
         try Task.checkCancellation()
         let work = Task.detached(priority: .userInitiated) {
-            try read(url, maxCharacters: maxCharacters)
+            try await read(url, maxCharacters: maxCharacters, apiKey: apiKey)
         }
         return try await withTaskCancellationHandler(operation: {
             let document = try await work.value
@@ -29,7 +147,7 @@ enum DocumentTextImporter {
         }, onCancel: { work.cancel() })
     }
 
-    private static func read(_ url: URL, maxCharacters: Int) throws -> ImportedTextDocument {
+    private static func read(_ url: URL, maxCharacters: Int, apiKey: String) async throws -> ImportedTextDocument {
         guard maxCharacters > 0 else { throw ImportFailure("可导入字数不足，请先缩短当前内容。") }
         let scoped = url.startAccessingSecurityScopedResource()
         defer { if scoped { url.stopAccessingSecurityScopedResource() } }
@@ -66,7 +184,7 @@ enum DocumentTextImporter {
         let name = String((originalName.isEmpty ? "导入的资料" : originalName).prefix(200))
         var warnings: [String] = originalName.count > 200 ? ["资料名称超过200字，已缩短名称；正文未截断。"] : []
         if isPDF {
-            let extracted = try readPDF(data, maxCharacters: maxCharacters)
+            let extracted = try await readPDF(data, name: name, maxCharacters: maxCharacters, apiKey: apiKey)
             warnings += extracted.warnings
             return ImportedTextDocument(name: name, text: extracted.text, warnings: warnings)
         }
@@ -88,36 +206,98 @@ enum DocumentTextImporter {
         return ImportedTextDocument(name: name, text: text, warnings: warnings)
     }
 
-    private static func readPDF(_ data: Data, maxCharacters: Int) throws -> (text: String, warnings: [String]) {
+    private static func readPDF(_ data: Data, name: String, maxCharacters: Int, apiKey: String) async throws -> (text: String, warnings: [String]) {
         guard let pdf = PDFDocument(data: data) else { throw ImportFailure("无法打开这个PDF，文件可能未下载完整或已经损坏。") }
         guard !pdf.isLocked else { throw ImportFailure("这个PDF需要密码。请先解锁并另存一份可打开的PDF，再导入。") }
         guard pdf.allowsCopying else { throw ImportFailure("这个PDF限制文字复制，无法提取正文；请使用允许提取文字的版本。") }
         guard pdf.pageCount > 0 else { throw ImportFailure("这个PDF没有页面。") }
         guard pdf.pageCount <= maximumPDFPages else { throw ImportFailure("PDF超过1000页，请先按所需章节拆分后导入。") }
-        let heading = "【PDF文字资料】\n以下页码为PDF文件中的物理页序，从1开始，不等同于书中印刷页码。文字提取可能改变多栏、表格及脚注的阅读顺序，请按页回到原文件核对。"
-        var parts = [heading]
-        var characterCount = heading.count
+
+        var pageTexts: [String?] = Array(repeating: nil, count: pdf.pageCount)
         var emptyPages: [Int] = []
         var textPages = 0
         for index in 0..<pdf.pageCount {
             try Task.checkCancellation()
             guard let page = pdf.page(at: index) else { throw ImportFailure("PDF第\(index + 1)页未能读取，请重新导出PDF后重试。") }
             let pageText = (page.string ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
-            let content: String
             if pageText.isEmpty {
                 emptyPages.append(index + 1)
-                content = "[本页没有可提取文字，可能是扫描页、图片或空白页。]"
             } else {
                 textPages += 1
-                content = pageText
+                pageTexts[index] = pageText
             }
+        }
+
+        let cleanKey = apiKey.trimmingCharacters(in: .whitespacesAndNewlines)
+        var warnings: [String] = []
+
+        if textPages == 0 {
+            guard !cleanKey.isEmpty else {
+                throw ImportFailure("这个PDF没有可提取的文字，可能是扫描件。请先配置 DeepSeek API Key 开启自动 OCR，或先做文字识别后再导入。")
+            }
+            let ocrPages = try await DeepSeekOCRClient().recognize(
+                data: data,
+                fileName: "\(name).pdf",
+                mimeType: "application/pdf",
+                key: cleanKey
+            )
+            var recognized = 0
+            emptyPages = []
+            for index in 0..<pdf.pageCount {
+                let text = (ocrPages[index] ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
+                if text.isEmpty {
+                    emptyPages.append(index + 1)
+                } else {
+                    recognized += 1
+                    pageTexts[index] = text
+                }
+            }
+            guard recognized > 0 else {
+                throw ImportFailure("这个PDF没有识别出可读取的文字，可能全是空白页或图像过模糊。")
+            }
+            warnings.append("未检测到内置文字层，已通过 DeepSeek OCR 自动识别文字（\(recognized)/\(pdf.pageCount) 页）。")
+        } else if emptyPages.count > textPages && !cleanKey.isEmpty {
+            do {
+                let ocrPages = try await DeepSeekOCRClient().recognize(
+                    data: data,
+                    fileName: "\(name).pdf",
+                    mimeType: "application/pdf",
+                    key: cleanKey
+                )
+                var filled = 0
+                var remainingEmpty: [Int] = []
+                for index in 0..<pdf.pageCount {
+                    if let existing = pageTexts[index], !existing.isEmpty { continue }
+                    let text = (ocrPages[index] ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
+                    if text.isEmpty {
+                        remainingEmpty.append(index + 1)
+                    } else {
+                        pageTexts[index] = text
+                        filled += 1
+                    }
+                }
+                emptyPages = remainingEmpty
+                if filled > 0 {
+                    warnings.append("部分页面无内置文字层，已通过 DeepSeek OCR 补充识别 \(filled) 页。")
+                }
+            } catch {
+                if error is CancellationError || Task.isCancelled { throw error }
+            }
+        }
+
+        let heading = "【PDF文字资料】\n以下页码为PDF文件中的物理页序，从1开始，不等同于书中印刷页码。文字提取可能改变多栏、表格及脚注的阅读顺序，请按页回到原文件核对。"
+        var parts = [heading]
+        var characterCount = heading.count
+        for index in 0..<pdf.pageCount {
+            let content = pageTexts[index] ?? "[本页没有可提取文字，可能是扫描页、图片或空白页。]"
             let section = "【PDF第\(index + 1)页】\n\(content)"
             characterCount += section.count + 2
             guard characterCount <= maxCharacters else { throw tooLong(maxCharacters) }
             parts.append(section)
         }
-        guard textPages > 0 else { throw ImportFailure("这个PDF没有可提取的文字，可能是扫描件。请先做文字识别（OCR），再导入带文字层的PDF或TXT。") }
-        let warnings = emptyPages.isEmpty ? [] : ["共\(pdf.pageCount)页，其中\(emptyPages.count)页没有提取到文字，正文已按页标注；这份资料不是完整逐页转写。"]
+        if !emptyPages.isEmpty {
+            warnings.append("共\(pdf.pageCount)页，其中\(emptyPages.count)页没有提取到文字，正文已按页标注；这份资料不是完整逐页转写。")
+        }
         return (parts.joined(separator: "\n\n"), warnings)
     }
 

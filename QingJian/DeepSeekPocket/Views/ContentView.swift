@@ -1116,7 +1116,7 @@ struct ChatScreen: View {
                 }
                 fileImportProgress = "正在读取 \(index + 1)/\(urls.count)：\(url.lastPathComponent)"
                 do {
-                    let imported = try await DocumentTextImporter.load(url)
+                    let imported = try await DocumentTextImporter.load(url, apiKey: store.apiKey)
                     try Task.checkCancellation()
                     let addition = "【文件：\(imported.name)】\n\(imported.text)"
                     if store.appendImportedText(addition, to: origin) {

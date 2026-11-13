@@ -169,12 +169,43 @@ enum WebPageError: LocalizedError {
     }
 }
 
+enum WebFetchProtocol {
+    static let endpoint = URL(string: "https://api.deepseek.com/v1/tools/fetch")!
+
+    static func body(url: URL) throws -> Data {
+        guard WebText.isFetchable(url), url.absoluteString.count <= 8192 else {
+            throw WebPageError.notAllowed
+        }
+        return try JSONSerialization.data(withJSONObject: ["url": url.absoluteString])
+    }
+
+    static func parse(_ data: Data, limit: Int = 4000) throws -> String {
+        guard let root = try JSONSerialization.jsonObject(with: data) as? [String: Any] else {
+            throw WebPageError.empty
+        }
+        if root["error"] != nil { throw WebPageError.empty }
+        let title = (root["title"] as? String ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
+        let content = (root["content"] as? String ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
+        guard content.count >= 40 else { throw WebPageError.empty }
+        let combined: String
+        if !title.isEmpty && !content.hasPrefix("# \(title)") && !content.hasPrefix(title) {
+            combined = "\(title)\n\n\(content)"
+        } else {
+            combined = content
+        }
+        guard limit > 0, combined.count > limit else { return combined }
+        return String(combined.prefix(limit)) + "……"
+    }
+}
+
 final class WebPageReader: Sendable {
     private static let byteLimit = 2_000_000
     let githubToken: String?
+    let apiKey: String?
 
-    init(githubToken: String? = nil) {
+    init(githubToken: String? = nil, apiKey: String? = nil) {
         self.githubToken = githubToken
+        self.apiKey = apiKey
     }
 
     func read(_ url: URL, limit: Int = 4000) async throws -> String {
@@ -191,6 +222,11 @@ final class WebPageReader: Sendable {
            !ghText.isEmpty {
             return ghText
         }
+        if let key = apiKey?.trimmingCharacters(in: .whitespacesAndNewlines), !key.isEmpty,
+           let fetched = await fetchViaDeepSeek(url, key: key, limit: limit, session: session),
+           !fetched.isEmpty {
+            return fetched
+        }
         var request = URLRequest(url: url)
         request.setValue("Mozilla/5.0 (iPhone; CPU iPhone OS 18_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/18.0 Mobile/15E148 Safari/604.1",
                          forHTTPHeaderField: "User-Agent")
@@ -205,6 +241,21 @@ final class WebPageReader: Sendable {
         let text = type.contains("html") ? WebText.extract(html: raw, limit: limit) : String(raw.prefix(limit))
         guard text.count >= 40 else { throw WebPageError.empty }
         return text
+    }
+
+    private func fetchViaDeepSeek(_ url: URL, key: String, limit: Int, session: URLSession) async -> String? {
+        guard let body = try? WebFetchProtocol.body(url: url) else { return nil }
+        var request = URLRequest(url: WebFetchProtocol.endpoint)
+        request.httpMethod = "POST"
+        request.setValue("Bearer \(key)", forHTTPHeaderField: "Authorization")
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        request.httpBody = body
+        guard let (data, response) = try? await session.data(for: request),
+              let http = response as? HTTPURLResponse,
+              (200..<300).contains(http.statusCode) else {
+            return nil
+        }
+        return try? WebFetchProtocol.parse(Data(data.prefix(Self.byteLimit)), limit: limit)
     }
 
     private func fetchGitHubAPI(_ url: URL, accept: String = "application/vnd.github+json", session: URLSession) async -> (Int, Data)? {

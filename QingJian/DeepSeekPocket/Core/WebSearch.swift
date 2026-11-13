@@ -49,26 +49,69 @@ enum WebSearchError: LocalizedError {
 }
 
 enum WebSearchProtocol {
-    // Official DeepSeek harness's native search endpoint. No third-party key.
-    static let endpoint = URL(string: "https://api.deepseek.com/anthropic/v1/messages")!
-    static func body(query: String) throws -> Data {
-        let query = String(query.trimmingCharacters(in: .whitespacesAndNewlines).prefix(2000))
-        guard !query.isEmpty else { throw WebSearchError.emptyQuery }
-        let prompt = """
-        请针对下面的用户问题进行精准联网搜索，提炼核心专有名词与关键限定词检索，严禁返回与问题核心实体无关的凑数网页，并提供可靠网页来源与准确总结：
-        \(query)
-        """
-        return try JSONSerialization.data(withJSONObject: [
-            "model": "deepseek-v4-flash", "max_tokens": 3072,
-            "messages": [["role": "user", "content": [["type": "text", "text": prompt]]]],
-            "tools": [["type": "web_search_20250305", "name": "web_search", "max_uses": 2]]
-        ])
+    // Official DeepSeek independent Search API. No third-party key.
+    static let endpoint = URL(string: "https://api.deepseek.com/v1/tools/search")!
+    static let maxQueryScalars = 128
+
+    /// Collapses whitespace/newlines and truncates to `maxScalars` Unicode scalars along Character boundaries.
+    static func normalize(_ text: String, maxScalars: Int = maxQueryScalars, keepTail: Bool = false) -> String {
+        let collapsed = text
+            .components(separatedBy: .whitespacesAndNewlines)
+            .filter { !$0.isEmpty }
+            .joined(separator: " ")
+        guard !collapsed.isEmpty, maxScalars > 0 else { return "" }
+        guard collapsed.unicodeScalars.count > maxScalars else { return collapsed }
+        if keepTail {
+            var count = 0
+            var kept: [Character] = []
+            for ch in collapsed.reversed() {
+                let c = ch.unicodeScalars.count
+                if count + c > maxScalars { break }
+                count += c
+                kept.append(ch)
+            }
+            return String(kept.reversed()).trimmingCharacters(in: .whitespaces)
+        } else {
+            var count = 0
+            var result = ""
+            for ch in collapsed {
+                let c = ch.unicodeScalars.count
+                if count + c > maxScalars { break }
+                count += c
+                result.append(ch)
+            }
+            return result.trimmingCharacters(in: .whitespaces)
+        }
+    }
+
+    static func body(query: String, oriQuestion: String? = nil, count: Int = 10, needContent: Bool = true) throws -> Data {
+        let cleanQuery = normalize(query, maxScalars: maxQueryScalars, keepTail: false)
+        guard !cleanQuery.isEmpty else { throw WebSearchError.emptyQuery }
+        var payload: [String: Any] = [
+            "query": cleanQuery,
+            "count": min(max(1, count), 50),
+            "need_content": needContent
+        ]
+        if let rawOri = oriQuestion {
+            let cleanOri = normalize(rawOri, maxScalars: maxQueryScalars, keepTail: true)
+            if !cleanOri.isEmpty && cleanOri != cleanQuery {
+                payload["ori_question"] = cleanOri
+            }
+        }
+        return try JSONSerialization.data(withJSONObject: payload)
     }
 
     static func parse(_ data: Data) throws -> WebSearchResult {
-        guard data.count <= 2_000_000,
-              let root = try JSONSerialization.jsonObject(with: data) as? [String: Any],
-              let blocks = root["content"] as? [[String: Any]] else { throw WebSearchError.invalidResponse }
+        guard data.count <= 4_000_000,
+              let root = try JSONSerialization.jsonObject(with: data) as? [String: Any] else {
+            throw WebSearchError.invalidResponse
+        }
+        if root["error"] != nil { throw WebSearchError.unavailable }
+        if let items = root["results"] as? [[String: Any]] {
+            return try parseSearchResults(items)
+        }
+        // Fallback parser for legacy Anthropic web_search_tool_result payloads.
+        guard let blocks = root["content"] as? [[String: Any]] else { throw WebSearchError.invalidResponse }
         var snippets: [String: String] = [:]
         var written: [String] = []
         for block in blocks where block["type"] as? String == "text" {
@@ -106,24 +149,84 @@ enum WebSearchProtocol {
         let summary = written.joined().trimmingCharacters(in: .whitespacesAndNewlines)
         return WebSearchResult(sources: sources, usage: usage, summary: String(summary.prefix(6000)))
     }
+
+    private static func parseSearchResults(_ items: [[String: Any]]) throws -> WebSearchResult {
+        guard !items.isEmpty else { throw WebSearchError.noResults }
+        let validItems = items.filter { item in
+            guard let rawURL = item["url"] as? String, rawURL.count <= 4096,
+                  let url = URL(string: rawURL), WebText.isFetchable(url) else {
+                return false
+            }
+            return true
+        }
+        guard !validItems.isEmpty else { throw WebSearchError.noResults }
+
+        let hasQualityItem = validItems.contains { item in
+            ((item["rerank_score"] as? NSNumber)?.doubleValue ?? 1.0) >= 0.25
+        }
+        let filteredItems = hasQualityItem ? validItems.filter { item in
+            ((item["rerank_score"] as? NSNumber)?.doubleValue ?? 1.0) >= 0.25
+        } : validItems
+
+        var seen = Set<String>()
+        var sources: [WebSource] = []
+        var pages: [String: String] = [:]
+        var summaryLines: [String] = []
+
+        for item in filteredItems {
+            guard let rawURL = item["url"] as? String,
+                  let url = URL(string: rawURL),
+                  seen.insert(rawURL).inserted else { continue }
+            let rawTitle = (item["title"] as? String ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
+            let title = rawTitle.isEmpty ? (url.host ?? rawURL) : rawTitle
+            let longSummary = (item["summary"] as? String ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
+            let rawSnippet = (item["snippet"] as? String ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
+            let snippet = rawSnippet.isEmpty ? String(longSummary.prefix(240)) : rawSnippet
+            sources.append(WebSource(
+                title: String(title.prefix(200)),
+                url: rawURL,
+                snippet: String(snippet.prefix(400))
+            ))
+
+            let siteName = (item["site_name"] as? String ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
+            let datePrefix = String((item["date"] as? String ?? "").trimmingCharacters(in: .whitespacesAndNewlines).prefix(10))
+            let content = (item["content"] as? String ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
+            var pageParts: [String] = []
+            let meta = [siteName, datePrefix].filter { !$0.isEmpty }.joined(separator: " · ")
+            if !meta.isEmpty { pageParts.append("来源：\(meta)") }
+            if !longSummary.isEmpty && longSummary != content { pageParts.append("摘要：\(longSummary)") }
+            if !content.isEmpty { pageParts.append(content) }
+            if !pageParts.isEmpty {
+                let joined = pageParts.joined(separator: "\n")
+                pages[rawURL] = joined.count > 3500 ? String(joined.prefix(3500)) + "……" : joined
+            }
+
+            if summaryLines.count < 4 && !longSummary.isEmpty {
+                summaryLines.append("[\(sources.count)] \(String(title.prefix(80)))：\(longSummary)")
+            }
+            if sources.count == 8 { break }
+        }
+
+        guard !sources.isEmpty else { throw WebSearchError.noResults }
+        let summary = String(summaryLines.joined(separator: "\n").prefix(6000))
+        return WebSearchResult(sources: sources, usage: nil, summary: summary, pages: pages)
+    }
 }
 
 final class WebSearchClient: @unchecked Sendable {
-    func search(query: String, key: String) async throws -> WebSearchResult {
+    func search(query: String, oriQuestion: String? = nil, key: String) async throws -> WebSearchResult {
         let config = URLSessionConfiguration.ephemeral
-        config.timeoutIntervalForRequest = 90
-        config.timeoutIntervalForResource = 120
+        config.timeoutIntervalForRequest = 30
+        config.timeoutIntervalForResource = 45
         config.urlCache = nil
         config.httpCookieStorage = nil
         let session = URLSession(configuration: config, delegate: SearchRedirectDelegate(), delegateQueue: nil)
         defer { session.invalidateAndCancel() }
         var request = URLRequest(url: WebSearchProtocol.endpoint)
         request.httpMethod = "POST"
-        request.setValue(key, forHTTPHeaderField: "x-api-key")
         request.setValue("Bearer \(key)", forHTTPHeaderField: "Authorization")
-        request.setValue("2023-06-01", forHTTPHeaderField: "anthropic-version")
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
-        request.httpBody = try WebSearchProtocol.body(query: query)
+        request.httpBody = try WebSearchProtocol.body(query: query, oriQuestion: oriQuestion)
         try Task.checkCancellation()
         let (data, response) = try await session.data(for: request)
         try Task.checkCancellation()
@@ -134,7 +237,7 @@ final class WebSearchClient: @unchecked Sendable {
 
     /// Reads any explicit http(s) / GitHub URLs in the query directly first; falls back to or combines with keyword search when needed.
     func searchOrReadDirectURLs(query: String, contextHint: String = "", key: String, githubToken: String? = nil) async throws -> WebSearchResult {
-        let reader = WebPageReader(githubToken: githubToken)
+        let reader = WebPageReader(githubToken: githubToken, apiKey: key)
         let directURLs = Array(WebText.extractURLs(from: query).prefix(3))
         var directSources: [WebSource] = []
         var directPages: [String: String] = [:]
@@ -162,9 +265,17 @@ final class WebSearchClient: @unchecked Sendable {
         }
 
         let trimmedHint = contextHint.trimmingCharacters(in: .whitespacesAndNewlines)
-        let effectiveQuery = trimmedHint.isEmpty ? query : "对话背景摘要：\n\(trimmedHint)\n\n当前需要搜索的问题：\n\(query)"
-        var result = try await search(query: effectiveQuery, key: key)
-        result.pages = await reader.readTop(result.sources, count: 4)
+        let oriQuestion = trimmedHint.isEmpty ? nil : "\(trimmedHint) \(query)"
+        var result = try await search(query: query, oriQuestion: oriQuestion, key: key)
+        let missingSources = Array(result.sources.prefix(4)).filter { source in
+            (result.pages[source.url]?.count ?? 0) < 120
+        }
+        if !missingSources.isEmpty {
+            let fetched = await reader.readTop(missingSources, count: 4)
+            for (url, text) in fetched where !text.isEmpty {
+                result.pages[url] = text
+            }
+        }
         return result
     }
 }
