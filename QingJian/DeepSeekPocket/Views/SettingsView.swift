@@ -53,6 +53,7 @@ struct SettingsView: View {
                         }
                     }
                     NavigationLink { ColabSettingsView(colab: store.colab) } label: { Label("Colab", systemImage: "cloud") }
+                    NavigationLink { CompatibleEndpointSettingsView(compatible: store.compatible) } label: { Label("其他模型（兼容端点）", systemImage: "server.rack") }
                     NavigationLink { chatGPTPage } label: { Label("ChatGPT 订阅与声音", systemImage: "person.crop.circle.badge.checkmark") }
                     Picker("默认服务", selection: Binding(get: { draftSettings.selectedProvider }, set: { draftSettings.provider = $0 })) {
                         ForEach(AIProvider.allCases) { Text($0.title).tag($0) }

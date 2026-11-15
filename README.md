@@ -10,6 +10,25 @@
 
 展开源码与原有压缩包及manifest对应。`python apply-source-overlay.py` 会核验已有源码；没有源码目录时才从压缩包重建。修改源码后需运行 `python rebuild-source-overlay.py` 同步清单和overlay。
 
+## 每日进展日志
+
+### 2026-11-15
+- **今日完成**：
+  - 排查并梳理 Sermo（`cleanup-1.37`，基线 Build 74 / `2dbddf2`）全链路传文件现状与痛点，编写设计审阅稿 [`docs/superpowers/specs/2026-11-15-universal-file-import-design.md`](docs/superpowers/specs/2026-11-15-universal-file-import-design.md)。
+  - 完成端侧零第三方依赖的通用文件导入与 IPA 体检全套编码实现：
+    - `StreamZipReader`（基于 `FileHandle` 流式低内存读 ZIP/ZIP64，500 MB / 单条目 32 MB 限流）
+    - `IPAAnalyzer`（体积分布与 Top 25 文件、`Info.plist` `bplist00` 解码、`embedded.mobileprovision` 权限、Mach-O 架构/`cryptid`/动态库与发布包冗余文件检查）
+    - `ZipProjectExtractor`（100 MB `.zip` 源码目录树与优先级提取）与 `OfficeAndDocumentExtractor`（`.docx`/`.xlsx`/`.pptx`/`.rtf`/`.epub`/二进制 `.plist`）
+    - 扩展 `DocumentTextImporter` 支持开发者代码/工程/日志（`.ips`/`.crash` 等，文本上限 15 MB，超长保留头尾关键段）
+    - `PendingDocument` + `ContentView` 改造：输入框上方待发送文件胶囊卡片（支持预览与移除，不占打字框）、消息气泡内折叠卡片（不改 `ChatMessage` 持久化字段）、修复 `.onOpenURL`（除 `.sermobackup` 外静默挂入当前对话待发送区）与「+ → 粘贴」图片支持、同步更新 `Info.plist`。
+  - 结合同类客户端参考，新增三项增强：模型菜单能力边界显式提示（`ProviderCapabilities`）、代码块语言标注与轻量着色 + `$$...$$` 数学公式排版（`SyntaxAndMath`）、以及轻量独立的「其他模型（兼容端点）」抽屉（内置 OpenAI、Anthropic Claude、Google Gemini、局域网/本地 Ollama 及自定义端点，Key 分开存于钥匙串）。
+  - 补充 `UniversalFileImportTests.swift` 单元测试，通过 `generate-project.py`、`check-project.py`（115 个 Swift 文件）与 `rebuild-source-overlay.py` 校验并推送触发 CI 打包。
+- **关键结论 / 修改要点**：
+  - 交互铁律「不管发什么，都不能抢占说话的那个窗」与 `ChatMessage` 零字段变更已落地，确保覆盖升级与老记录兼容。
+  - 「其他模型」收口在「设置 → 模型与服务 → 其他模型（兼容端点）」单抽屉中，主界面保持简洁。
+- **下一步待办**：
+  - 跟进 GitHub Actions `study-step7.yml` 的 macOS `swift test` 与 Release IPA 编译结果并做真机验证。
+
 以下保留此前版本记录。
 Sermo 1.35.1 / build 64 — 修复 Colab 云盘刷新
 

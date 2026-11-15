@@ -5,9 +5,16 @@ import JWTKit
 // Ported from 研习 (StudyDesk). Signing in uses OpenAI's own "Sign in with ChatGPT"
 // flow; answers come from the Responses endpoint and count against the plan, not money.
 enum AIProvider: String, Codable, CaseIterable, Identifiable, Sendable {
-    case deepSeek, chatGPT, colab
+    case deepSeek, chatGPT, colab, compatible
     var id: String { rawValue }
-    var title: String { self == .colab ? "Colab" : (self == .deepSeek ? "DeepSeek" : "ChatGPT 订阅") }
+    var title: String {
+        switch self {
+        case .deepSeek: return "DeepSeek"
+        case .chatGPT: return "ChatGPT 订阅"
+        case .colab: return "Colab"
+        case .compatible: return "其他模型"
+        }
+    }
 }
 
 enum SubscriptionEffort: String, Codable, CaseIterable, Identifiable, Sendable {

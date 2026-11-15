@@ -52,6 +52,7 @@ final class AppStore: ObservableObject {
     let subscription = SubscriptionStore()
     let speech = OpenAISpeech()
     let colab = ColabStore()
+    let compatible = CompatibleEndpointStore()
     private var colabObserver: AnyCancellable?
     // The bookshelf (1.8.0): novels read into character profiles.
     let books: BookStore
@@ -376,12 +377,17 @@ final class AppStore: ObservableObject {
     var activeProvider: AIProvider { provider(for: activeThread) }
     func isReady(_ provider: AIProvider) -> Bool {
         if provider == .colab { return true }
+        if provider == .compatible { return (try? compatible.configuration.validatedURL()) != nil }
         return provider == .deepSeek ? hasKey : (isPreview || subscription.ready)
     }
     var canChat: Bool { isReady(activeProvider) }
     var chatUnavailableMessage: String {
-        activeProvider == .colab ? ColabError.offline.localizedDescription :
-            (activeProvider == .deepSeek ? ChatError.missingKey.localizedDescription : subscription.readinessMessage)
+        switch activeProvider {
+        case .colab: return ColabError.offline.localizedDescription
+        case .compatible: return "请先在「设置 → 模型与服务 → 其他模型（兼容端点）」配置模型和地址。"
+        case .deepSeek: return ChatError.missingKey.localizedDescription
+        case .chatGPT: return subscription.readinessMessage
+        }
     }
     // What the composer pill shows, e.g. "Flash High" or "GPT-5.6 Sol Auto".
     var pillModelTitle: String {
@@ -389,6 +395,7 @@ final class AppStore: ObservableObject {
     }
     var pillEffortTitle: String {
         if activeProvider == .colab { return activeChatSettings.colabOptions.thinking ? "思考" : "Off" }
+        if activeProvider == .compatible { return compatible.configuration.activePreset.title }
         if activeProvider == .chatGPT { return activeChatSettings.selectedSubscriptionEffort.title }
         return activeChatSettings.thinkingEnabled ? activeChatSettings.effort.title : "Off"
     }
@@ -1166,6 +1173,10 @@ final class AppStore: ObservableObject {
     }
     func modelTitle(for provider: AIProvider) -> String {
         if provider == .colab { return colab.configuration.model.isEmpty ? "Colab" : colab.configuration.model }
+        if provider == .compatible {
+            let model = compatible.configuration.activeModel
+            return model.isEmpty ? compatible.configuration.activePreset.title : model
+        }
         return provider == .chatGPT ? subscription.title(for: activeChatSettings.subscriptionModel) : activeChatSettings.model.title
     }
     func refreshColabEndpoint() {
@@ -1212,6 +1223,8 @@ final class AppStore: ObservableObject {
         case .colab:
             try await colab.stream(request, options: colabOptions ?? settings.colabOptions, drive: drive,
                 onProgress: onProgress, onRestart: onRestart, onEvent: onEvent)
+        case .compatible:
+            try await compatible.stream(request, onProgress: onProgress, onEvent: onEvent)
         case .chatGPT:
             try await subscription.stream(request: request, model: subscriptionModel ?? settings.subscriptionModel,
                 effort: effort, summary: summary, onProgress: onProgress ?? { _ in }, onEvent: onEvent)
@@ -1288,7 +1301,8 @@ final class AppStore: ObservableObject {
         let typed = text.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !typed.isEmpty || !images.isEmpty else { return false }
         let clean = typed.isEmpty ? "请看图片。" : typed
-        guard clean.count <= 100000 else { errorMessage = "这段文字太长，请分段发送。"; return false }
+        let maxSendChars = clean.contains("[[SERMO_FILE_START:") ? 250_000 : 100_000
+        guard clean.count <= maxSendChars else { errorMessage = "这段内容太长，请拆分成多条发送。"; return false }
         guard let threadID = activeThreadID, let ti = threads.firstIndex(where: { $0.id == threadID }) else { return false }
         var names: [String] = []
         for data in images {
@@ -1302,7 +1316,11 @@ final class AppStore: ObservableObject {
         draftSaveTask?.cancel()
         cancelReplySuggestions()
         let old = threads
-        if threads[ti].messages.isEmpty { threads[ti].title = String(clean.prefix(20)).replacingOccurrences(of: "\n", with: " ") }
+        if threads[ti].messages.isEmpty {
+            let decoded = PendingDocumentCodec.decode(clean)
+            let titleSource = decoded.userText.isEmpty ? (decoded.attachments.first?.name ?? clean) : decoded.userText
+            threads[ti].title = String(titleSource.prefix(20)).replacingOccurrences(of: "\n", with: " ")
+        }
         threads[ti].story?.ended = false
         var input = ChatMessage(role: .user, content: clean, images: names.isEmpty ? nil : names)
         input.storyState = threads[ti].story.map { capturedStory($0) }

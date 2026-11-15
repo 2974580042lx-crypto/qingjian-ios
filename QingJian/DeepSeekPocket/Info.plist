@@ -71,7 +71,27 @@
 			<key>LSItemContentTypes</key>
 			<array>
 				<string>com.xiaolong.qingjian.backup</string>
+			</array>
+		</dict>
+		<dict>
+			<key>CFBundleTypeName</key>
+			<string>通用文件与安装包</string>
+			<key>CFBundleTypeRole</key>
+			<string>Viewer</string>
+			<key>LSHandlerRank</key>
+			<string>Alternate</string>
+			<key>LSItemContentTypes</key>
+			<array>
+				<string>com.apple.itunes.ipa</string>
+				<string>public.zip-archive</string>
+				<string>com.adobe.pdf</string>
 				<string>public.json</string>
+				<string>public.source-code</string>
+				<string>public.rtf</string>
+				<string>org.openxmlformats.wordprocessingml.document</string>
+				<string>org.openxmlformats.spreadsheetml.sheet</string>
+				<string>org.openxmlformats.presentationml.presentation</string>
+				<string>public.data</string>
 			</array>
 		</dict>
 	</array>

@@ -108,11 +108,11 @@ struct ContentView: View {
         .sheet(isPresented: $showProjects) {
             ProjectsView(opened: { showProjects = false; showSidebar = false }).environmentObject(store).environmentObject(profile)
         }
-        // Route files opened from the Files app by extension: backups vs novels.
+        // Route files opened from the Files app / Share sheet: only .sermobackup restores backups;
+        // all other files attach silently to the active conversation's pending document strip.
         .onOpenURL { url in
             guard url.isFileURL else { return }
-            let ext = url.pathExtension.lowercased()
-            if ext == "sermobackup" || ext == "json" {
+            if IncomingURLRoute.classify(url) == .backup {
                 Task {
                     guard let local = await Task.detached(priority: .userInitiated, operation: { IncomingFile.privateCopy(of: url) }).value else {
                         store.errorMessage = "没能读取这个备份文件，请在「文件」里确认它已下载后再试。"
@@ -122,15 +122,16 @@ struct ContentView: View {
                 }
                 return
             }
-            showBooks = true
-            Task {
-                // Import a private copy: the importer removes what it reads, and the
-                // original may now be the user's own file rather than a system copy.
+            Task { @MainActor in
                 guard let local = await Task.detached(priority: .userInitiated, operation: { IncomingFile.privateCopy(of: url) }).value else {
                     store.errorMessage = "没能读取这个文件，请在「文件」里确认它已下载后再试。"
                     return
                 }
-                _ = await store.books.importBook(from: local)
+                guard let origin = store.activeThreadID ?? store.threads.first?.id else {
+                    try? FileManager.default.removeItem(at: local)
+                    return
+                }
+                importDocuments([local], into: origin, removeAfterImport: true)
             }
         }
         .sheet(isPresented: $showBooks) {
@@ -294,6 +295,8 @@ struct ChatScreen: View {
     @State private var photoLoadSessionID: UUID?
     @State private var photoLoadTask: Task<Void, Never>?
     @State private var imagesByThread: [UUID: [PendingImage]] = [:]
+    @State private var documentsByThread: [UUID: [PendingDocument]] = [:]
+    @State private var previewingDocument: DocumentPreviewTarget?
     @State private var attachmentReport: String?
     @State private var attachTrayOpen = false
     private var loadingPhotos: Bool { photoLoadThreadID == store.activeThreadID && photoLoadThreadID != nil }
@@ -306,6 +309,16 @@ struct ChatScreen: View {
         nonmutating set {
             guard let id = store.activeThreadID else { return }
             imagesByThread[id] = newValue
+        }
+    }
+    private var pendingDocuments: [PendingDocument] {
+        get {
+            guard let thread = store.activeThread, !store.isHidden(thread) else { return [] }
+            return documentsByThread[thread.id] ?? []
+        }
+        nonmutating set {
+            guard let id = store.activeThreadID else { return }
+            documentsByThread[id] = newValue
         }
     }
     @State private var renaming = false
@@ -335,7 +348,7 @@ struct ChatScreen: View {
         return "对\(story.character)说…"
     }
     private var hasInput: Bool {
-        !localDraft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || !pendingImages.isEmpty
+        !localDraft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || !pendingImages.isEmpty || !pendingDocuments.isEmpty
     }
     // 猜你想说: after an answer, one suggested reply waits as grey text in the empty
     // composer; send takes it as is, a tap on it puts it in to edit, 「换一条」 cycles.
@@ -1101,42 +1114,57 @@ struct ChatScreen: View {
         if !shown { choosingFiles = false }
     }
 
-    private func importDocuments(_ urls: [URL], into origin: UUID) {
+    private func importDocuments(_ urls: [URL], into origin: UUID, removeAfterImport: Bool = false) {
         guard !urls.isEmpty else { return }
         fileImportThreadID = origin
         fileImportTask = Task { @MainActor in
-            defer { fileImportThreadID = nil; fileImportTask = nil; fileImportProgress = "" }
+            defer {
+                fileImportThreadID = nil
+                fileImportTask = nil
+                fileImportProgress = ""
+                if removeAfterImport {
+                    for url in urls { try? FileManager.default.removeItem(at: url) }
+                }
+            }
             var successes = 0
             var details: [String] = []
             for (index, url) in urls.enumerated() {
-                if Task.isCancelled { details.append("已取消剩余文件；已经导入的内容保留。"); break }
+                if Task.isCancelled { details.append("已取消剩余文件；已经挂入的文件保留。"); break }
                 guard let current = store.threads.first(where: { $0.id == origin }), !store.isHidden(current) else {
-                    details.append("原对话已删除或上锁，剩余内容没有加入其他对话。")
+                    details.append("原对话已删除或上锁，剩余文件没有加入其他对话。")
+                    break
+                }
+                let existing = documentsByThread[origin] ?? []
+                guard existing.count < 5 else {
+                    details.append("\(url.lastPathComponent)：单条消息最多附加 5 份文件。")
                     break
                 }
                 fileImportProgress = "正在读取 \(index + 1)/\(urls.count)：\(url.lastPathComponent)"
                 do {
                     let imported = try await DocumentTextImporter.load(url, apiKey: store.apiKey)
                     try Task.checkCancellation()
-                    let addition = "【文件：\(imported.name)】\n\(imported.text)"
-                    if store.appendImportedText(addition, to: origin) {
-                        successes += 1
-                        details.append(contentsOf: imported.warnings.map { "\(imported.name)：\($0)" })
-                    } else {
-                        details.append("\(imported.name)：\(store.errorMessage ?? "未能保存到草稿，请稍后再试。")")
-                        store.errorMessage = nil
-                    }
+                    let doc = PendingDocument(
+                        name: imported.name,
+                        fileExtension: url.pathExtension.lowercased(),
+                        text: imported.text,
+                        warnings: imported.warnings
+                    )
+                    documentsByThread[origin, default: []].append(doc)
+                    successes += 1
+                    details.append(contentsOf: imported.warnings.map { "\(imported.name)：\($0)" })
                 } catch is CancellationError {
-                    details.append("已取消剩余文件；已经导入的内容保留。")
+                    details.append("已取消剩余文件；已经挂入的文件保留。")
                     break
                 } catch {
                     details.append("\(url.lastPathComponent)：\(error.localizedDescription)")
                 }
             }
-            let location = origin == store.activeThreadID ? "当前对话" : "原来对话"
-            var report = "已将 \(successes)/\(urls.count) 份文件加入\(location)的草稿，由你检查后发送。"
-            if !details.isEmpty { report += "\n\n" + details.joined(separator: "\n\n") }
-            attachmentReport = report
+            if !details.isEmpty || successes < urls.count {
+                let location = origin == store.activeThreadID ? "当前对话" : "原来对话"
+                var report = "已将 \(successes)/\(urls.count) 份文件挂入\(location)的待发送区。"
+                if !details.isEmpty { report += "\n\n" + details.joined(separator: "\n\n") }
+                attachmentReport = report
+            }
         }
     }
 
@@ -1230,8 +1258,19 @@ struct ChatScreen: View {
                        disabled: attachmentBusy || !store.canPersist) { chooseDocuments() }
             trayButton("粘贴", symbol: "doc.on.clipboard", id: "chat-paste-text", disabled: !store.canPersist) {
                 guard let id = store.activeThreadID else { return }
+                if UIPasteboard.general.hasImages, let image = UIPasteboard.general.image {
+                    guard pendingImages.count < 4 else {
+                        attachmentReport = "每条消息最多附加 4 张图片。"
+                        return
+                    }
+                    if let data = image.jpegData(compressionQuality: 0.85) ?? image.pngData() {
+                        pendingImages.append(PendingImage(data: data, preview: image))
+                        Haptic.tap()
+                        return
+                    }
+                }
                 guard let text = UIPasteboard.general.string, !text.isEmpty else {
-                    attachmentReport = "剪贴板里没有文字。"
+                    attachmentReport = "剪贴板里没有图片或文字。"
                     return
                 }
                 if store.appendImportedText(text, to: id) { focusComposer(true) }
@@ -1296,6 +1335,59 @@ struct ChatScreen: View {
                     BookDiscussionVoiceControl(threadID: thread.id, open: { focusComposer(false) })
                         .id(thread.id)
                 }
+                if !pendingDocuments.isEmpty {
+                    ScrollView(.horizontal, showsIndicators: false) {
+                        HStack(spacing: 8) {
+                            ForEach(pendingDocuments) { doc in
+                                HStack(spacing: 6) {
+                                    Button {
+                                        previewingDocument = DocumentPreviewTarget(
+                                            title: doc.fileExtension.isEmpty ? doc.name : "\(doc.name).\(doc.fileExtension)",
+                                            text: doc.text
+                                        )
+                                    } label: {
+                                        HStack(spacing: 6) {
+                                            Image(systemName: "doc.text")
+                                                .font(.system(size: 13, weight: .medium))
+                                                .foregroundStyle(Ink.seal)
+                                            VStack(alignment: .leading, spacing: 1) {
+                                                Text(doc.fileExtension.isEmpty ? doc.name : "\(doc.name).\(doc.fileExtension)")
+                                                    .font(TypeScale.label)
+                                                    .foregroundStyle(Ink.ink)
+                                                    .lineLimit(1)
+                                                Text("\(doc.characterCount.formatted()) 字 · 点击预览")
+                                                    .font(TypeScale.tiny)
+                                                    .foregroundStyle(Ink.ink3)
+                                            }
+                                            .frame(maxWidth: 160, alignment: .leading)
+                                        }
+                                        .contentShape(Rectangle())
+                                    }
+                                    .buttonStyle(.plain)
+                                    Button {
+                                        pendingDocuments.removeAll { $0.id == doc.id }
+                                    } label: {
+                                        Image(systemName: "xmark")
+                                            .font(.system(size: 9, weight: .bold))
+                                            .foregroundStyle(Ink.onSolid)
+                                            .frame(width: 18, height: 18)
+                                            .background(Ink.solid, in: Circle())
+                                            .contentShape(Rectangle())
+                                    }
+                                    .buttonStyle(.plain)
+                                    .accessibilityLabel("移除文件 \(doc.name)")
+                                }
+                                .padding(.horizontal, 10)
+                                .padding(.vertical, 7)
+                                .background(Ink.raised, in: RoundedRectangle(cornerRadius: swiss ? 0 : 12, style: .continuous))
+                                .overlay(RoundedRectangle(cornerRadius: swiss ? 0 : 12, style: .continuous).stroke(Ink.line, lineWidth: 1))
+                            }
+                        }
+                    }
+                    .sheet(item: $previewingDocument) { target in
+                        DocumentPreviewSheet(target: target)
+                    }
+                }
                 if !pendingImages.isEmpty || loadingPhotos {
                     ScrollView(.horizontal, showsIndicators: false) {
                         HStack(spacing: 10) {
@@ -1353,6 +1445,9 @@ struct ChatScreen: View {
                     attachmentButton
                     // Model and thinking level in one pill, like "Haiku 5.5 中等" in the Claude app.
                     Menu {
+                        Section("当前能力边界") {
+                            Text(ProviderCapabilities.forProvider(store.activeProvider).summaryLabel)
+                        }
                         Section("服务") {
                             Picker("服务", selection: Binding(get: { store.activeProvider }, set: { store.setProvider($0) })) {
                                 ForEach(AIProvider.allCases) { Text($0.title).tag($0) }
@@ -1362,6 +1457,11 @@ struct ChatScreen: View {
                             Section("Colab") {
                                 Text(store.pillModelTitle)
                                 Toggle("思考", isOn: Binding(get: { store.activeChatSettings.colabOptions.thinking }, set: { store.setColabThinking($0) }))
+                            }
+                        } else if store.activeProvider == .compatible {
+                            Section("其他模型（兼容端点）") {
+                                Text("\(store.compatible.configuration.activePreset.title) · \(store.pillModelTitle)")
+                                Text("可在「设置 → 模型与服务 → 其他模型」切换预设或填写 API Key")
                             }
                         } else if store.activeProvider == .chatGPT {
                             Section("ChatGPT 订阅") {
@@ -1422,8 +1522,10 @@ struct ChatScreen: View {
                             followsOutput = true
                             Haptic.tap()
                             flushDraft()
-                            if store.send(store.activeDraft, images: pendingImages.map(\.data)) {
+                            let payload = PendingDocumentCodec.encode(userText: store.activeDraft, documents: pendingDocuments)
+                            if store.send(payload, images: pendingImages.map(\.data)) {
                                 pendingImages = []
+                                pendingDocuments = []
                                 focusComposer(false)
                             }
                         }
@@ -1712,16 +1814,22 @@ struct MessageView: View, Equatable {
             if message.role == .user {
                 // Your words on the right in a soft rounded bubble, like the Claude app;
                 // the answer stays plain text on the page. 夜江 keeps its water line.
+                let decoded = PendingDocumentCodec.decode(message.content)
                 if style == .night && round > 1 { WaveRule().padding(.bottom, 8) }
                 HStack(spacing: 0) {
                     Spacer(minLength: 52)
                     VStack(alignment: .trailing, spacing: 6) {
                         discussionVoiceLabel
                         if let names = message.images, !names.isEmpty { AttachmentRow(names: names) }
-                        Text(message.content).userMessageStyle().lineSpacing(max(Personal.lineSpacing - 2, 3)).chineseReading()
-                            .foregroundStyle(Ink.ink).textSelection(.enabled)
-                            .padding(.horizontal, 16).padding(.vertical, 11)
-                            .background(Personal.bubble, in: RoundedRectangle(cornerRadius: 20, style: .continuous))
+                        if !decoded.attachments.isEmpty {
+                            MessageDocumentCards(attachments: decoded.attachments, swiss: false)
+                        }
+                        if !decoded.userText.isEmpty {
+                            Text(decoded.userText).userMessageStyle().lineSpacing(max(Personal.lineSpacing - 2, 3)).chineseReading()
+                                .foregroundStyle(Ink.ink).textSelection(.enabled)
+                                .padding(.horizontal, 16).padding(.vertical, 11)
+                                .background(Personal.bubble, in: RoundedRectangle(cornerRadius: 20, style: .continuous))
+                        }
                     }
                 }
                 .frame(maxWidth: .infinity, alignment: .trailing)
@@ -1762,14 +1870,20 @@ struct MessageView: View, Equatable {
     private var swissContent: some View {
         VStack(alignment: .leading, spacing: 0) {
             if message.role == .user {
+                let decoded = PendingDocumentCodec.decode(message.content)
                 if round > 1 { SwissRule(weight: 1, strong: true) }
                 HStack(alignment: .firstTextBaseline, spacing: 0) {
                     MonoLabel(text: String(format: "Q.%02d", round)).frame(width: 46, alignment: .leading)
                     VStack(alignment: .leading, spacing: 8) {
                         discussionVoiceLabel
                         if let names = message.images, !names.isEmpty { AttachmentRow(names: names) }
-                        Text(message.content).readingStyle(adjustment: -2).fontWeight(.medium).lineSpacing(5)
-                            .textSelection(.enabled).foregroundStyle(Ink.ink)
+                        if !decoded.attachments.isEmpty {
+                            MessageDocumentCards(attachments: decoded.attachments, swiss: true)
+                        }
+                        if !decoded.userText.isEmpty {
+                            Text(decoded.userText).readingStyle(adjustment: -2).fontWeight(.medium).lineSpacing(5)
+                                .textSelection(.enabled).foregroundStyle(Ink.ink)
+                        }
                         MonoLabel(text: MessageTime.label(message.createdAt))
                     }
                     .frame(maxWidth: .infinity, alignment: .leading)
@@ -2133,19 +2247,48 @@ struct MarkdownAnswer: View, Equatable {
                 case .divider:
                     Rectangle().fill(swiss ? Ink.ink : Ink.line).frame(height: 1).padding(.vertical, 4)
                 case .code(let segment):
+                    let parsed = CodeSyntaxTokenizer.parseHeaderAndBody(segment)
                     VStack(alignment: .leading, spacing: 8) {
                         HStack {
-                            Text(swiss ? "CODE" : "代码").font(swiss ? TypeScale.mono(10) : TypeScale.tiny.weight(.semibold)).foregroundStyle(Ink.seal)
+                            Text(swiss ? (parsed.language.map { "CODE · \($0)" } ?? "CODE") : (parsed.language.map { "代码 · \($0)" } ?? "代码"))
+                                .font(swiss ? TypeScale.mono(10) : TypeScale.tiny.weight(.semibold))
+                                .foregroundStyle(Ink.seal)
                             Spacer()
-                            Button { UIPasteboard.general.string = Self.codeBody(segment) } label: { Image(systemName: "doc.on.doc").foregroundStyle(Ink.seal) }
+                            Button { UIPasteboard.general.string = parsed.body } label: { Image(systemName: "doc.on.doc").foregroundStyle(Ink.seal) }
                                 .font(.system(size: 11)).accessibilityLabel("复制代码")
                         }
                         ScrollView(.horizontal) {
-                            Text(Self.codeBody(segment)).font(.system(size: 13, design: .monospaced)).textSelection(.enabled)
+                            Text(Self.highlightedCode(parsed.body, language: parsed.language))
+                                .font(.system(size: 13, design: .monospaced))
+                                .textSelection(.enabled)
                         }
                     }.padding(14).background(Ink.raised, in: RoundedRectangle(cornerRadius: swiss ? 0 : 16, style: .continuous))
                         .overlay(RoundedRectangle(cornerRadius: swiss ? 0 : 16, style: .continuous)
                             .stroke(swiss ? Ink.line : Ink.seal.opacity(0.18), lineWidth: 1).allowsHitTesting(false))
+                case .math(let formula):
+                    VStack(alignment: .leading, spacing: 8) {
+                        HStack {
+                            Text(swiss ? "MATH" : "公式")
+                                .font(swiss ? TypeScale.mono(10) : TypeScale.tiny.weight(.semibold))
+                                .foregroundStyle(Ink.seal)
+                            Spacer()
+                            Button { UIPasteboard.general.string = formula } label: { Image(systemName: "doc.on.doc").foregroundStyle(Ink.seal) }
+                                .font(.system(size: 11)).accessibilityLabel("复制公式原文")
+                        }
+                        ScrollView(.horizontal, showsIndicators: false) {
+                            Text(MathFormatter.format(formula))
+                                .font(.system(size: 16, design: .serif))
+                                .italic()
+                                .foregroundStyle(Ink.ink)
+                                .textSelection(.enabled)
+                                .frame(maxWidth: .infinity, alignment: .center)
+                                .padding(.vertical, 4)
+                        }
+                    }
+                    .padding(14)
+                    .background(Ink.raised, in: RoundedRectangle(cornerRadius: swiss ? 0 : 14, style: .continuous))
+                    .overlay(RoundedRectangle(cornerRadius: swiss ? 0 : 14, style: .continuous)
+                        .stroke(swiss ? Ink.line : Ink.seal.opacity(0.16), lineWidth: 1).allowsHitTesting(false))
                 }
             }
         }.frame(maxWidth: .infinity, alignment: .leading)
@@ -2154,10 +2297,29 @@ struct MarkdownAnswer: View, Equatable {
         HighlightMarks.parseInline(text)
             .applyingTerracottaCodeAndEmphasis(baseSize: baseSize, boldColor: Ink.seal)
     }
-    private static func codeBody(_ segment: String) -> String {
-        guard let newline = segment.firstIndex(of: "\n") else { return segment }
-        let first = segment[..<newline].trimmingCharacters(in: .whitespaces)
-        return first.isEmpty || (!first.contains(" ") && first.count < 24) ? String(segment[segment.index(after: newline)...]) : segment
+    private static func highlightedCode(_ body: String, language: String?) -> AttributedString {
+        let tokens = CodeSyntaxTokenizer.tokenize(body, language: language)
+        var result = AttributedString()
+        for token in tokens {
+            var part = AttributedString(token.text)
+            switch token.kind {
+            case .plain:
+                part.foregroundColor = Ink.ink
+            case .keyword:
+                part.foregroundColor = Ink.seal
+                part.inlinePresentationIntent = .stronglyEmphasized
+            case .typeName:
+                part.foregroundColor = Color.teal
+            case .stringLiteral:
+                part.foregroundColor = Color.orange
+            case .numberLiteral:
+                part.foregroundColor = Color.indigo
+            case .comment:
+                part.foregroundColor = Ink.ink3
+            }
+            result.append(part)
+        }
+        return result
     }
 }
 
@@ -2325,5 +2487,90 @@ enum MessageTime {
     static func label(_ date: Date) -> String {
         let calendar = Calendar.current
         return (calendar.isDate(date, equalTo: Date(), toGranularity: .year) ? sameYear : otherYear).string(from: date)
+    }
+}
+
+private struct DocumentPreviewTarget: Identifiable {
+    let id = UUID()
+    let title: String
+    let text: String
+}
+
+private struct MessageDocumentCards: View {
+    let attachments: [MessageDocumentAttachment]
+    let swiss: Bool
+    @State private var previewTarget: DocumentPreviewTarget?
+
+    var body: some View {
+        VStack(alignment: swiss ? .leading : .trailing, spacing: 6) {
+            ForEach(attachments) { item in
+                Button {
+                    let fullTitle = item.fileExtension.isEmpty ? item.name : "\(item.name).\(item.fileExtension)"
+                    previewTarget = DocumentPreviewTarget(title: fullTitle, text: item.text)
+                } label: {
+                    HStack(spacing: 8) {
+                        Image(systemName: "doc.text.fill")
+                            .font(.system(size: 14))
+                            .foregroundStyle(Ink.seal)
+                        VStack(alignment: .leading, spacing: 2) {
+                            Text(item.fileExtension.isEmpty ? item.name : "\(item.name).\(item.fileExtension)")
+                                .font(TypeScale.label)
+                                .foregroundStyle(Ink.ink)
+                                .lineLimit(1)
+                            Text("\(item.characterCount.formatted()) 字 · 点击展开")
+                                .font(TypeScale.tiny)
+                                .foregroundStyle(Ink.ink3)
+                        }
+                        Spacer(minLength: 4)
+                        Image(systemName: "chevron.right")
+                            .font(.system(size: 11, weight: .semibold))
+                            .foregroundStyle(Ink.ink3)
+                    }
+                    .padding(.horizontal, 12)
+                    .padding(.vertical, 8)
+                    .frame(maxWidth: 260, alignment: .leading)
+                    .background(Ink.raised, in: RoundedRectangle(cornerRadius: swiss ? 0 : 14, style: .continuous))
+                    .overlay(RoundedRectangle(cornerRadius: swiss ? 0 : 14, style: .continuous).stroke(Ink.line, lineWidth: 1))
+                }
+                .buttonStyle(.plain)
+            }
+        }
+        .sheet(item: $previewTarget) { target in
+            DocumentPreviewSheet(target: target)
+        }
+    }
+}
+
+private struct DocumentPreviewSheet: View {
+    let target: DocumentPreviewTarget
+    @Environment(\.dismiss) private var dismiss
+    @State private var copied = false
+
+    var body: some View {
+        NavigationStack {
+            ScrollView {
+                Text(target.text)
+                    .font(.system(size: 13.5, design: .monospaced))
+                    .foregroundStyle(Ink.ink)
+                    .textSelection(.enabled)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .padding(16)
+            }
+            .background(Ink.paper)
+            .navigationTitle(target.title)
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .topBarLeading) {
+                    Button("关闭") { dismiss() }
+                }
+                ToolbarItem(placement: .topBarTrailing) {
+                    Button(copied ? "已复制" : "复制全文") {
+                        UIPasteboard.general.string = target.text
+                        copied = true
+                    }
+                }
+            }
+        }
+        .presentationDragIndicator(.visible)
     }
 }

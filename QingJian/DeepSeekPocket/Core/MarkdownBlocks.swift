@@ -23,6 +23,7 @@ enum MarkdownBlock: Equatable, Sendable {
     case table(header: [String], rows: [[String]], alignments: [TableAlignment])
     case divider
     case code(String)
+    case math(String)
 
     // While an answer streams, every new token used to re-read the whole answer line by
     // line. Finished paragraphs are now remembered, so only the one being written is
@@ -45,8 +46,15 @@ enum MarkdownBlock: Equatable, Sendable {
         var blocks: [MarkdownBlock] = []
         for (index, segment) in content.components(separatedBy: "```").enumerated() {
             if !index.isMultiple(of: 2) { blocks.append(.code(segment)); continue }
-            for chunk in segment.components(separatedBy: "\n\n") where !chunk.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-                blocks.append(contentsOf: cachedChunk(chunk))
+            for (mIndex, mathPart) in segment.components(separatedBy: "$$").enumerated() {
+                if !mIndex.isMultiple(of: 2) {
+                    let trimmedMath = mathPart.trimmingCharacters(in: .whitespacesAndNewlines)
+                    if !trimmedMath.isEmpty { blocks.append(.math(trimmedMath)) }
+                    continue
+                }
+                for chunk in mathPart.components(separatedBy: "\n\n") where !chunk.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                    blocks.append(contentsOf: cachedChunk(chunk))
+                }
             }
         }
         return assignMarks(blocks, limit: markLimit)

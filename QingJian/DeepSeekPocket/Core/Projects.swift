@@ -245,13 +245,43 @@ final class DeepSeekOCRClient: @unchecked Sendable {
     }
 }
 
+struct ImportFailure: LocalizedError, Sendable {
+    let message: String
+    init(_ message: String) { self.message = message }
+    var errorDescription: String? { message }
+}
+
 enum DocumentTextImporter {
     static let maximumPDFBytes = 30 * 1024 * 1024
-    static let maximumTextBytes = 2 * 1024 * 1024
+    static let maximumTextBytes = 15 * 1024 * 1024
+    static let maximumZipBytes = ZipProjectExtractor.maximumZipBytes
+    static let maximumIPABytes = StreamZipReader.maximumArchiveBytes
     static let maximumPDFPages = 1000
     static var allowedContentTypes: [UTType] {
-        [.pdf, .plainText, .text, .json, UTType(filenameExtension: "md") ?? .plainText]
+        var types: [UTType] = [.data, .text, .sourceCode, .archive, .pdf, .plainText, .json, .xml, .rtf]
+        let extraExts = ["ipa", "ips", "crash", "docx", "xlsx", "pptx", "epub", "md", "plist", "pbxproj", "xcconfig", "xcstrings", "yaml", "yml", "toml", "log"]
+        for ext in extraExts {
+            if let ut = UTType(filenameExtension: ext) { types.append(ut) }
+        }
+        return types
     }
+
+    private static let developerAndTextExtensions: Set<String> = [
+        "txt", "text", "md", "markdown", "csv", "tsv", "log", "ips", "crash",
+        "json", "jsonl", "yaml", "yml", "toml", "ini", "cfg", "conf", "env",
+        "xml", "html", "htm", "css", "scss", "less", "tex", "svg",
+        "plist", "entitlements", "pbxproj", "xcconfig", "strings", "xcstrings",
+        "patch", "diff", "sql", "graphql", "proto",
+        "swift", "py", "js", "mjs", "cjs", "ts", "tsx", "jsx", "vue", "svelte",
+        "go", "rs", "c", "cpp", "cc", "cxx", "h", "hpp", "m", "mm",
+        "java", "kt", "kts", "cs", "rb", "php", "sh", "zsh", "bash", "ps1",
+        "lua", "r", "dart", "ex", "exs", "hs", "ml", "zig"
+    ]
+
+    private static let extensionlessTextNames: Set<String> = [
+        "dockerfile", "makefile", "podfile", "gemfile", "rakefile", "brewfile",
+        "procfile", "readme", "license", "changelog", ".gitignore", ".gitattributes", ".editorconfig"
+    ]
 
     static func load(_ url: URL, maxCharacters: Int = ChatProject.documentCharacterLimit,
                      apiKey: String = "") async throws -> ImportedTextDocument {
@@ -271,12 +301,50 @@ enum DocumentTextImporter {
         let scoped = url.startAccessingSecurityScopedResource()
         defer { if scoped { url.stopAccessingSecurityScopedResource() } }
         try Task.checkCancellation()
+
         let ext = url.pathExtension.lowercased()
+        let fileNameLower = url.lastPathComponent.lowercased()
         let isPDF = ext == "pdf"
-        let textExtensions: Set<String> = ["txt", "text", "md", "markdown", "csv", "tsv", "log", "json", "yaml", "yml", "xml", "html", "htm", "tex", "swift", "py", "js", "ts", "css", "sql"]
-        guard isPDF || ext.isEmpty || textExtensions.contains(ext) else {
-            throw ImportFailure("目前支持PDF和TXT、Markdown等纯文本资料，请把此格式先导出为PDF或TXT。")
+        let isIPA = ext == "ipa"
+        let isZIP = ext == "zip"
+        let isOfficeOrEbook = ["docx", "xlsx", "pptx", "rtf", "epub"].contains(ext)
+        let isSupportedText = ext.isEmpty || developerAndTextExtensions.contains(ext) || extensionlessTextNames.contains(fileNameLower)
+
+        guard isPDF || isIPA || isZIP || isOfficeOrEbook || isSupportedText else {
+            throw ImportFailure("暂不支持 .\(ext) 格式；支持代码/日志/配置、PDF、IPA、ZIP、Word/Excel/PPT、RTF 和 EPUB。")
         }
+
+        let originalName = url.deletingPathExtension().lastPathComponent.trimmingCharacters(in: .whitespacesAndNewlines)
+        let name = String((originalName.isEmpty ? "导入的资料" : originalName).prefix(200))
+        var warnings: [String] = originalName.count > 200 ? ["资料名称超过200字，已缩短名称；正文未截断。"] : []
+
+        // Streaming path for .ipa and .zip so large archives never load completely into memory.
+        if isIPA || isZIP {
+            let limit = isIPA ? maximumIPABytes : maximumZipBytes
+            var coordinatedError: NSError?
+            var result: Result<ImportedTextDocument, Error>?
+            NSFileCoordinator(filePresenter: nil).coordinate(readingItemAt: url, options: .withoutChanges, error: &coordinatedError) { local in
+                result = Result {
+                    let info = try local.resourceValues(forKeys: [.fileSizeKey, .isDirectoryKey])
+                    guard info.isDirectory != true else { throw ImportFailure("请选择文件，不能导入文件夹。") }
+                    guard (info.fileSize ?? 0) <= limit else {
+                        let mb = limit / (1024 * 1024)
+                        throw ImportFailure(isIPA ? "IPA 超过 \(mb) MB 上限。" : "ZIP 超过 \(mb) MB 上限。")
+                    }
+                    if isIPA {
+                        return try IPAAnalyzer.analyze(url: local)
+                    } else {
+                        return try ZipProjectExtractor.extract(url: local, maxCharacters: min(maxCharacters, ZipProjectExtractor.defaultCharacterBudget))
+                    }
+                }
+            }
+            if let coordinatedError { throw ImportFailure("文件未能读取，请确认云盘文件已下载：\(coordinatedError.localizedDescription)") }
+            guard let result else { throw ImportFailure("没有读到文件内容，请从「文件」App下载后重试。") }
+            var doc = try result.get()
+            doc = ImportedTextDocument(name: doc.name, text: doc.text, warnings: warnings + doc.warnings)
+            return doc
+        }
+
         let limit = isPDF ? maximumPDFBytes : maximumTextBytes
         var coordinatedError: NSError?
         var result: Result<Data, Error>?
@@ -296,33 +364,72 @@ enum DocumentTextImporter {
         let data = try result.get()
         try Task.checkCancellation()
         guard !data.isEmpty else { throw ImportFailure("这个文件是空的。") }
+
+        if isOfficeOrEbook {
+            let extractedText: String
+            switch ext {
+            case "docx": extractedText = try OfficeAndDocumentExtractor.extractDOCX(data)
+            case "xlsx": extractedText = try OfficeAndDocumentExtractor.extractXLSX(data)
+            case "pptx": extractedText = try OfficeAndDocumentExtractor.extractPPTX(data)
+            case "rtf": extractedText = try OfficeAndDocumentExtractor.extractRTF(data)
+            case "epub":
+                let epub = try OfficeAndDocumentExtractor.extractEPUB(data)
+                extractedText = epub.text
+            default:
+                throw ImportFailure("不支持的文档格式。")
+            }
+            let (finalText, truncWarning) = trimHeadTailIfNeeded(extractedText, maxCharacters: maxCharacters)
+            if let truncWarning { warnings.append(truncWarning) }
+            return ImportedTextDocument(name: name, text: finalText, warnings: warnings)
+        }
+
         let hasPDFHeader = data.prefix(1024).range(of: Data("%PDF-".utf8)) != nil
         if isPDF && !hasPDFHeader { throw ImportFailure("这个文件没有有效的PDF文件头，请确认已下载完整，且不是改了扩展名的其他文件。") }
         if !isPDF && hasPDFHeader { throw ImportFailure("文件内容实际是PDF，请使用.pdf扩展名后再导入。") }
-        let originalName = url.deletingPathExtension().lastPathComponent.trimmingCharacters(in: .whitespacesAndNewlines)
-        let name = String((originalName.isEmpty ? "导入的资料" : originalName).prefix(200))
-        var warnings: [String] = originalName.count > 200 ? ["资料名称超过200字，已缩短名称；正文未截断。"] : []
         if isPDF {
             let extracted = try await readPDF(data, name: name, maxCharacters: maxCharacters, apiKey: apiKey)
             warnings += extracted.warnings
             return ImportedTextDocument(name: name, text: extracted.text, warnings: warnings)
         }
+
+        // Binary plist (.plist / .ips / .mobileprovision etc.)
+        if data.starts(with: Array("bplist00".utf8)) {
+            let xml = try OfficeAndDocumentExtractor.decodeBinaryPlist(data)
+            let (finalText, truncWarning) = trimHeadTailIfNeeded(xml, maxCharacters: maxCharacters)
+            if let truncWarning { warnings.append(truncWarning) }
+            warnings.append("检测到二进制 plist，已自动转换为 XML 文本。")
+            return ImportedTextDocument(name: name, text: finalText, warnings: warnings)
+        }
+
         guard !data.starts(with: [0x50, 0x4B, 0x03, 0x04]), !data.starts(with: Array("{\\rtf".utf8)),
               let decoded = BookText.decode(data) else {
-            throw ImportFailure("无法按文字读取此文件。支持PDF、TXT、Markdown及常见UTF-8、UTF-16、GB18030、Big5文字；请将其他文档先导出为PDF或TXT。")
+            throw ImportFailure("无法按文字读取此文件。支持代码、日志、PDF、IPA、ZIP、Office 文档及 UTF-8/UTF-16/GB18030/Big5 文字。")
         }
-        let text = decoded.replacingOccurrences(of: "\r\n", with: "\n").replacingOccurrences(of: "\r", with: "\n")
-        guard !text.unicodeScalars.contains(where: { CharacterSet.controlCharacters.contains($0) && $0.value != 9 && $0.value != 10 }) else {
-            throw ImportFailure("文件中包含无法作为正文读取的内容，请导出为UTF-8的TXT或Markdown后重试。")
+        let normalized = decoded.replacingOccurrences(of: "\r\n", with: "\n").replacingOccurrences(of: "\r", with: "\n")
+        guard !normalized.unicodeScalars.contains(where: { CharacterSet.controlCharacters.contains($0) && $0.value != 9 && $0.value != 10 }) else {
+            throw ImportFailure("文件中包含无法作为正文读取的二进制控制字符，请检查文件格式。")
         }
-        guard !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { throw ImportFailure("文件没有可导入的文字。") }
-        guard text.count <= maxCharacters else { throw tooLong(maxCharacters) }
+        guard !normalized.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { throw ImportFailure("文件没有可导入的文字。") }
+
+        let (text, truncWarning) = trimHeadTailIfNeeded(normalized, maxCharacters: maxCharacters)
+        if let truncWarning { warnings.append(truncWarning) }
+
         let prefix = [UInt8](data.prefix(3))
         if String(data: data, encoding: .utf8) == nil,
            !prefix.starts(with: [0xFF, 0xFE]), !prefix.starts(with: [0xFE, 0xFF]) {
             warnings.append("已按常见中文旧编码读取，请打开资料核对文字。")
         }
         return ImportedTextDocument(name: name, text: text, warnings: warnings)
+    }
+
+    private static func trimHeadTailIfNeeded(_ text: String, maxCharacters: Int) -> (String, String?) {
+        guard text.count > maxCharacters else { return (text, nil) }
+        let headCount = max(200, maxCharacters * 45 / 100)
+        let tailCount = max(200, maxCharacters * 50 / 100)
+        let omitted = text.count - headCount - tailCount
+        let marker = "\n\n... [原文件共 \(text.count.formatted()) 字，已自动省略中间 \(omitted.formatted()) 字，保留头尾关键内容] ...\n\n"
+        let trimmed = String(text.prefix(headCount)) + marker + String(text.suffix(tailCount))
+        return (trimmed, "文件正文共 \(text.count.formatted()) 字，超过单份 \(maxCharacters.formatted()) 字上限，已自动保留头尾关键段。")
     }
 
     private static func readPDF(_ data: Data, name: String, maxCharacters: Int, apiKey: String) async throws -> (text: String, warnings: [String]) {
@@ -421,15 +528,10 @@ enum DocumentTextImporter {
     }
 
     private static func oversized(_ isPDF: Bool) -> ImportFailure {
-        ImportFailure(isPDF ? "PDF超过30 MB，请压缩或拆分后导入。" : "文字文件超过2 MB，请按所需章节拆分后导入。")
+        ImportFailure(isPDF ? "PDF超过30 MB，请压缩或拆分后导入。" : "文件超过15 MB，请按所需章节拆分后导入。")
     }
     private static func tooLong(_ limit: Int) -> ImportFailure {
         ImportFailure("提取内容超过可导入的\(limit.formatted())字，请拆分或缩短后重试；内容没有被截断。")
-    }
-    private struct ImportFailure: LocalizedError {
-        let message: String
-        init(_ message: String) { self.message = message }
-        var errorDescription: String? { message }
     }
 }
 
