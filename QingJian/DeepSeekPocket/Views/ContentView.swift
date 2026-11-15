@@ -127,11 +127,7 @@ struct ContentView: View {
                     store.errorMessage = "没能读取这个文件，请在「文件」里确认它已下载后再试。"
                     return
                 }
-                guard let origin = store.activeThreadID ?? store.threads.first?.id else {
-                    try? FileManager.default.removeItem(at: local)
-                    return
-                }
-                importDocuments([local], into: origin, removeAfterImport: true)
+                store.incomingChatFileURL = local
             }
         }
         .sheet(isPresented: $showBooks) {
@@ -623,7 +619,18 @@ struct ChatScreen: View {
             keyboardVisible = focused
             if focused && shouldFollowOutput { scrollPosition.scrollTo(edge: .bottom) }
         }
-        .onAppear { loadDraft() }
+        .onAppear {
+            loadDraft()
+            if let incoming = store.incomingChatFileURL, let origin = store.activeThreadID ?? store.threads.first?.id {
+                store.incomingChatFileURL = nil
+                importDocuments([incoming], into: origin, removeAfterImport: true)
+            }
+        }
+        .onChange(of: store.incomingChatFileURL) { _, incoming in
+            guard let incoming, let origin = store.activeThreadID ?? store.threads.first?.id else { return }
+            store.incomingChatFileURL = nil
+            importDocuments([incoming], into: origin, removeAfterImport: true)
+        }
         .onDisappear { flushDraft() }
         // Something else changed the draft (a suggestion put in, a file read in, a send
         // clearing it): show that, but not the echo of our own typing coming back.

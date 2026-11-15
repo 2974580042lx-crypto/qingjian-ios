@@ -53,6 +53,7 @@ final class AppStore: ObservableObject {
     let speech = OpenAISpeech()
     let colab = ColabStore()
     let compatible = CompatibleEndpointStore()
+    @Published var incomingChatFileURL: URL?
     private var colabObserver: AnyCancellable?
     // The bookshelf (1.8.0): novels read into character profiles.
     let books: BookStore
