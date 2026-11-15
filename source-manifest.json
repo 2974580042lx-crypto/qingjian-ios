@@ -20,7 +20,7 @@
   "QingJian/DeepSeekPocket/Core/ChatProtocol.swift": "b6f49a93e1d7058aa2d6ff0f9f052a3c25e3f02ba972c695eeb6203398d2b927",
   "QingJian/DeepSeekPocket/Core/ChatStreamProgress.swift": "00aecd78837cfbe03b9270ef625302b56259c4a93bc3640e44db1edbc1ba5133",
   "QingJian/DeepSeekPocket/Core/ColabProtocol.swift": "09c09c18002c5ef51e43bdf110b53eb531502f4ef67fb21d1a13bdf40be11d16",
-  "QingJian/DeepSeekPocket/Core/CompatibleEndpoint.swift": "0c08369c059e84a628af22d3562b5c41c4a6067f509d9b69d8eff7058638d338",
+  "QingJian/DeepSeekPocket/Core/CompatibleEndpoint.swift": "2c28acb4c77e223fc9314e5eb6cfb195665fc70eab7711bf4b37ade6f4a37ba5",
   "QingJian/DeepSeekPocket/Core/ConversationEditing.swift": "c94290993e6b979ebec9bd95c927dc2d5551d5d4bec509d7c3de5f41ac576751",
   "QingJian/DeepSeekPocket/Core/ConversationHistory.swift": "39940c24fc00835dfd992b52090301c98cd69d92a764323d5f78ae0633c1d608",
   "QingJian/DeepSeekPocket/Core/Dialogue.swift": "cf18da15fed55d079613c0d868a4873032dfaafad1b1e4128f405574ef794a10",

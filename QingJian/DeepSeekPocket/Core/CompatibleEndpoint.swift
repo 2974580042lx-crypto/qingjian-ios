@@ -157,18 +157,22 @@ final class CompatibleEndpointClient: @unchecked Sendable {
         onEvent: @escaping @MainActor (StreamEvent) -> Void
     ) async throws {
         let url = baseURL.appendingPathComponent("chat/completions")
-        var body: [String: Any] = [
-            "model": model,
-            "messages": chatRequest.messages.map(\.payload),
-            "stream": true,
-            "stream_options": ["include_usage": true]
-        ]
-        if let temp = chatRequest.temperature {
-            body["temperature"] = temp
+        guard var body = try JSONSerialization.jsonObject(with: JSONEncoder().encode(chatRequest)) as? [String: Any] else {
+            throw ColabError.response
         }
-        let req = try request(url, body: body)
+        body["model"] = model
+        body.removeValue(forKey: "thinking")
+        body.removeValue(forKey: "reasoning_effort")
+        body.removeValue(forKey: "tools")
+        body.removeValue(forKey: "tool_choice")
+
+        var req = try request(url, body: body)
+        req.setValue("text/event-stream", forHTTPHeaderField: "Accept")
         let session = session()
         defer { session.invalidateAndCancel() }
+
+        var progress = ChatStreamProgress(phase: .connecting, elapsedSeconds: 0, receivedBytes: 0, httpStatus: nil)
+        await onProgress?(progress)
 
         let (bytes, response) = try await session.bytes(for: req)
         if let http = response as? HTTPURLResponse, !(200...299).contains(http.statusCode) {
@@ -184,48 +188,35 @@ final class CompatibleEndpointClient: @unchecked Sendable {
         }
         try ColabError.validate(response)
 
-        if let onProgress { await onProgress(.receiving) }
-        var lineBuffer = Data()
+        progress.httpStatus = (response as? HTTPURLResponse)?.statusCode
+        progress.phase = .waiting
+        await onProgress?(progress)
+
+        var decoder = SSEByteDecoder()
+        var parser = ColabThoughtParser()
+        var done = false, finished = false
         for try await byte in bytes {
             try Task.checkCancellation()
-            if byte == 0x0A {
-                if let line = String(data: lineBuffer, encoding: .utf8) {
-                    let trimmed = line.trimmingCharacters(in: .whitespacesAndNewlines)
-                    if trimmed.hasPrefix("data:") {
-                        let payload = String(trimmed.dropFirst(5)).trimmingCharacters(in: .whitespaces)
-                        if payload == "[DONE]" { break }
-                        if let data = payload.data(using: .utf8),
-                           let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any] {
-                            try await emitEvents(from: json, onEvent: onEvent)
-                        }
-                    }
-                }
-                lineBuffer.removeAll(keepingCapacity: true)
-            } else if byte != 0x0D {
-                lineBuffer.append(byte)
-            }
+            progress.receivedBytes += 1
+            guard let raw = try decoder.consume(byte: byte) else { continue }
+            let event = parser.consume(raw, finish: raw.isDone || raw.finishReason != nil)
+            let previousPhase = progress.phase
+            if !event.content.isEmpty { progress.phase = .answering }
+            else if !event.reasoning.isEmpty && progress.phase != .answering { progress.phase = .thinking }
+            if progress.phase != previousPhase { await onProgress?(progress) }
+            await onEvent(event)
+            finished = finished || raw.finishReason != nil
+            if raw.isDone { done = true; break }
         }
-        await onEvent(.done)
-    }
-
-    private func emitEvents(from json: [String: Any], onEvent: @escaping @MainActor (StreamEvent) -> Void) async throws {
-        if let err = json["error"] as? [String: Any], let message = err["message"] as? String {
-            throw ColabError.configuration(message)
+        if !done, let trailing = try decoder.finish() {
+            await onEvent(parser.consume(trailing, finish: true))
+            done = trailing.isDone
+            finished = finished || trailing.finishReason != nil
         }
-        if let usageDict = json["usage"] as? [String: Any] {
-            let prompt = usageDict["prompt_tokens"] as? Int ?? 0
-            let completion = usageDict["completion_tokens"] as? Int ?? 0
-            let total = usageDict["total_tokens"] as? Int ?? (prompt + completion)
-            await onEvent(.usage(TokenUsage(promptTokens: prompt, completionTokens: completion, totalTokens: total, cachedTokens: 0)))
-        }
-        guard let choices = json["choices"] as? [[String: Any]], let first = choices.first else { return }
-        if let delta = first["delta"] as? [String: Any] {
-            if let reasoning = delta["reasoning_content"] as? String, !reasoning.isEmpty {
-                await onEvent(.reasoning(reasoning))
-            }
-            if let content = delta["content"] as? String, !content.isEmpty {
-                await onEvent(.content(content))
-            }
-        }
+        try Task.checkCancellation()
+        guard done || finished else { throw ColabError.offline }
+        await onEvent(parser.consume(StreamEvent(), finish: true))
+        progress.phase = .complete
+        await onProgress?(progress)
     }
 }
