@@ -1,14 +1,20 @@
 import Foundation
+#if canImport(UIKit)
+import UIKit
+#endif
 
 final class ColabClient: @unchecked Sendable {
     private let configuration: ColabConfiguration
     private let key: String
-    init(configuration: ColabConfiguration, key: String) {
+    private let sessionConfiguration: @Sendable () -> URLSessionConfiguration
+    init(configuration: ColabConfiguration, key: String,
+         sessionConfiguration: @escaping @Sendable () -> URLSessionConfiguration = { .ephemeral }) {
         self.configuration = configuration
         self.key = key
+        self.sessionConfiguration = sessionConfiguration
     }
     private func session() -> URLSession {
-        let config = URLSessionConfiguration.ephemeral
+        let config = sessionConfiguration()
         config.timeoutIntervalForRequest = 120
         config.timeoutIntervalForResource = 3600
         config.urlCache = nil
@@ -104,6 +110,10 @@ final class ColabClient: @unchecked Sendable {
         defer { session.invalidateAndCancel() }
         do {
             let body = try await payload(original, options: options, base: base, session: session)
+            if try await supportsRecovery(base: base, session: session) {
+                try await recoverableStream(body, base: base, onProgress: onProgress, onEvent: onEvent)
+                return
+            }
             var request = try request(base.appendingPathComponent("chat/completions"), body: body)
             request.setValue("text/event-stream", forHTTPHeaderField: "Accept")
             let started = ProcessInfo.processInfo.systemUptime
@@ -117,6 +127,7 @@ final class ColabClient: @unchecked Sendable {
             }
             progress.httpStatus = (response as? HTTPURLResponse)?.statusCode
             progress.phase = .waiting
+            await onProgress?(progress)
             var decoder = SSEByteDecoder()
             var parser = ColabThoughtParser()
             var done = false, finished = false
@@ -155,7 +166,198 @@ final class ColabClient: @unchecked Sendable {
             throw error
         }
     }
+
+    private func supportsRecovery(base: URL, session: URLSession) async throws -> Bool {
+        let (_, response) = try await session.data(for: request(base.appendingPathComponent("models")))
+        try ColabError.validate(response)
+        return (response as? HTTPURLResponse)?.value(forHTTPHeaderField: "X-Sermo-Recovery") == "1"
+    }
+
+    private func recoverableStream(_ body: [String: Any], base: URL,
+        onProgress: (@MainActor (ChatStreamProgress) -> Void)?,
+        onEvent: @escaping @MainActor (StreamEvent) -> Void) async throws {
+        let id = UUID().uuidString
+        let jobURL = base.appendingPathComponent("requests").appendingPathComponent(id)
+        let transport = session(), polling = session()
+        let lease = await ColabBackgroundLease { transport.invalidateAndCancel() }
+        defer {
+            transport.invalidateAndCancel(); polling.invalidateAndCancel()
+            Task { @MainActor in lease.end() }
+        }
+        let started = Date()
+        var cursor = 0, done = false, terminal = false
+        var parser = ColabThoughtParser()
+        var progress = ChatStreamProgress(phase: .connecting, elapsedSeconds: 0, receivedBytes: 0, httpStatus: nil)
+        await onProgress?(progress)
+        func emit(_ raw: StreamEvent) async {
+            let event = parser.consume(raw, finish: raw.isDone || raw.finishReason != nil)
+            if !event.content.isEmpty { progress.phase = .answering }
+            else if !event.reasoning.isEmpty && progress.phase != .answering { progress.phase = .thinking }
+            progress.elapsedSeconds = Int(Date().timeIntervalSince(started))
+            await onEvent(event)
+            await onProgress?(progress)
+            done = done || raw.isDone
+            terminal = terminal || raw.finishReason != nil
+            cursor += 1
+        }
+        do {
+            // A lost submission response may still mean the server accepted this ID.
+            // Recovery below queries the same ID; it never starts another generation.
+            do {
+                let (_, response) = try await polling.data(for: request(jobURL, body: body))
+                if let code = (response as? HTTPURLResponse)?.statusCode, code >= 400 {
+                    if code == 422 { throw ColabRecoveryFailure(ColabError.context.localizedDescription) }
+                    if code == 429 { throw ColabRecoveryFailure("云端回复暂存空间已满，请稍后再试。") }
+                    do { try ColabError.validate(response) }
+                    catch { throw ColabRecoveryFailure(error.localizedDescription) }
+                }
+                try ColabError.validate(response)
+                progress.httpStatus = (response as? HTTPURLResponse)?.statusCode
+                progress.phase = .waiting
+                await onProgress?(progress)
+                var streamRequest = try request(jobURL.appendingPathComponent("events"))
+                streamRequest.setValue("text/event-stream", forHTTPHeaderField: "Accept")
+                let (bytes, streamResponse) = try await transport.bytes(for: streamRequest)
+                try ColabError.validate(streamResponse)
+                var decoder = SSEByteDecoder()
+                for try await byte in bytes {
+                    try Task.checkCancellation()
+                    progress.receivedBytes += 1
+                    if let event = try decoder.consume(byte: byte) { await emit(event) }
+                    if done { break }
+                }
+            } catch let failure as ColabRecoveryFailure { throw failure }
+            catch {
+                if Task.isCancelled { throw CancellationError() }
+                // Partial SSE events are deliberately discarded. The cursor counts only
+                // fully delivered events, so snapshot recovery cannot duplicate text.
+            }
+            var failures = 0
+            while !(done && terminal) {
+                try Task.checkCancellation()
+                guard Date().timeIntervalSince(started) < 3600 else {
+                    throw ColabRecoveryFailure("恢复等待已超时，已收到的文字已保留。")
+                }
+                if !(await lease.isActive) {
+                    try await Task.sleep(nanoseconds: 500_000_000)
+                    continue
+                }
+                var parts = URLComponents(url: jobURL, resolvingAgainstBaseURL: false)!
+                parts.queryItems = [URLQueryItem(name: "after", value: String(cursor))]
+                var query = try request(parts.url!)
+                query.timeoutInterval = 15
+                let snapshot: ColabRecoverySnapshot
+                do {
+                    let (data, response) = try await polling.data(for: query)
+                    if (response as? HTTPURLResponse)?.statusCode == 404 {
+                        throw ColabRecoveryFailure("这次回复的云端缓存已过期或服务已重启，已收到的文字已保留。")
+                    }
+                    try ColabError.validate(response)
+                    snapshot = try JSONDecoder().decode(ColabRecoverySnapshot.self, from: data)
+                    failures = 0
+                } catch let failure as ColabRecoveryFailure { throw failure }
+                catch {
+                    if Task.isCancelled { throw CancellationError() }
+                    failures += 1
+                    if failures >= 4 { throw ColabRecoveryFailure("暂时无法恢复云端回复，已收到的文字已保留，请稍后重试。") }
+                    try await Task.sleep(nanoseconds: 2_000_000_000)
+                    continue
+                }
+                guard snapshot.nextCursor == cursor + snapshot.events.count else {
+                    throw ColabRecoveryFailure("恢复数据次序异常，已收到的文字已保留。")
+                }
+                for data in snapshot.events {
+                    var decoder = SSEDecoder()
+                    for line in data.components(separatedBy: "\n") { _ = try decoder.consume(line: "data: " + line) }
+                    guard let event = try decoder.consume(line: "") else { throw ColabError.response }
+                    await emit(event)
+                }
+                if snapshot.state == "error" || snapshot.state == "cancelled" {
+                    throw ColabRecoveryFailure("云端生成已中断，已收到的文字已保留。")
+                }
+                if snapshot.state == "completed" && !snapshot.hasMore && !(done && terminal) {
+                    throw ColabRecoveryFailure("云端回复缺少完整结束标记，已收到的文字已保留。")
+                }
+                if !snapshot.hasMore && !(done && terminal) { try await Task.sleep(nanoseconds: 700_000_000) }
+            }
+            await onEvent(parser.consume(StreamEvent(), finish: true))
+            progress.phase = .complete
+            await onProgress?(progress)
+        } catch {
+            // End the detached server job on explicit stop, timeout, or failed recovery.
+            // Use an independent session because the parent task may be cancelled.
+            let cancel = try? request(jobURL)
+            Task.detached {
+                guard var cancel else { return }
+                cancel.httpMethod = "DELETE"; cancel.timeoutInterval = 10
+                let cleanup = URLSession(configuration: .ephemeral)
+                defer { cleanup.invalidateAndCancel() }
+                _ = try? await cleanup.data(for: cancel)
+            }
+            if Task.isCancelled || error is CancellationError { throw CancellationError() }
+            if let failure = error as? ColabRecoveryFailure { throw failure }
+            throw ColabRecoveryFailure("云端回复恢复失败，已收到的文字已保留。")
+        }
+    }
 }
+
+struct ColabRecoveryFailure: LocalizedError {
+    let message: String
+    init(_ message: String) { self.message = message }
+    var errorDescription: String? { message }
+}
+
+private struct ColabRecoverySnapshot: Decodable {
+    let state: String
+    let events: [String]
+    let nextCursor: Int
+    let hasMore: Bool
+    enum CodingKeys: String, CodingKey {
+        case state, events
+        case nextCursor = "next_cursor", hasMore = "has_more"
+    }
+}
+
+#if canImport(UIKit)
+@MainActor
+private final class ColabBackgroundLease {
+    private var task: UIBackgroundTaskIdentifier = .invalid
+    private var observers: [NSObjectProtocol] = []
+    private let interrupt: @Sendable () -> Void
+    var isActive: Bool { UIApplication.shared.applicationState == .active }
+    init(interrupt: @escaping @Sendable () -> Void) {
+        self.interrupt = interrupt
+        observers.append(NotificationCenter.default.addObserver(forName: UIApplication.didEnterBackgroundNotification,
+            object: nil, queue: .main) { [weak self] _ in Task { @MainActor in self?.begin() } })
+        observers.append(NotificationCenter.default.addObserver(forName: UIApplication.didBecomeActiveNotification,
+            object: nil, queue: .main) { [weak self] _ in Task { @MainActor in
+                self?.finishLease(); self?.interrupt()
+            } })
+        if !isActive { begin() }
+    }
+    private func begin() {
+        guard task == .invalid else { return }
+        task = UIApplication.shared.beginBackgroundTask(withName: "Colab stream recovery") { [weak self] in
+            Task { @MainActor in self?.interrupt(); self?.finishLease() }
+        }
+    }
+    private func finishLease() {
+        if task != .invalid { UIApplication.shared.endBackgroundTask(task); task = .invalid }
+    }
+    func end() {
+        finishLease()
+        for observer in observers { NotificationCenter.default.removeObserver(observer) }
+        observers.removeAll()
+    }
+}
+#else
+@MainActor
+private final class ColabBackgroundLease {
+    var isActive: Bool { true }
+    init(interrupt: @escaping @Sendable () -> Void) {}
+    func end() {}
+}
+#endif
 
 private final class ColabRedirectDelegate: NSObject, URLSessionTaskDelegate, @unchecked Sendable {
     func urlSession(_ session: URLSession, task: URLSessionTask,

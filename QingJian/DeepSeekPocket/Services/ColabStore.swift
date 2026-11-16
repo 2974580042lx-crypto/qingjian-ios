@@ -84,6 +84,9 @@ final class ColabStore: ObservableObject {
                 return
             } catch {
                 if Task.isCancelled || error is CancellationError { throw CancellationError() }
+                // A resumable request may already have generated text. Never clear it
+                // and silently start a second inference after recovery fails.
+                if error is ColabRecoveryFailure { issue = error.localizedDescription; throw error }
                 status = "未开机"
                 issue = error.localizedDescription
                 guard attempt == 0 else { throw error }
