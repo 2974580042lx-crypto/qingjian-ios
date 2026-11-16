@@ -38,7 +38,7 @@ if (ROOT / 'QingJian').exists():
     actual = {p.relative_to(ROOT).as_posix(): hashlib.sha256(p.read_bytes()).hexdigest()
               for p in (ROOT / 'QingJian').rglob('*') if p.is_file()}
     assert actual == expected, 'Checked-out source differs from source-manifest.json; nothing was overwritten'
-    print(f'Verified readable source contents: {len(actual)} files, Sermo 1.36.0 build 66.')
+    print(f'Verified readable source contents: {len(actual)} files, Sermo 1.36.1 build 67.')
     sys.exit(0)
 extract(archive)
 for name in json.loads((ROOT / 'source-deletions.json').read_text()):
@@ -48,4 +48,4 @@ expected = json.loads((ROOT / 'source-manifest.json').read_text())
 actual = {p.relative_to(ROOT).as_posix(): hashlib.sha256(p.read_bytes()).hexdigest()
           for p in (ROOT / 'QingJian').rglob('*') if p.is_file()}
 assert actual == expected, f'Source manifest mismatch: missing={expected.keys()-actual.keys()}, extra={actual.keys()-expected.keys()}, changed={[k for k in expected.keys() & actual.keys() if expected[k] != actual[k]]}'
-print(f'Verified reconstructed source contents: {len(actual)} files, Sermo 1.36.0 build 66 study delivery.')
+print(f'Verified reconstructed source contents: {len(actual)} files, Sermo 1.36.1 build 67 study delivery.')
