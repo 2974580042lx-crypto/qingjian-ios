@@ -1,0 +1,18 @@
+{
+  "disconnect_recovery_passed": true,
+  "unauthorized_denied": true,
+  "idempotent_resubmit": true,
+  "timing_origin": "before_initial_job_submission",
+  "conflicting_id_rejected": true,
+  "cursor_no_duplicate": true,
+  "cancel_state": "cancelled",
+  "first_content_seconds": 0.781,
+  "total_seconds": 8.625,
+  "disconnected_after_events": 2,
+  "final_events": 94,
+  "finish_reasons": [
+    "stop"
+  ],
+  "done": true,
+  "neutral_answer": "雨后散步是一种极致的感官疗愈。空气中弥漫着泥土与青草混合的清新气息，每一步踩在湿润的地面上，都仿佛能感受到大地深处的呼吸。远处残留的雨滴从叶尖滑落，发出细微的声响，与周围静谧的氛围交织成一首自然的交响乐。此刻，心灵得以从日常的喧嚣中抽离，沉浸在一种宁静而通透的状态里，感受着世界被雨水洗礼后的纯净与新生。【验证结束】"
+}

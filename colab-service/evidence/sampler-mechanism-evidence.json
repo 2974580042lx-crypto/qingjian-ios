@@ -1,0 +1,40 @@
+{
+  "kind": "offline_synthetic_arithmetic_not_model_benchmark",
+  "conditional_assumptions": "Same retained candidate set, ordinary softmax at temperature 0.6; filtering may change that set.",
+  "rows": [
+    {
+      "bias": 0.0,
+      "temperature": 0.6,
+      "relative_odds_multiplier": 1.0,
+      "if_original_probability_50_percent": 0.5,
+      "if_original_probability_80_percent": 0.8
+    },
+    {
+      "bias": -0.25,
+      "temperature": 0.6,
+      "relative_odds_multiplier": 0.659241,
+      "if_original_probability_50_percent": 0.397315,
+      "if_original_probability_80_percent": 0.725045
+    },
+    {
+      "bias": -0.5,
+      "temperature": 0.6,
+      "relative_odds_multiplier": 0.434598,
+      "if_original_probability_50_percent": 0.302941,
+      "if_original_probability_80_percent": 0.634822
+    },
+    {
+      "bias": -1.0,
+      "temperature": 0.6,
+      "relative_odds_multiplier": 0.188876,
+      "if_original_probability_50_percent": 0.158869,
+      "if_original_probability_80_percent": 0.430363
+    }
+  ],
+  "top_k_example": {
+    "before_EOS_retained": true,
+    "after_EOS_retained": false
+  },
+  "window_example": "A token absent from the last 64 tokens receives no presence penalty even if it occurred 100 tokens ago.",
+  "source_checks_passed": true
+}

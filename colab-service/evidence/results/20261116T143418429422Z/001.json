@@ -1,0 +1,65 @@
+{
+  "done": true,
+  "finish_reasons": [
+    "stop"
+  ],
+  "text": "欢迎回来！吃饱喝足后是不是感觉整个人都放松下来了？现在正适合找个舒服的位置休息一下，或者慢慢消消食。如果胃里还觉得有点胀，也可以试着在屋子里轻轻走动几步，这样有助于消化。今天吃的饭菜合你的胃口吗？",
+  "reasoning_characters": 0,
+  "submitted_parameters": {
+    "top_k": 20,
+    "min_p": 0.0,
+    "repeat_penalty": 1.0,
+    "repeat_last_n": 64,
+    "frequency_penalty": 0.0,
+    "dry_multiplier": 0.0,
+    "cache_prompt": false,
+    "temperature": 0.6,
+    "top_p": 0.9,
+    "presence_penalty": 0.0,
+    "logit_bias": {},
+    "seed": 53,
+    "stream": true,
+    "stream_options": {
+      "include_usage": true
+    },
+    "max_tokens": 16384,
+    "chat_template_kwargs": {
+      "enable_thinking": false
+    }
+  },
+  "semantic_complete": null,
+  "appropriate_length": null,
+  "unwanted_repetition": null,
+  "language_or_name_damage": null,
+  "http_status": 200,
+  "first_content_seconds": 1.609,
+  "usage": {
+    "completion_tokens": 57,
+    "prompt_tokens": 16,
+    "total_tokens": 73,
+    "prompt_tokens_details": {
+      "cached_tokens": 0
+    }
+  },
+  "timings": {
+    "cache_n": 0,
+    "prompt_n": 16,
+    "prompt_ms": 248.979,
+    "prompt_per_token_ms": 15.5611875,
+    "prompt_per_second": 64.26244783696616,
+    "predicted_n": 57,
+    "predicted_ms": 4078.944,
+    "predicted_per_token_ms": 72.83828571428572,
+    "predicted_per_second": 13.729043595597291
+  },
+  "seconds": 5.687,
+  "characters": 98,
+  "duplicate_paragraph_characters": 0,
+  "duplicate_paragraph_ratio": 0.0,
+  "needs_human_review": true,
+  "protocol_complete": true,
+  "case": "casual_turn",
+  "profile": "B_author_baseline_no_eos_bias",
+  "seed": 53,
+  "judge": "Natural conversational acknowledgment; should not invent a long unrelated scene."
+}

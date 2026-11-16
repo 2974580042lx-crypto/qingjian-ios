@@ -1,0 +1,65 @@
+{
+  "done": true,
+  "finish_reasons": [
+    "stop"
+  ],
+  "text": "交接时请务必核对当前未闭环的紧急工单及待办事项，确保每一项任务的责任人、当前进度以及预计完成时间都清晰明确地记录在案，避免信息断層导致工作遗漏。\n\n交接时需重点说明系统运行状态及最近一次异常日志的关键细节，特别是那些尚未彻底解决或需要持续观察的潜在隐患，以便接班人员能迅速判断风险等级并采取相应监控措施。\n\n交接时请当面确认关键联系方式、备用资源位置以及特殊操作权限的移交情况，确保接班人能够独立获取处理突发状况所需的工具和信息，从而保障值班期间服务的连续性与稳定性。",
+  "reasoning_characters": 0,
+  "submitted_parameters": {
+    "top_k": 20,
+    "min_p": 0.0,
+    "repeat_penalty": 1.0,
+    "repeat_last_n": 64,
+    "frequency_penalty": 0.0,
+    "dry_multiplier": 0.0,
+    "cache_prompt": false,
+    "temperature": 0.7,
+    "top_p": 0.8,
+    "presence_penalty": 1.5,
+    "logit_bias": {},
+    "seed": 17,
+    "stream": true,
+    "stream_options": {
+      "include_usage": true
+    },
+    "max_tokens": 16384,
+    "chat_template_kwargs": {
+      "enable_thinking": false
+    }
+  },
+  "semantic_complete": null,
+  "appropriate_length": null,
+  "unwanted_repetition": null,
+  "language_or_name_damage": null,
+  "http_status": 200,
+  "first_content_seconds": 1.562,
+  "usage": {
+    "completion_tokens": 128,
+    "prompt_tokens": 27,
+    "total_tokens": 155,
+    "prompt_tokens_details": {
+      "cached_tokens": 0
+    }
+  },
+  "timings": {
+    "cache_n": 0,
+    "prompt_n": 27,
+    "prompt_ms": 246.623,
+    "prompt_per_token_ms": 9.134185185185185,
+    "prompt_per_second": 109.47884017305766,
+    "predicted_n": 128,
+    "predicted_ms": 9660.507,
+    "predicted_per_token_ms": 76.0669842519685,
+    "predicted_per_second": 13.146307952574332
+  },
+  "seconds": 11.234,
+  "characters": 234,
+  "duplicate_paragraph_characters": 0,
+  "duplicate_paragraph_ratio": 0.0,
+  "needs_human_review": true,
+  "protocol_complete": true,
+  "case": "legitimate_repetition",
+  "profile": "D_base_model_non_thinking_reference",
+  "seed": 17,
+  "judge": "Requested repeated phrase is legitimate and must be preserved; unrelated duplication is not."
+}

@@ -1,0 +1,65 @@
+{
+  "done": true,
+  "finish_reasons": [
+    "stop"
+  ],
+  "text": "一小时有 60 分钟。\n\n这是基于时间单位的标准定义：\n*   **1 小时 = 60 分钟**\n*   **1 分钟 = 60 秒**\n\n所以，如果要把小时换算成分钟，只需要将小时数乘以 60 即可。例如，2 小时就是 2 × 60 = 120 分钟。",
+  "reasoning_characters": 0,
+  "submitted_parameters": {
+    "top_k": 20,
+    "min_p": 0.0,
+    "repeat_penalty": 1.0,
+    "repeat_last_n": 64,
+    "frequency_penalty": 0.0,
+    "dry_multiplier": 0.0,
+    "cache_prompt": false,
+    "temperature": 0.6,
+    "top_p": 0.9,
+    "presence_penalty": 0.3,
+    "logit_bias": {},
+    "seed": 53,
+    "stream": true,
+    "stream_options": {
+      "include_usage": true
+    },
+    "max_tokens": 16384,
+    "chat_template_kwargs": {
+      "enable_thinking": false
+    }
+  },
+  "semantic_complete": null,
+  "appropriate_length": null,
+  "unwanted_repetition": null,
+  "language_or_name_damage": null,
+  "http_status": 200,
+  "first_content_seconds": 1.562,
+  "usage": {
+    "completion_tokens": 86,
+    "prompt_tokens": 16,
+    "total_tokens": 102,
+    "prompt_tokens_details": {
+      "cached_tokens": 0
+    }
+  },
+  "timings": {
+    "cache_n": 0,
+    "prompt_n": 16,
+    "prompt_ms": 243.261,
+    "prompt_per_token_ms": 15.2038125,
+    "prompt_per_second": 65.7729763505042,
+    "predicted_n": 86,
+    "predicted_ms": 6440.887,
+    "predicted_per_token_ms": 75.77514117647058,
+    "predicted_per_second": 13.196940110888455
+  },
+  "seconds": 8.0,
+  "characters": 127,
+  "duplicate_paragraph_characters": 0,
+  "duplicate_paragraph_ratio": 0.0,
+  "needs_human_review": true,
+  "protocol_complete": true,
+  "case": "brief_fact",
+  "profile": "C_mild_presence_experiment",
+  "seed": 53,
+  "judge": "Direct correct answer; unnecessary extended exposition is a verbosity failure, no universal character cutoff."
+}

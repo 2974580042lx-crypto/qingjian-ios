@@ -29,12 +29,25 @@ class Recovery:
         self.begin, self.end = begin, end
         self.max_jobs, self.max_bytes, self.per_job_bytes, self.ttl = max_jobs, max_bytes, per_job_bytes, ttl
         self.jobs = {}
+        self.retired = {}
 
     def prune(self):
         now = time.monotonic()
         for name, job in list(self.jobs.items()):
             if job.finished is not None and now-job.finished > self.ttl:
                 del self.jobs[name]
+        self.retired = {name:info for name,info in self.retired.items() if now-info[1] <= self.ttl}
+
+    def evict_completed(self):
+        candidates = [(job.finished,name) for name,job in self.jobs.items() if job.finished is not None]
+        if not candidates or len(self.retired) >= 200: return False
+        _,name = min(candidates)
+        old = self.jobs.pop(name)
+        # Keep a small bounded tombstone so a retransmitted ID is not re-generated.
+        self.retired[name] = (old.digest,time.monotonic())
+        old.events.clear()
+        old.size = 0
+        return True
 
     @staticmethod
     def valid_id(name):
@@ -42,6 +55,10 @@ class Recovery:
 
     def append(self, job, event):
         size = len(event.encode('utf-8'))
+        if job.size+size > self.per_job_bytes:
+            raise RuntimeError('buffer_capacity')
+        while sum(x.size for x in self.jobs.values())+size > self.max_bytes and self.evict_completed():
+            pass
         if job.size+size > self.per_job_bytes or sum(x.size for x in self.jobs.values())+size > self.max_bytes:
             raise RuntimeError('buffer_capacity')
         job.events.append(event)
@@ -54,10 +71,14 @@ class Recovery:
         if not self.valid_id(name): return JSONResponse({'error':'invalid_request_id'},400)
         content = json.dumps(body, sort_keys=True, separators=(',', ':'), ensure_ascii=False).encode()
         digest = request_digest or hashlib.sha256(content).hexdigest()
+        if name in self.retired:
+            return JSONResponse({'error':'request_expired'},410 if self.retired[name][0]==digest else 409)
         if name in self.jobs:
             if self.jobs[name].digest != digest: return JSONResponse({'error':'request_id_conflict'},409)
             return JSONResponse({'request_id':name,'state':self.jobs[name].state},202)
-        # Never silently evict recoverable completed or active requests to admit a new one.
+        # Retain the newest completed requests; active generations are never evicted.
+        while (len(self.jobs) >= self.max_jobs or sum(x.size for x in self.jobs.values()) >= self.max_bytes) and self.evict_completed():
+            pass
         if len(self.jobs) >= self.max_jobs or sum(x.size for x in self.jobs.values()) >= self.max_bytes:
             return JSONResponse({'error':'recovery_capacity','retry_after':30},429)
         job = Job(digest=digest)
@@ -153,3 +174,4 @@ class Recovery:
         for task in tasks: task.cancel()
         await asyncio.gather(*tasks, return_exceptions=True)
         self.jobs.clear()
+        self.retired.clear()

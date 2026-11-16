@@ -1,0 +1,8 @@
+{
+  "records": 71,
+  "protocol_complete": 66,
+  "censored": 5,
+  "exact_duplicate_paragraph_flags": 0,
+  "no_private_conversations": true,
+  "semantic_review_not_equivalent_to_protocol_complete": true
+}

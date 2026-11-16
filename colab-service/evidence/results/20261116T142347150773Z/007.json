@@ -1,0 +1,74 @@
+{
+  "done": true,
+  "finish_reasons": [
+    "stop"
+  ],
+  "text": "是的，你理解得很准确。正是因为地球自转轴相对于公转轨道平面存在约 23.5 度的倾斜，当地球公转到不同位置时，太阳直射点会在北回归线和南回归线之间移动。当北半球倾向太阳、迎来夏季时，南半球正好背向太阳，处于冬季；反之亦然。这种几何关系直接导致了南北半球季节的完全相反。",
+  "reasoning_characters": 0,
+  "submitted_parameters": {
+    "top_k": 20,
+    "min_p": 0.0,
+    "repeat_penalty": 1.0,
+    "repeat_last_n": 64,
+    "frequency_penalty": 0.0,
+    "dry_multiplier": 0.2,
+    "cache_prompt": false,
+    "temperature": 0.6,
+    "top_p": 0.9,
+    "presence_penalty": 0.0,
+    "dry_base": 1.75,
+    "dry_allowed_length": 4,
+    "dry_penalty_last_n": 512,
+    "dry_sequence_breakers": [
+      "\n",
+      ":",
+      "\"",
+      "*"
+    ],
+    "logit_bias": {},
+    "seed": 17,
+    "stream": true,
+    "stream_options": {
+      "include_usage": true
+    },
+    "max_tokens": 16384,
+    "chat_template_kwargs": {
+      "enable_thinking": false
+    }
+  },
+  "semantic_complete": null,
+  "appropriate_length": null,
+  "unwanted_repetition": null,
+  "language_or_name_damage": null,
+  "http_status": 200,
+  "first_content_seconds": 1.718,
+  "usage": {
+    "completion_tokens": 84,
+    "prompt_tokens": 112,
+    "total_tokens": 196,
+    "prompt_tokens_details": {
+      "cached_tokens": 0
+    }
+  },
+  "timings": {
+    "cache_n": 0,
+    "prompt_n": 112,
+    "prompt_ms": 470.855,
+    "prompt_per_token_ms": 4.2040625,
+    "prompt_per_second": 237.8651601873188,
+    "predicted_n": 84,
+    "predicted_ms": 6098.006,
+    "predicted_per_token_ms": 73.46995180722892,
+    "predicted_per_second": 13.611006614293261
+  },
+  "seconds": 7.812,
+  "characters": 134,
+  "duplicate_paragraph_characters": 0,
+  "duplicate_paragraph_ratio": 0.0,
+  "needs_human_review": true,
+  "protocol_complete": true,
+  "case": "long_then_short",
+  "profile": "E_dry_only_experiment",
+  "seed": 17,
+  "judge": "Answer the follow-up naturally without repeating the entire previous explanation or continuing the prior long-answer pattern."
+}

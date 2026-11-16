@@ -1,0 +1,65 @@
+{
+  "done": true,
+  "finish_reasons": [
+    "stop"
+  ],
+  "text": "“不客气，下次见。”\n\n（我微笑着点点头，目送你拿着书走向门口。风铃再次响起，你推门出去，外面的雨声似乎更大了些，但你步伐轻快，很快便消失在雨幕中。我转身回到柜台后，继续拿起那本《百年孤独》，轻轻翻开封皮，书店里重新恢复了只有雨声和纸张翻动声的宁静。）",
+  "reasoning_characters": 0,
+  "submitted_parameters": {
+    "top_k": 20,
+    "min_p": 0.0,
+    "repeat_penalty": 1.0,
+    "repeat_last_n": 64,
+    "frequency_penalty": 0.0,
+    "dry_multiplier": 0.0,
+    "cache_prompt": true,
+    "temperature": 0.6,
+    "top_p": 0.9,
+    "presence_penalty": 0.0,
+    "logit_bias": {},
+    "seed": 17,
+    "stream": true,
+    "stream_options": {
+      "include_usage": true
+    },
+    "max_tokens": 16384,
+    "chat_template_kwargs": {
+      "enable_thinking": false
+    }
+  },
+  "semantic_complete": null,
+  "appropriate_length": null,
+  "unwanted_repetition": null,
+  "language_or_name_damage": null,
+  "http_status": 200,
+  "first_content_seconds": 2.047,
+  "usage": {
+    "completion_tokens": 85,
+    "prompt_tokens": 8536,
+    "total_tokens": 8621,
+    "prompt_tokens_details": {
+      "cached_tokens": 8517
+    }
+  },
+  "timings": {
+    "cache_n": 8517,
+    "prompt_n": 19,
+    "prompt_ms": 465.149,
+    "prompt_per_token_ms": 24.481526315789473,
+    "prompt_per_second": 40.84712640465743,
+    "predicted_n": 85,
+    "predicted_ms": 6343.936,
+    "predicted_per_token_ms": 75.52304761904762,
+    "predicted_per_second": 13.240991081877246
+  },
+  "seconds": 8.39,
+  "characters": 126,
+  "duplicate_paragraph_characters": 0,
+  "duplicate_paragraph_ratio": 0.0,
+  "needs_human_review": true,
+  "protocol_complete": true,
+  "profile": "B_author_baseline_no_eos_bias",
+  "turn": 3,
+  "user": "谢谢，下次见。",
+  "case": "generated_neutral_bookshop"
+}

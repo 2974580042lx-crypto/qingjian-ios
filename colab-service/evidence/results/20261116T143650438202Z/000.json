@@ -1,0 +1,65 @@
+{
+  "done": true,
+  "finish_reasons": [
+    "stop"
+  ],
+  "text": "一小时有 **60** 分钟。\n\n这是时间单位换算中的基本常识：\n*   1 小时 = 60 分钟\n*   1 分钟 = 60 秒\n*   因此，1 小时 = 3,600 秒",
+  "reasoning_characters": 0,
+  "submitted_parameters": {
+    "top_k": 20,
+    "min_p": 0.0,
+    "repeat_penalty": 1.0,
+    "repeat_last_n": 64,
+    "frequency_penalty": 0.0,
+    "dry_multiplier": 0.0,
+    "cache_prompt": false,
+    "temperature": 0.6,
+    "top_p": 0.9,
+    "presence_penalty": 0.0,
+    "logit_bias": {},
+    "seed": 17,
+    "stream": true,
+    "stream_options": {
+      "include_usage": true
+    },
+    "max_tokens": 16384,
+    "chat_template_kwargs": {
+      "enable_thinking": false
+    }
+  },
+  "semantic_complete": null,
+  "appropriate_length": null,
+  "unwanted_repetition": null,
+  "language_or_name_damage": null,
+  "http_status": 200,
+  "first_content_seconds": 1.562,
+  "usage": {
+    "completion_tokens": 63,
+    "prompt_tokens": 16,
+    "total_tokens": 79,
+    "prompt_tokens_details": {
+      "cached_tokens": 0
+    }
+  },
+  "timings": {
+    "cache_n": 0,
+    "prompt_n": 16,
+    "prompt_ms": 378.117,
+    "prompt_per_token_ms": 23.6323125,
+    "prompt_per_second": 42.31494484511408,
+    "predicted_n": 63,
+    "predicted_ms": 4512.939,
+    "predicted_per_token_ms": 72.78933870967742,
+    "predicted_per_second": 13.738275655842012
+  },
+  "seconds": 6.078,
+  "characters": 87,
+  "duplicate_paragraph_characters": 0,
+  "duplicate_paragraph_ratio": 0.0,
+  "needs_human_review": true,
+  "protocol_complete": true,
+  "case": "brief_fact",
+  "profile": "B_author_baseline_no_eos_bias",
+  "seed": 17,
+  "judge": "Direct correct answer; unnecessary extended exposition is a verbosity failure, no universal character cutoff."
+}

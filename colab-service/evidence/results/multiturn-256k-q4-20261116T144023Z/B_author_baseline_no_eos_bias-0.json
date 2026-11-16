@@ -1,0 +1,65 @@
+{
+  "done": true,
+  "finish_reasons": [
+    "stop"
+  ],
+  "text": "（听见风铃清脆的响声，我抬起头，看见你带着一身水汽站在门口。午后的阳光被厚重的雨幕滤得有些昏暗，书店里弥漫着旧纸和咖啡豆混合的香气。我放下手中正在整理的《百年孤独》，从柜台后走出来，顺手从旁边的架子上抽了一条干净的毛巾递给你。）\n\n“外面雨确实大，小心别滑着。”\n\n（我微笑着看着你，目光温和地落在你身上，没有急着说话，只是静静地看着你收起那把还在滴水的伞，等你稍作调整。）",
+  "reasoning_characters": 0,
+  "submitted_parameters": {
+    "top_k": 20,
+    "min_p": 0.0,
+    "repeat_penalty": 1.0,
+    "repeat_last_n": 64,
+    "frequency_penalty": 0.0,
+    "dry_multiplier": 0.0,
+    "cache_prompt": false,
+    "temperature": 0.6,
+    "top_p": 0.9,
+    "presence_penalty": 0.0,
+    "logit_bias": {},
+    "seed": 17,
+    "stream": true,
+    "stream_options": {
+      "include_usage": true
+    },
+    "max_tokens": 16384,
+    "chat_template_kwargs": {
+      "enable_thinking": false
+    }
+  },
+  "semantic_complete": null,
+  "appropriate_length": null,
+  "unwanted_repetition": null,
+  "language_or_name_damage": null,
+  "http_status": 200,
+  "first_content_seconds": 14.078,
+  "usage": {
+    "completion_tokens": 117,
+    "prompt_tokens": 7974,
+    "total_tokens": 8091,
+    "prompt_tokens_details": {
+      "cached_tokens": 0
+    }
+  },
+  "timings": {
+    "cache_n": 0,
+    "prompt_n": 7974,
+    "prompt_ms": 12545.466,
+    "prompt_per_token_ms": 1.5732964635063957,
+    "prompt_per_second": 635.6081153143296,
+    "predicted_n": 117,
+    "predicted_ms": 8736.477,
+    "predicted_per_token_ms": 75.31445689655173,
+    "predicted_per_second": 13.277663296086054
+  },
+  "seconds": 22.813,
+  "characters": 187,
+  "duplicate_paragraph_characters": 0,
+  "duplicate_paragraph_ratio": 0.0,
+  "needs_human_review": true,
+  "protocol_complete": true,
+  "profile": "B_author_baseline_no_eos_bias",
+  "turn": 0,
+  "user": "雨下得好大，我推门进了书店，收起伞。",
+  "case": "generated_neutral_bookshop"
+}

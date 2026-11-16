@@ -1,0 +1,65 @@
+{
+  "done": true,
+  "finish_reasons": [
+    "stop"
+  ],
+  "text": "欢迎回来！刚吃完饭，现在应该感觉挺满足的吧？是吃了一些特别的菜品，还是只是简单的日常餐食？",
+  "reasoning_characters": 0,
+  "submitted_parameters": {
+    "top_k": 20,
+    "min_p": 0.0,
+    "repeat_penalty": 1.0,
+    "repeat_last_n": 64,
+    "frequency_penalty": 0.0,
+    "dry_multiplier": 0.0,
+    "cache_prompt": false,
+    "temperature": 0.6,
+    "top_p": 0.9,
+    "presence_penalty": 0.3,
+    "logit_bias": {},
+    "seed": 53,
+    "stream": true,
+    "stream_options": {
+      "include_usage": true
+    },
+    "max_tokens": 16384,
+    "chat_template_kwargs": {
+      "enable_thinking": false
+    }
+  },
+  "semantic_complete": null,
+  "appropriate_length": null,
+  "unwanted_repetition": null,
+  "language_or_name_damage": null,
+  "http_status": 200,
+  "first_content_seconds": 1.468,
+  "usage": {
+    "completion_tokens": 27,
+    "prompt_tokens": 16,
+    "total_tokens": 43,
+    "prompt_tokens_details": {
+      "cached_tokens": 0
+    }
+  },
+  "timings": {
+    "cache_n": 0,
+    "prompt_n": 16,
+    "prompt_ms": 248.95,
+    "prompt_per_token_ms": 15.559375,
+    "prompt_per_second": 64.26993372163085,
+    "predicted_n": 27,
+    "predicted_ms": 1983.674,
+    "predicted_per_token_ms": 76.29515384615385,
+    "predicted_per_second": 13.106992378788046
+  },
+  "seconds": 3.453,
+  "characters": 45,
+  "duplicate_paragraph_characters": 0,
+  "duplicate_paragraph_ratio": 0.0,
+  "needs_human_review": true,
+  "protocol_complete": true,
+  "case": "casual_turn",
+  "profile": "C_mild_presence_experiment",
+  "seed": 53,
+  "judge": "Natural conversational acknowledgment; should not invent a long unrelated scene."
+}

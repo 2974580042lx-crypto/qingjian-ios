@@ -91,6 +91,14 @@ class RecoveryTests(unittest.IsolatedAsyncioTestCase):
             if not page['has_more']:break
         self.assertEqual(events,job.events)
         self.assertEqual(cursor,len(job.events))
+    async def test_completed_eviction_does_not_regenerate_retired_id(self):
+        await self.first();self.release.set();await self.pool.jobs[self.name].task
+        second='synthetic-request-0002';third='synthetic-request-0003'
+        await self.pool.submit(second,self.body);await self.pool.jobs[second].task
+        self.assertEqual((await self.pool.submit(third,self.body)).status_code,202)
+        self.assertEqual(self.pool.snapshot(self.name,0).status_code,404)
+        self.assertEqual((await self.pool.submit(self.name,self.body)).status_code,410)
+        self.assertIn(third,self.pool.jobs)
 
 
 class ContextTests(unittest.IsolatedAsyncioTestCase):

@@ -1,0 +1,65 @@
+{
+  "done": true,
+  "finish_reasons": [
+    "stop"
+  ],
+  "text": "交接时请确认所有未闭环的工作事项已详细记录，包括任务进度、待办截止时间及当前卡点，确保接收方能无缝衔接后续工作。\n\n交接时务必核对关键系统状态与数据指标，特别是涉及生产环境、财务数据或客户投诉的实时情况，避免因信息滞后导致判断失误。\n\n交接时不要遗漏特殊备注与隐性知识，例如特定客户的沟通偏好、临时变更的背景原因或历史遗留问题的处理逻辑，这些细节往往对后续决策至关重要。",
+  "reasoning_characters": 0,
+  "submitted_parameters": {
+    "top_k": 20,
+    "min_p": 0.0,
+    "repeat_penalty": 1.0,
+    "repeat_last_n": 64,
+    "frequency_penalty": 0.0,
+    "dry_multiplier": 0.0,
+    "cache_prompt": false,
+    "temperature": 0.6,
+    "top_p": 0.9,
+    "presence_penalty": 0.0,
+    "logit_bias": {},
+    "seed": 53,
+    "stream": true,
+    "stream_options": {
+      "include_usage": true
+    },
+    "max_tokens": 16384,
+    "chat_template_kwargs": {
+      "enable_thinking": false
+    }
+  },
+  "semantic_complete": null,
+  "appropriate_length": null,
+  "unwanted_repetition": null,
+  "language_or_name_damage": null,
+  "http_status": 200,
+  "first_content_seconds": 1.547,
+  "usage": {
+    "completion_tokens": 103,
+    "prompt_tokens": 27,
+    "total_tokens": 130,
+    "prompt_tokens_details": {
+      "cached_tokens": 0
+    }
+  },
+  "timings": {
+    "cache_n": 0,
+    "prompt_n": 27,
+    "prompt_ms": 244.141,
+    "prompt_per_token_ms": 9.042259259259259,
+    "prompt_per_second": 110.59183013094892,
+    "predicted_n": 103,
+    "predicted_ms": 7430.987,
+    "predicted_per_token_ms": 72.8528137254902,
+    "predicted_per_second": 13.726305805675613
+  },
+  "seconds": 8.969,
+  "characters": 185,
+  "duplicate_paragraph_characters": 0,
+  "duplicate_paragraph_ratio": 0.0,
+  "needs_human_review": true,
+  "protocol_complete": true,
+  "case": "legitimate_repetition",
+  "profile": "B_author_baseline_no_eos_bias",
+  "seed": 53,
+  "judge": "Requested repeated phrase is legitimate and must be preserved; unrelated duplication is not."
+}

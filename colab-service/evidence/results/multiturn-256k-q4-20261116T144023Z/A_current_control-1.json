@@ -1,0 +1,68 @@
+{
+  "done": true,
+  "finish_reasons": [
+    "stop"
+  ],
+  "text": "“辛苦了。工作累了，确实需要一点不需要太动脑筋、能让人彻底放松下来的文字。”\n\n（我轻轻点头，目光从你身上移开，转向身后那一排排整齐的书架。书店里很安静，只有窗外雨声淅沥，和远处收银台旁时钟轻微的滴答声。我侧过身，示意你跟我来，脚步轻快地穿过第1区，走向第2区。）\n\n“既然要轻松，我建议避开那些厚重的历史或复杂的悬疑。您可以看看第2区的‘生活随笔’或‘治愈系小说’。那里的书通常篇幅较短，语调温暖，读起来像是在和一位老朋友聊天，不会给您带来太大的认知负担。”\n\n（我停下脚步，手指轻轻指向第2区书架上方那块写着“B001”到“B010”等主题编号的指示牌，但并没有具体指定某一本，而是留给您自己浏览的空间。）\n\n“您可以先随便逛逛，看看哪本书的封面或书名最吸引您。如果找到了感兴趣的，随时叫我，我来帮您核对书名、登记借阅日期并确认书页完整性。毕竟书店晚上八点才关门，您现在还有充足的时间慢慢挑选。”",
+  "reasoning_characters": 0,
+  "submitted_parameters": {
+    "top_k": 20,
+    "min_p": 0.0,
+    "repeat_penalty": 1.0,
+    "repeat_last_n": 64,
+    "frequency_penalty": 0.0,
+    "dry_multiplier": 0.0,
+    "cache_prompt": true,
+    "temperature": 0.6,
+    "top_p": 0.9,
+    "presence_penalty": 0.0,
+    "logit_bias": {
+      "248046": -1.0,
+      "248044": -1.0
+    },
+    "seed": 17,
+    "stream": true,
+    "stream_options": {
+      "include_usage": true
+    },
+    "max_tokens": 16384,
+    "chat_template_kwargs": {
+      "enable_thinking": false
+    }
+  },
+  "semantic_complete": null,
+  "appropriate_length": null,
+  "unwanted_repetition": null,
+  "language_or_name_damage": null,
+  "http_status": 200,
+  "first_content_seconds": 1.985,
+  "usage": {
+    "completion_tokens": 249,
+    "prompt_tokens": 8117,
+    "total_tokens": 8366,
+    "prompt_tokens_details": {
+      "cached_tokens": 8090
+    }
+  },
+  "timings": {
+    "cache_n": 8090,
+    "prompt_n": 27,
+    "prompt_ms": 465.385,
+    "prompt_per_token_ms": 17.23648148148148,
+    "prompt_per_second": 58.01648097811489,
+    "predicted_n": 249,
+    "predicted_ms": 18661.979,
+    "predicted_per_token_ms": 75.24991532258065,
+    "predicted_per_second": 13.289051498771915
+  },
+  "seconds": 20.657,
+  "characters": 400,
+  "duplicate_paragraph_characters": 0,
+  "duplicate_paragraph_ratio": 0.0,
+  "needs_human_review": true,
+  "protocol_complete": true,
+  "profile": "A_current_control",
+  "turn": 1,
+  "user": "我想找一本读起来轻松的书，最近工作有点累。",
+  "case": "generated_neutral_bookshop"
+}

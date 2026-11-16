@@ -1,0 +1,65 @@
+{
+  "done": true,
+  "finish_reasons": [
+    "stop"
+  ],
+  "text": "午后的雨下得有些黏稠，细密地打在“旧时光”书店的玻璃橱窗上，发出沙沙的声响，像是无数只蚂蚁在爬行。店内弥漫着一种混合了陈旧纸张、咖啡渍和潮湿空气的独特气味，灯光昏黄而温暖，将外面的灰暗世界隔绝在外。\n\n林浅正站在文学区的尽头，手指轻轻滑过一排硬壳封面的书脊。她刚把一本《百年孤独》放回原位，准备转身去收银台结账时，余光瞥见了一个熟悉的身影。那是陈默，一个多年未见的大学好友。他正站在对面架子的阴影里，手里捧着一本厚厚的哲学集，眉头微蹙，似乎在思考某个难以捉摸的问题。\n\n林浅的心脏猛地跳了一下，一种既惊喜又略带尴尬的情绪涌上心头。她深吸了一口气，整理了一下被雨水打湿的发梢，轻声唤道：“陈默？”\n\n声音不大，但在安静的书店里显得格外清晰。陈默的肩膀微微一颤，缓缓转过头来。当他的目光穿过雨雾般的空气落在林浅脸上时，眼中的困惑瞬间化为惊讶，随即嘴角扬起一抹温和的笑意。“林浅？真是你。”他合手中的书，小心翼翼地将其放在旁边的桌子上，以免压到书架上的其他书籍，“天哪，我刚才还在想，这个雨天怎么会有人穿这样一件米白色的风衣进来。”\n\n“因为我想躲雨，顺便看看有没有新出的诗集。”林浅走上前去，两步并作一步地来到他面前。两人之间的距离拉近了，空气中似乎都多了一丝暖意。“你也是来躲雨的？”\n\n“算是吧。”陈默低头看了一眼自己裤脚上明显的水渍，无奈地笑了笑，“我从地铁出来时雨突然变大，跑了两条街才找到这里。没想到会在这里遇到你，我们至少有五年没见了吧？”\n\n“差不多。”林浅轻轻点头，目光扫过他略显疲惫但依然整洁的面容，“最近怎么样？还在做那个独立游戏吗？”\n\n“嗯，还在挣扎。”陈默叹了口气，伸手扶了扶眼镜，“项目刚结束第一阶段，现在正在等待投资者的反馈。说来也怪，越是不确定的时候，我越想通过阅读来寻找确定性。”\n\n林浅理解地点点头，她看向他刚才放下的那本哲学集。“那是加缪的《西西弗神话》？你最近对存在主义感兴趣了？”\n\n“也许是吧。”陈默重新拿起书，指尖轻轻摩挲着封面，“面对荒诞的生活，我们只能想象西西弗斯是幸福的。这句话最近对我来说，有一种奇怪的安慰感。”\n\n两人站在书架之间，身后是整齐排列的书籍，身前是流动的雨天光影。他们聊起了大学时的趣事，聊起当年在图书馆占座发生的争执，也聊起各自毕业后经历的起伏。话语流畅而自然，仿佛中间那段空缺的时间从未存在过，或者已经被雨声冲刷得淡去。\n\n半小时后，窗外的雨势似乎小了一些，但天色依旧昏暗。林浅看了一眼手表，意识到自己还要赶去赴一个晚餐预约。“时间过得真快。”她轻声说道，语气中带着些许不舍。\n\n陈默也察觉到了她的意兴阑珊，他点了点头，从口袋里掏出手机：“不如加个微信？这样下次如果雨还这么大，我们可以约着一起躲雨。”\n\n“好主意。”林浅微笑着打开社交软件，两人迅速交换了联系方式。\n\n告别时，他们并没有过多的客套。陈默拿起那本《西西弗神话》，走向收银台。林浅则站在原地，目送他的背影消失在书店深处的阴影中。她低头笑了笑，转身走向门口。推开玻璃门的瞬间，湿润的冷空气扑面而来，雨声再次充斥耳际。她撑开伞，汇入街道的人流中，身后书店的暖光在雨中显得愈发朦胧而温暖，像是一个短暂的、温暖的岛屿。",
+  "reasoning_characters": 0,
+  "submitted_parameters": {
+    "top_k": 20,
+    "min_p": 0.0,
+    "repeat_penalty": 1.0,
+    "repeat_last_n": 64,
+    "frequency_penalty": 0.0,
+    "dry_multiplier": 0.0,
+    "cache_prompt": false,
+    "temperature": 0.7,
+    "top_p": 0.8,
+    "presence_penalty": 1.5,
+    "logit_bias": {},
+    "seed": 17,
+    "stream": true,
+    "stream_options": {
+      "include_usage": true
+    },
+    "max_tokens": 16384,
+    "chat_template_kwargs": {
+      "enable_thinking": false
+    }
+  },
+  "semantic_complete": null,
+  "appropriate_length": null,
+  "unwanted_repetition": null,
+  "language_or_name_damage": null,
+  "http_status": 200,
+  "first_content_seconds": 1.735,
+  "usage": {
+    "completion_tokens": 805,
+    "prompt_tokens": 51,
+    "total_tokens": 856,
+    "prompt_tokens_details": {
+      "cached_tokens": 0
+    }
+  },
+  "timings": {
+    "cache_n": 0,
+    "prompt_n": 51,
+    "prompt_ms": 413.267,
+    "prompt_per_token_ms": 8.10327450980392,
+    "prompt_per_second": 123.40690159146509,
+    "predicted_n": 805,
+    "predicted_ms": 60963.246,
+    "predicted_per_token_ms": 75.82493283582089,
+    "predicted_per_second": 13.188274128316593
+  },
+  "seconds": 62.703,
+  "characters": 1321,
+  "duplicate_paragraph_characters": 0,
+  "duplicate_paragraph_ratio": 0.0,
+  "needs_human_review": true,
+  "protocol_complete": true,
+  "case": "complete_scene",
+  "profile": "D_base_model_non_thinking_reference",
+  "seed": 17,
+  "judge": "Complete progression and ending; detect paragraph loops without penalizing recurring character names."
+}

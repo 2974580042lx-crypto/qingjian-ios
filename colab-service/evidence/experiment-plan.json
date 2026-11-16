@@ -1,0 +1,92 @@
+{
+  "status": "offline research only; not deployed or GPU-tested",
+  "model": "ScarletKc-2.0 Q4_K_M",
+  "context": 262144,
+  "thinking": false,
+  "shared_test_settings": {
+    "top_k": 20,
+    "min_p": 0.0,
+    "repeat_penalty": 1.0,
+    "repeat_last_n": 64,
+    "frequency_penalty": 0.0,
+    "dry_multiplier": 0.0,
+    "cache_prompt": false
+  },
+  "profiles": [
+    {
+      "name": "A_current_control",
+      "temperature": 0.6,
+      "top_p": 0.9,
+      "presence_penalty": 0.0,
+      "logit_bias": {
+        "248046": -1.0,
+        "248044": -1.0
+      }
+    },
+    {
+      "name": "B_author_baseline_no_eos_bias",
+      "temperature": 0.6,
+      "top_p": 0.9,
+      "presence_penalty": 0.0,
+      "logit_bias": {}
+    },
+    {
+      "name": "C_mild_presence_experiment",
+      "temperature": 0.6,
+      "top_p": 0.9,
+      "presence_penalty": 0.3,
+      "logit_bias": {}
+    },
+    {
+      "name": "D_base_model_non_thinking_reference",
+      "temperature": 0.7,
+      "top_p": 0.8,
+      "presence_penalty": 1.5,
+      "logit_bias": {}
+    },
+    {
+      "name": "C2_presence_03_window512",
+      "temperature": 0.6,
+      "top_p": 0.9,
+      "presence_penalty": 0.3,
+      "repeat_last_n": 512,
+      "logit_bias": {}
+    },
+    {
+      "name": "E_dry_only_experiment",
+      "temperature": 0.6,
+      "top_p": 0.9,
+      "presence_penalty": 0.0,
+      "dry_multiplier": 0.2,
+      "dry_base": 1.75,
+      "dry_allowed_length": 4,
+      "dry_penalty_last_n": 512,
+      "dry_sequence_breakers": [
+        "\n",
+        ":",
+        "\"",
+        "*"
+      ],
+      "logit_bias": {}
+    }
+  ],
+  "procedure": [
+    "A versus B first; same neutral prompts and seeds, include multiple independent seeds and multi-turn histories.",
+    "Do not export or replay private user chats. User can perform separate phone confirmation voluntarily.",
+    "Only compare B versus C if repetition persists; 0.3 is an experimental value, not an author recommendation.",
+    "D changes multiple settings and is a package comparison, not single-factor causal evidence.",
+    "Keep context, quantization, engine and MTP unchanged in the first round.",
+    "Record actual effective request parameters, prompt/output tokens, finish_reason, DONE, TTFT and elapsed time.",
+    "Judge semantic completeness, repeated passages, language mixing, character consistency and sentence endings separately.",
+    "length is a limit stop, never count as a successful cure for repetition or premature endings.",
+    "Use a bounded test time/compute budget upon next explicit startup; no new paid instance during offline research.",
+    "Compare brief requests, detailed requests and a long-to-short transition in the SAME multi-turn conversation. Do not force a universal word/paragraph count.",
+    "Read-only offline preparation now. No GPU allocation or inference until a later explicit startup; no production setting changes implied by this plan.",
+    "Cold-control phase submits cache_prompt=false in every arm and alternates arm order across seeds; inspect returned cache_n, do not assume full determinism.",
+    "After candidate quality passes, separately test cache_prompt=true with identical case/session switching; never deploy cache_prompt=false as a speed optimization.",
+    "C versus C2 isolates penalty history window; B versus E tests DRY alone. Experimental values are not validated Scarlet recommendations.",
+    "No absolute maximum answer length target. Check concise response where appropriate AND sufficient detail where requested."
+  ],
+  "output_budget_policy": "Do not introduce or lower a per-answer output cap as a verbosity/repetition fix. Preserve the existing client budget during comparisons; record its effective value. Any run stopped by safety/time/context budget is censored, not a naturally completed success.",
+  "objective": "Context-appropriate length and natural completion without repetitive filler; shorter is not automatically better. Speed is not an optimization target in this round."
+}

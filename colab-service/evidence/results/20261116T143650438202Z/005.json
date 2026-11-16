@@ -1,0 +1,65 @@
+{
+  "done": true,
+  "finish_reasons": [
+    "stop"
+  ],
+  "text": "交接时请确认所有未结事项的当前进度、下一步计划及紧急程度，确保接手方能无缝延续工作节奏；交接时务必当面核对关键设备状态、系统运行日志及待处理报警，避免口头描述造成的信息偏差；交接时请共同检查并签署书面交接记录，明确双方责任划分，以便后续出现问题时可追溯依据。",
+  "reasoning_characters": 0,
+  "submitted_parameters": {
+    "top_k": 20,
+    "min_p": 0.0,
+    "repeat_penalty": 1.0,
+    "repeat_last_n": 64,
+    "frequency_penalty": 0.0,
+    "dry_multiplier": 0.0,
+    "cache_prompt": false,
+    "temperature": 0.6,
+    "top_p": 0.9,
+    "presence_penalty": 0.0,
+    "logit_bias": {},
+    "seed": 53,
+    "stream": true,
+    "stream_options": {
+      "include_usage": true
+    },
+    "max_tokens": 16384,
+    "chat_template_kwargs": {
+      "enable_thinking": false
+    }
+  },
+  "semantic_complete": null,
+  "appropriate_length": null,
+  "unwanted_repetition": null,
+  "language_or_name_damage": null,
+  "http_status": 200,
+  "first_content_seconds": 1.532,
+  "usage": {
+    "completion_tokens": 74,
+    "prompt_tokens": 27,
+    "total_tokens": 101,
+    "prompt_tokens_details": {
+      "cached_tokens": 0
+    }
+  },
+  "timings": {
+    "cache_n": 0,
+    "prompt_n": 27,
+    "prompt_ms": 244.213,
+    "prompt_per_token_ms": 9.044925925925925,
+    "prompt_per_second": 110.55922493888532,
+    "predicted_n": 74,
+    "predicted_ms": 5324.091,
+    "predicted_per_token_ms": 72.93275342465753,
+    "predicted_per_second": 13.71126075793971
+  },
+  "seconds": 6.86,
+  "characters": 129,
+  "duplicate_paragraph_characters": 0,
+  "duplicate_paragraph_ratio": 0.0,
+  "needs_human_review": true,
+  "protocol_complete": true,
+  "case": "legitimate_repetition",
+  "profile": "B_author_baseline_no_eos_bias",
+  "seed": 53,
+  "judge": "Requested repeated phrase is legitimate and must be preserved; unrelated duplication is not."
+}

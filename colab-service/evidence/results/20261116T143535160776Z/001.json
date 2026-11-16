@@ -1,0 +1,65 @@
+{
+  "done": true,
+  "finish_reasons": [
+    "stop"
+  ],
+  "text": "你好，我是沈宁。\n\n第034号书架目前库存有22册书，第086号书架则有14册。我们书店每天晚上八点准时关门，你如果打算借阅，记得在八点前过来找我核对书名并登记日期哦。",
+  "reasoning_characters": 0,
+  "submitted_parameters": {
+    "top_k": 20,
+    "min_p": 0.0,
+    "repeat_penalty": 1.0,
+    "repeat_last_n": 64,
+    "frequency_penalty": 0.0,
+    "dry_multiplier": 0.0,
+    "cache_prompt": false,
+    "temperature": 0.6,
+    "top_p": 0.9,
+    "presence_penalty": 0.0,
+    "logit_bias": {},
+    "seed": 53,
+    "stream": true,
+    "stream_options": {
+      "include_usage": true
+    },
+    "max_tokens": 16384,
+    "chat_template_kwargs": {
+      "enable_thinking": false
+    }
+  },
+  "semantic_complete": null,
+  "appropriate_length": null,
+  "unwanted_repetition": null,
+  "language_or_name_damage": null,
+  "http_status": 200,
+  "first_content_seconds": 14.141,
+  "usage": {
+    "completion_tokens": 58,
+    "prompt_tokens": 7913,
+    "total_tokens": 7971,
+    "prompt_tokens_details": {
+      "cached_tokens": 0
+    }
+  },
+  "timings": {
+    "cache_n": 0,
+    "prompt_n": 7913,
+    "prompt_ms": 12622.157,
+    "prompt_per_token_ms": 1.5951165171237203,
+    "prompt_per_second": 626.9134506883412,
+    "predicted_n": 58,
+    "predicted_ms": 4302.032,
+    "predicted_per_token_ms": 75.47424561403508,
+    "predicted_per_second": 13.249552769481955
+  },
+  "seconds": 18.438,
+  "characters": 84,
+  "duplicate_paragraph_characters": 0,
+  "duplicate_paragraph_ratio": 0.0,
+  "needs_human_review": true,
+  "protocol_complete": true,
+  "case": "long_context_scene",
+  "profile": "B_author_baseline_no_eos_bias",
+  "seed": 53,
+  "judge": "Synthetic long-input retrieval; expected counts 22 and 14, closing at eight. Coherent natural ending; not a private-chat reproduction."
+}

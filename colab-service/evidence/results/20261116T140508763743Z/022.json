@@ -1,0 +1,45 @@
+{
+  "done": false,
+  "finish_reasons": [],
+  "text": "午后的雨下得有些缠绵，细密的雨丝被风卷着，斜斜地打在“旧时光”书店的玻璃门上，发出沙沙的轻响。店内弥漫着陈纸和咖啡混合特有的气味，暖黄色的灯光将外面的灰冷隔绝开来。林婉正站在文学区的书架前，指尖轻轻划过一排排书脊，试图从那些熟悉的标题中找回一点内心的宁静。\n\n“你也在找《百年孤独》吗？”\n\n一个略带笑意、却透着几分熟悉的声音从身后传来。林婉下意识地回头，目光撞进了一双温和的眼睛里。站在她身后半步之处的，是陈默。他穿着一件深灰色的风衣，肩头还挂着几滴未干的雨水，手里提着一个半透明的塑料袋，里面装着几本刚买的书。两人对视了一瞬，惊讶随后迅速被一种久别重逢的温吞感所取代。\n\n“是你，陈默。”林婉先开了口，声音里带着些许惊讶，“真没想到会在这里遇见你。我记得你去年说搬去北方了。”\n\n“是啊，上个月刚回来的。”陈默笑了笑，目光扫过林婉手中的书，又落回她脸上，“看来命运还是喜欢把我们从不同的城市拉回同一个坐标点。你最近过得怎么样？”\n\n“还行，就是工作忙，难得有半天假期出来透透气。”林婉合上手中正在浏览的《",
+  "reasoning_characters": 0,
+  "submitted_parameters": {
+    "top_k": 20,
+    "min_p": 0.0,
+    "repeat_penalty": 1.0,
+    "repeat_last_n": 64,
+    "frequency_penalty": 0.0,
+    "dry_multiplier": 0.0,
+    "cache_prompt": false,
+    "temperature": 0.6,
+    "top_p": 0.9,
+    "presence_penalty": 0.0,
+    "logit_bias": {},
+    "seed": 53,
+    "stream": true,
+    "stream_options": {
+      "include_usage": true
+    },
+    "max_tokens": 16384,
+    "chat_template_kwargs": {
+      "enable_thinking": false
+    }
+  },
+  "semantic_complete": null,
+  "appropriate_length": null,
+  "unwanted_repetition": null,
+  "language_or_name_damage": null,
+  "http_status": 200,
+  "first_content_seconds": 1.735,
+  "censored": "experiment_wall_budget",
+  "seconds": 22.938,
+  "characters": 454,
+  "duplicate_paragraph_characters": 0,
+  "duplicate_paragraph_ratio": 0.0,
+  "needs_human_review": true,
+  "protocol_complete": false,
+  "case": "complete_scene",
+  "profile": "B_author_baseline_no_eos_bias",
+  "seed": 53,
+  "judge": "Complete progression and ending; detect paragraph loops without penalizing recurring character names."
+}

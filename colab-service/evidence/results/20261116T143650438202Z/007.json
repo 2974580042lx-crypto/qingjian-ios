@@ -1,0 +1,65 @@
+{
+  "done": true,
+  "finish_reasons": [
+    "stop"
+  ],
+  "text": "是的，完全正确。因为地轴是倾斜的，当北半球倾向太阳、迎来夏季时，南半球恰好背向太阳，因此处于冬季；反之亦然。这种“此消彼长”的关系使得南北半球的季节始终保持相反的状态。",
+  "reasoning_characters": 0,
+  "submitted_parameters": {
+    "top_k": 20,
+    "min_p": 0.0,
+    "repeat_penalty": 1.0,
+    "repeat_last_n": 64,
+    "frequency_penalty": 0.0,
+    "dry_multiplier": 0.0,
+    "cache_prompt": false,
+    "temperature": 0.6,
+    "top_p": 0.9,
+    "presence_penalty": 0.0,
+    "logit_bias": {},
+    "seed": 53,
+    "stream": true,
+    "stream_options": {
+      "include_usage": true
+    },
+    "max_tokens": 16384,
+    "chat_template_kwargs": {
+      "enable_thinking": false
+    }
+  },
+  "semantic_complete": null,
+  "appropriate_length": null,
+  "unwanted_repetition": null,
+  "language_or_name_damage": null,
+  "http_status": 200,
+  "first_content_seconds": 1.703,
+  "usage": {
+    "completion_tokens": 54,
+    "prompt_tokens": 112,
+    "total_tokens": 166,
+    "prompt_tokens_details": {
+      "cached_tokens": 0
+    }
+  },
+  "timings": {
+    "cache_n": 0,
+    "prompt_n": 112,
+    "prompt_ms": 470.198,
+    "prompt_per_token_ms": 4.198196428571428,
+    "prompt_per_second": 238.19752529785328,
+    "predicted_n": 54,
+    "predicted_ms": 3869.791,
+    "predicted_per_token_ms": 73.01492452830189,
+    "predicted_per_second": 13.695830084880551
+  },
+  "seconds": 5.578,
+  "characters": 84,
+  "duplicate_paragraph_characters": 0,
+  "duplicate_paragraph_ratio": 0.0,
+  "needs_human_review": true,
+  "protocol_complete": true,
+  "case": "long_then_short",
+  "profile": "B_author_baseline_no_eos_bias",
+  "seed": 53,
+  "judge": "Answer the follow-up naturally without repeating the entire previous explanation or continuing the prior long-answer pattern."
+}
