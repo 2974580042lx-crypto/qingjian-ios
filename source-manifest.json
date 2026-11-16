@@ -76,7 +76,7 @@
   "QingJian/DeepSeekPocket/Services/AppPersistence.swift": "eb5600c0e07c59a23011a7a118cd5c3faf7d4989ee0df8e39033718599c21afa",
   "QingJian/DeepSeekPocket/Services/BackupFolder.swift": "cb7b2cf2dee3c6ed20d9c81755c8af5ee0ee6b292eacacfd14dc8ccdcb46be47",
   "QingJian/DeepSeekPocket/Services/BookStore.swift": "724114f26d1601398f456b2df42faaaa30d511391f49534ecc52f09f5e53a02f",
-  "QingJian/DeepSeekPocket/Services/ColabClient.swift": "68e8f2bebf36aa60b66e68cfd7495f518b43ce7ad1db59372c0a8c731d94be55",
+  "QingJian/DeepSeekPocket/Services/ColabClient.swift": "47b2922cdbb5a7778346826c6cd2cc872815edbc6b2d7049fb2591b4066b992f",
   "QingJian/DeepSeekPocket/Services/ColabStore.swift": "970b8c1a9c361d67dcf27544b9f670389a476f3b84a21a523c9239dd31028463",
   "QingJian/DeepSeekPocket/Services/DeepSeekClient.swift": "f60ac6ce78d613a8fd6d741e6d3c1319dc6c60b769953f841456b52da7851df9",
   "QingJian/DeepSeekPocket/Services/FontLibrary.swift": "a63fd1c085d8c3c1eb18a282a20223a44920a78c6651580d6a1910243296dee7",
@@ -164,6 +164,6 @@
   "QingJian/scripts/build-ipa.sh": "3c80b25e8b422dba45292f1d1cd1d408d46189cd984b4e5f6a1817b897030e7c",
   "QingJian/scripts/capture-previews.sh": "96d78d7526cfa8db00d8876e4d068c24141f39f6270ddac778bd88237578ef76",
   "QingJian/scripts/check-project.py": "45413d8f97514ec495b6ef8ceb16b83f8f706062f7267d2e844c7a628fb595a5",
-  "QingJian/scripts/generate-project.py": "e0cb91b133fa49d3fbfe86ffd4e0159ec5948d2df77d00fa6862fafa92ae5433",
+  "QingJian/scripts/generate-project.py": "c983ba9bfca9759c181af4c13425b48a5a0580dd5d4cd61add2ac83d70a050b1",
   "QingJian/scripts/prepare-study-readings.py": "2f76ce8135f78674b7a6a378a7de6778a73eb8843692d9fc63f0362ab0d5efbd"
 }

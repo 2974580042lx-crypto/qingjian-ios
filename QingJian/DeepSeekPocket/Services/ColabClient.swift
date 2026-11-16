@@ -202,6 +202,12 @@ final class ColabClient: @unchecked Sendable {
             // Recovery below queries the same ID; it never starts another generation.
             do {
                 let (_, response) = try await polling.data(for: request(jobURL, body: body))
+                if let code = (response as? HTTPURLResponse)?.statusCode, code >= 400 {
+                    if code == 422 { throw ColabRecoveryFailure(ColabError.context.localizedDescription) }
+                    if code == 429 { throw ColabRecoveryFailure("云端回复暂存空间已满，请稍后再试。") }
+                    do { try ColabError.validate(response) }
+                    catch { throw ColabRecoveryFailure(error.localizedDescription) }
+                }
                 try ColabError.validate(response)
                 progress.httpStatus = (response as? HTTPURLResponse)?.statusCode
                 progress.phase = .waiting
@@ -217,7 +223,8 @@ final class ColabClient: @unchecked Sendable {
                     if let event = try decoder.consume(byte: byte) { await emit(event) }
                     if done { break }
                 }
-            } catch {
+            } catch let failure as ColabRecoveryFailure { throw failure }
+            catch {
                 if Task.isCancelled { throw CancellationError() }
                 // Partial SSE events are deliberately discarded. The cursor counts only
                 // fully delivered events, so snapshot recovery cannot duplicate text.
@@ -228,7 +235,7 @@ final class ColabClient: @unchecked Sendable {
                 guard Date().timeIntervalSince(started) < 3600 else {
                     throw ColabRecoveryFailure("恢复等待已超时，已收到的文字已保留。")
                 }
-                if await !lease.isActive {
+                if !(await lease.isActive) {
                     try await Task.sleep(nanoseconds: 500_000_000)
                     continue
                 }
