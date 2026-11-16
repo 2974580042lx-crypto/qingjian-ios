@@ -140,7 +140,7 @@
   "QingJian/Tests/AccountBalanceTests.swift": "d783c7e28a96b30ec3718abb948c813922fc8ed49e86c12919428cd40d536b48",
   "QingJian/Tests/BookTests.swift": "719bb42d83f74eab27d3fa2b340289eaa8a5ecba74c161d1cf6b951460b571f5",
   "QingJian/Tests/ColabRecoveryTransportTests.swift": "6e052bd011206352b2f15d9faf6310c4c4b4283e018a3e4e2cec0b37989f8dfb",
-  "QingJian/Tests/CompatibleHistoryUpgradeTests.swift": "79365cd9fd959fd311074c046c1db2d1711bf89c1866043230cdcf76ee0d7212",
+  "QingJian/Tests/CompatibleHistoryUpgradeTests.swift": "19eefd34c5e8c242200e9cba61644a88782bcfc876ba60fe3a7f296a99c60c98",
   "QingJian/Tests/ContextAndEffortTests.swift": "06589742890299e5352386ea9b014f2e1dd0da633ae9672caa5f26ce8091e753",
   "QingJian/Tests/ConversationEditingTests.swift": "0a7f42559c8800cf7eee2a7bc8c2da09e4c9d4d58d65121f2eb22086c8464e77",
   "QingJian/Tests/ConversationHistoryTests.swift": "d9ee6d121b03b2f9181a9342dbbcf6944062f27dfa3560e146c8b9be8539d641",

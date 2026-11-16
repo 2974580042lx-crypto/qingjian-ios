@@ -13,6 +13,15 @@ final class CompatibleHistoryUpgradeTests: XCTestCase {
         XCTAssertEqual(decoded.threads.reduce(0) { $0 + $1.messages.count }, 7248)
         XCTAssertEqual(decoded.threads.flatMap(\.messages).filter { $0.provider == .compatible }.count, 5)
         let encoded = try decoded.encoded(isLocalStore: true)
+        let originalObject = try XCTUnwrap(JSONSerialization.jsonObject(with: source) as? [String: Any])
+        let encodedObject = try XCTUnwrap(JSONSerialization.jsonObject(with: encoded) as? [String: Any])
+        // Compare against the input JSON, not only the already-decoded structs:
+        // unknown fields silently ignored by Codable must not escape this check.
+        for key in ["threads", "projects", "settings", "systemPromptPresets"] {
+            let originalValue = try JSONSerialization.data(withJSONObject: ["value": originalObject[key] ?? NSNull()], options: [.sortedKeys])
+            let encodedValue = try JSONSerialization.data(withJSONObject: ["value": encodedObject[key] ?? NSNull()], options: [.sortedKeys])
+            XCTAssertEqual(originalValue, encodedValue, "Input fields or values changed in \(key)")
+        }
         let again = try AppSnapshot.decodeLocal(encoded)
         XCTAssertEqual(again.threads, decoded.threads)
         XCTAssertEqual(again.projects, decoded.projects)
