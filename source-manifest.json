@@ -144,7 +144,7 @@
   "QingJian/Tests/ContextAndEffortTests.swift": "06589742890299e5352386ea9b014f2e1dd0da633ae9672caa5f26ce8091e753",
   "QingJian/Tests/ConversationEditingTests.swift": "0a7f42559c8800cf7eee2a7bc8c2da09e4c9d4d58d65121f2eb22086c8464e77",
   "QingJian/Tests/ConversationHistoryTests.swift": "d9ee6d121b03b2f9181a9342dbbcf6944062f27dfa3560e146c8b9be8539d641",
-  "QingJian/Tests/Fixtures/compatible-history-structural.json": "b54fd323481c55cedd5d37352becb5c91dd1611e7bf55f354a4734779b8ef687",
+  "QingJian/Tests/Fixtures/compatible-history-structural.json": "e25e5a35640149f6ac2ca79030d2aee7a90592b6d1ad1a3297816a9af790e7df",
   "QingJian/Tests/Fixtures/drive-roundtrip.json": "72a648531d845cfc67a30a00bbc929982eed90799aae69647d33c5e111218174",
   "QingJian/Tests/Fixtures/study-backup-question.jpg": "adaed745bc0873b72cbb125d47659623c75b8833f81a3f2b050ec76689dfaa01",
   "QingJian/Tests/GoogleRefreshTaskTests.swift": "ff4b278cd53300ec12f55da46d9f0a25acad5327e8d622e51879b4466131dc2e",
@@ -180,6 +180,6 @@
   "QingJian/scripts/build-ipa.sh": "3c80b25e8b422dba45292f1d1cd1d408d46189cd984b4e5f6a1817b897030e7c",
   "QingJian/scripts/capture-previews.sh": "96d78d7526cfa8db00d8876e4d068c24141f39f6270ddac778bd88237578ef76",
   "QingJian/scripts/check-project.py": "45413d8f97514ec495b6ef8ceb16b83f8f706062f7267d2e844c7a628fb595a5",
-  "QingJian/scripts/generate-project.py": "730aff85a8f36d572076db8e0dd13ce15c84a2badda6cf3761b38d923e513d66",
+  "QingJian/scripts/generate-project.py": "969bdcbd5f38de05f723da2991d47d376bc48ea783937b411ebd5ff2a9d3c15f",
   "QingJian/scripts/prepare-study-readings.py": "2f76ce8135f78674b7a6a378a7de6778a73eb8843692d9fc63f0362ab0d5efbd"
 }
