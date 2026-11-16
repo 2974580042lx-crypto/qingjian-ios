@@ -1,6 +1,7 @@
 """Authenticated streaming gateway and idle release for the Colab notebook."""
 import asyncio
 import json
+import hashlib
 import os
 import secrets
 import threading
@@ -37,8 +38,15 @@ def persist_status(event="heartbeat"):
                      "idle_seconds": round(time.monotonic() - activity["last"], 1)}
         state.update({"recorded_at": datetime.now(timezone.utc).isoformat(), "event": event,
                       "idle_limit_seconds": IDLE_SECONDS, "pid": os.getpid(),
-                      "context_length": int(os.environ.get("SERMO_CONTEXT", "0")),
+                      "configured_context_length": int(os.environ.get("SERMO_CONTEXT", "0")),
                       "thinking_default": DEFAULT_THINKING})
+        try:
+            request = urllib.request.Request(BACKEND+'/props',headers={'Authorization':'Bearer '+KEY})
+            opener = urllib.request.build_opener(urllib.request.ProxyHandler({}))
+            with opener.open(request,timeout=3) as response:
+                state['context_length']=json.load(response)['default_generation_settings']['n_ctx']
+        except Exception:
+            state['context_length']=None
         try:
             gpu = subprocess.run(["nvidia-smi", "--query-gpu=memory.used,memory.total,utilization.gpu",
                                   "--format=csv,noheader"], capture_output=True, text=True, timeout=5)
@@ -217,6 +225,7 @@ async def forward(path: str, request: Request):
             body = json.loads(content)
             if not isinstance(body, dict):
                 raise ValueError("请求必须为对象。")
+            request_digest = hashlib.sha256(json.dumps(body,sort_keys=True,separators=(',', ':'),ensure_ascii=False).encode()).hexdigest()
             if FAMILY == "gemma":
                 body = format_gemma(body)
             elif FAMILY == "scarlet":
@@ -224,7 +233,15 @@ async def forward(path: str, request: Request):
             elif FAMILY == "qwen" and path == "v1/chat/completions":
                 body = format_qwen(body)
             if (path == 'v1/chat/completions' or recovery_route) and os.environ.get('SERMO_CONTEXT_GUARD','1')=='1':
-                body, _ = await fit_context(body, app.state.client, BACKEND, KEY)
+                with activity_lock:
+                    activity['active'] += 1
+                    activity['last'] = time.monotonic()
+                try:
+                    body, _ = await fit_context(body, app.state.client, BACKEND, KEY)
+                finally:
+                    with activity_lock:
+                        activity['active'] -= 1
+                        activity['last'] = time.monotonic()
             content = json.dumps(body, ensure_ascii=False).encode("utf-8")
         except ContextOverflow:
             return JSONResponse({'error':{'code':'context_length_exceeded','message':'System instructions and current turn exceed model context'}},422)
@@ -233,7 +250,7 @@ async def forward(path: str, request: Request):
         except (httpx.HTTPError, KeyError):
             return JSONResponse({'error':{'message':'Colab context preparation unavailable'}},status_code=502)
     if recovery_route:
-        return await app.state.recovery.submit(request_id,body)
+        return await app.state.recovery.submit(request_id,body,request_digest)
     tracked = path in {"v1/chat/completions", "apply-template", "tokenize"}
     if tracked:
         with activity_lock:

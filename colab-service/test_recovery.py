@@ -4,7 +4,7 @@ import unittest
 import os
 import httpx
 from recovery import Recovery
-from context_guard import fit_context
+from context_guard import fit_context, ContextOverflow
 
 
 class Stream(httpx.AsyncByteStream):
@@ -78,9 +78,37 @@ class RecoveryTests(unittest.IsolatedAsyncioTestCase):
         self.pool.per_job_bytes=10
         await self.pool.submit(self.name,self.body);await self.pool.jobs[self.name].task
         self.assertEqual(self.pool.jobs[self.name].state,'error')
+    async def test_snapshot_pagination_preserves_every_event(self):
+        await self.first()
+        job=self.pool.jobs[self.name]
+        for index in range(600):self.pool.append(job,json.dumps({'index':index}))
+        self.release.set();await job.task
+        cursor=0;events=[]
+        while True:
+            page=json.loads(self.pool.snapshot(self.name,cursor).body)
+            self.assertLessEqual(len(page['events']),256)
+            events.extend(page['events']);cursor=page['next_cursor']
+            if not page['has_more']:break
+        self.assertEqual(events,job.events)
+        self.assertEqual(cursor,len(job.events))
 
 
 class ContextTests(unittest.IsolatedAsyncioTestCase):
+    async def test_normal_budget_unchanged_and_impossible_input_rejected(self):
+        def handler(req):
+            if req.url.path=='/props':return httpx.Response(200,json={'default_generation_settings':{'n_ctx':4096}})
+            data=json.loads(req.content)
+            if req.url.path=='/apply-template':return httpx.Response(200,json={'prompt':json.dumps(data['messages'])})
+            messages=json.loads(data['content'])
+            return httpx.Response(200,json={'tokens':list(range(sum(m['size'] for m in messages)))})
+        body={'max_tokens':2048,'messages':[{'role':'system','content':'keep','size':100},
+              {'role':'user','content':'current','size':200}]}
+        async with httpx.AsyncClient(transport=httpx.MockTransport(handler)) as client:
+            result,stats=await fit_context(body,client,'http://test','test')
+            self.assertEqual(result,body);self.assertEqual(stats['removed_messages'],0)
+            body['messages'][0]['size']=4096
+            with self.assertRaises(ContextOverflow):await fit_context(body,client,'http://test','test')
+            self.assertEqual(body['messages'][0]['content'],'keep')
     async def test_preserves_source_system_and_latest_turn(self):
         def handler(req):
             if req.url.path=='/props':return httpx.Response(200,json={'default_generation_settings':{'n_ctx':1000}})

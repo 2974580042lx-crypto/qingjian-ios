@@ -6,12 +6,15 @@ import UIKit
 final class ColabClient: @unchecked Sendable {
     private let configuration: ColabConfiguration
     private let key: String
-    init(configuration: ColabConfiguration, key: String) {
+    private let sessionConfiguration: @Sendable () -> URLSessionConfiguration
+    init(configuration: ColabConfiguration, key: String,
+         sessionConfiguration: @escaping @Sendable () -> URLSessionConfiguration = { .ephemeral }) {
         self.configuration = configuration
         self.key = key
+        self.sessionConfiguration = sessionConfiguration
     }
     private func session() -> URLSession {
-        let config = URLSessionConfiguration.ephemeral
+        let config = sessionConfiguration()
         config.timeoutIntervalForRequest = 120
         config.timeoutIntervalForResource = 3600
         config.urlCache = nil

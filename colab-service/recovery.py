@@ -49,11 +49,11 @@ class Recovery:
         job.updated = time.monotonic()
         job.signal.set()
 
-    async def submit(self, name, body):
+    async def submit(self, name, body, request_digest=None):
         self.prune()
         if not self.valid_id(name): return JSONResponse({'error':'invalid_request_id'},400)
         content = json.dumps(body, sort_keys=True, separators=(',', ':'), ensure_ascii=False).encode()
-        digest = hashlib.sha256(content).hexdigest()
+        digest = request_digest or hashlib.sha256(content).hexdigest()
         if name in self.jobs:
             if self.jobs[name].digest != digest: return JSONResponse({'error':'request_id_conflict'},409)
             return JSONResponse({'request_id':name,'state':self.jobs[name].state},202)
