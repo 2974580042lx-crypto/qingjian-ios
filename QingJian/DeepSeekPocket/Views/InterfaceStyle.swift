@@ -398,7 +398,7 @@ struct SwatchRow: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 10) {
             HStack { Text(title); Spacer(); Text(currentTitle).foregroundStyle(Ink.ink3) }
-            FlowLayout(spacing: 12) {
+            FlowRows(spacing: 12) {
                 ForEach(presets) { preset in
                     Button { Personal.set(preset.id, for: key) } label: {
                         Swatch(color: Color.adaptive(light: preset.light, dark: preset.dark), selected: selectedID == preset.id)
