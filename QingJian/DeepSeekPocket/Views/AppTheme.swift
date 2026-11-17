@@ -465,14 +465,24 @@ enum Personal {
         Preset(id: "green", title: "墨绿", light: 0x2F6E57, dark: 0x7CC2A6),
         Preset(id: "plum", title: "梅紫", light: 0x7A4A8C, dark: 0xC3A2D6),
         Preset(id: "graphite", title: "石墨", light: 0x3A3936, dark: 0xD8D6CF),
+        Preset(id: "amber", title: "胶片橘", light: 0xD65D0E, dark: 0xFE8019),
+        Preset(id: "peach", title: "莫兰迪", light: 0x8839EF, dark: 0xFAB387),
+        Preset(id: "rose", title: "枯玫瑰", light: 0xB4637A, dark: 0xEBBCBA),
+        Preset(id: "sky", title: "夜雨蓝", light: 0x2E7DE9, dark: 0x7AA2F7),
     ]
     static let paperPresets = [
         Preset(id: "ivory", title: "柔白", light: 0xFAF9F5, dark: 0x191918),
         Preset(id: "white", title: "纯白", light: 0xFFFFFF, dark: 0x0C0C0C),
         Preset(id: "grey", title: "浅灰", light: 0xF3F3F1, dark: 0x1C1C1E),
+        Preset(id: "gruvbox", title: "胶片", light: 0xFBF1C7, dark: 0x1D2021),
+        Preset(id: "catppuccin", title: "奶咖", light: 0xEFF1F5, dark: 0x181825),
+        Preset(id: "rosepine", title: "松烟", light: 0xFAF4ED, dark: 0x191724),
+        Preset(id: "tokyonight", title: "夜雨", light: 0xD5D6DB, dark: 0x16161E),
     ]
     private static let sheetFor: [String: (UInt32, UInt32)] = [
         "ivory": (0xF3F0E8, 0x131312), "white": (0xF4F4F4, 0x050505), "grey": (0xEAEAE7, 0x141416),
+        "gruvbox": (0xF2E5BC, 0x282828), "catppuccin": (0xE6E9EF, 0x1E1E2E),
+        "rosepine": (0xF2E9E1, 0x1F1D2E), "tokyonight": (0xCBCCD1, 0x1A1B26),
     ]
 
     // Read from UserDefaults once per change, not once per paragraph per redraw.
@@ -525,7 +535,51 @@ enum Personal {
         if InterfaceStyle.isSwiss || InterfaceStyle.isNight { return Ink.raised }
         if raw == "accent" { return accent.opacity(0.14) }
         if let custom = hex(raw) { return Color.adaptive(light: custom, dark: 0x2A2926) }
-        return Color.adaptive(light: 0xEFECE4, dark: 0x2A2926)
+        let darkBubble: UInt32 = switch stored(paperKey) {
+        case "gruvbox": 0x3C3836
+        case "catppuccin": 0x313244
+        case "rosepine": 0x26233A
+        case "tokyonight": 0x292E42
+        default: 0x2A2926
+        }
+        return Color.adaptive(light: 0xEFECE4, dark: darkBubble)
+    }
+
+    static var syntaxKeyword: Color {
+        switch stored(paperKey) {
+        case "gruvbox": return Color.adaptive(light: 0x9D0006, dark: 0xFB4934)
+        case "catppuccin": return Color.adaptive(light: 0x8839EF, dark: 0xCBA6F7)
+        case "rosepine": return Color.adaptive(light: 0x286983, dark: 0x31748F)
+        case "tokyonight": return Color.adaptive(light: 0x7847BD, dark: 0xBB9AF7)
+        default: return Ink.seal
+        }
+    }
+    static var syntaxType: Color {
+        switch stored(paperKey) {
+        case "gruvbox": return Color.adaptive(light: 0x427B58, dark: 0x8EC07C)
+        case "catppuccin": return Color.adaptive(light: 0xDF8E1D, dark: 0xF9E2AF)
+        case "rosepine": return Color.adaptive(light: 0x56949F, dark: 0x9CCFD8)
+        case "tokyonight": return Color.adaptive(light: 0x007197, dark: 0x2AC3DE)
+        default: return Color.teal
+        }
+    }
+    static var syntaxString: Color {
+        switch stored(paperKey) {
+        case "gruvbox": return Color.adaptive(light: 0x79740E, dark: 0xB8BB26)
+        case "catppuccin": return Color.adaptive(light: 0x40A02B, dark: 0xA6E3A1)
+        case "rosepine": return Color.adaptive(light: 0xEA9D34, dark: 0xF6C177)
+        case "tokyonight": return Color.adaptive(light: 0x587539, dark: 0x9ECE6A)
+        default: return Color.orange
+        }
+    }
+    static var syntaxNumber: Color {
+        switch stored(paperKey) {
+        case "gruvbox": return Color.adaptive(light: 0x8F3F71, dark: 0xD3869B)
+        case "catppuccin": return Color.adaptive(light: 0xFE640B, dark: 0xFAB387)
+        case "rosepine": return Color.adaptive(light: 0x907AA9, dark: 0xC4A7E7)
+        case "tokyonight": return Color.adaptive(light: 0xB15C00, dark: 0xFF9E64)
+        default: return Color.indigo
+        }
     }
     @MainActor static func setMediumBody(_ on: Bool) {
         UserDefaults.standard.set(on ? "1" : "0", forKey: mediumKey)

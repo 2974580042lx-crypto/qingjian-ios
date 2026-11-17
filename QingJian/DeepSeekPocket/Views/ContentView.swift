@@ -2313,14 +2313,14 @@ struct MarkdownAnswer: View, Equatable {
             case .plain:
                 part.foregroundColor = Ink.ink
             case .keyword:
-                part.foregroundColor = Ink.seal
+                part.foregroundColor = Personal.syntaxKeyword
                 part.inlinePresentationIntent = .stronglyEmphasized
             case .typeName:
-                part.foregroundColor = Color.teal
+                part.foregroundColor = Personal.syntaxType
             case .stringLiteral:
-                part.foregroundColor = Color.orange
+                part.foregroundColor = Personal.syntaxString
             case .numberLiteral:
-                part.foregroundColor = Color.indigo
+                part.foregroundColor = Personal.syntaxNumber
             case .comment:
                 part.foregroundColor = Ink.ink3
             }
