@@ -111,7 +111,7 @@
   "QingJian/DeepSeekPocket/Views/FeatureOverviewView.swift": "2aa0a2eba463611fe7623da13a4995d385f28516ac8bff7b88d6785250595478",
   "QingJian/DeepSeekPocket/Views/HighlightMarker.swift": "df768314a1707d5cceada5925dbb18e2d30440c7caaf86e67d815c9a655dd99a",
   "QingJian/DeepSeekPocket/Views/HistoryView.swift": "3e3ab82e41fb7c265d78797421aa6d8f97165aa01b0afef4a72774a66983b518",
-  "QingJian/DeepSeekPocket/Views/InterfaceStyle.swift": "afe75d0dc4620e6afd87a0e9c6570997e8223c77609a0837745b08f43c5cdea3",
+  "QingJian/DeepSeekPocket/Views/InterfaceStyle.swift": "7bbabcfff532bc66d444ca711004f5388feac824727b4f689d07562efcbdfec0",
   "QingJian/DeepSeekPocket/Views/KeyboardChatLayout.swift": "8dee149f699860ea3b6a69464ba431945bd84fb2c6435e259d4b94e55e60879f",
   "QingJian/DeepSeekPocket/Views/KeyboardDock.swift": "0742f41a554c34089ab43d3e8519857b4d4a7de9296dcefcc32b9e3ab9a009da",
   "QingJian/DeepSeekPocket/Views/LocalNovelReader.swift": "846ab3fbe425394e26021d28b4f06746508471f351ea8639642758f90411acf8",
@@ -134,7 +134,7 @@
   "QingJian/DeepSeekPocket/Views/UsageView.swift": "07992964c995679de615d97209f490e1d95f34b19e5bc7134495fe9e4b6b923d",
   "QingJian/DeepSeekPocket/Views/WelcomeView.swift": "a584eefef0fdce0125b92954b17a0300a433a1846e5e331cb7f39fcf0c95cc4c",
   "QingJian/Package.swift": "d52f9e9228628524cbbd76cb9515cc1cc4179a5e946a7784d8a68d3db961aebc",
-  "QingJian/QingJian.xcodeproj/project.pbxproj": "836b7484cbfb6949afe303c5f225cfac6b441cc68dffddc823e27fb0ae38e1ad",
+  "QingJian/QingJian.xcodeproj/project.pbxproj": "5a96c48c056b2524468608efe1ccdef873c27b174a2c568121077079976c428e",
   "QingJian/QingJian.xcodeproj/xcshareddata/xcschemes/QingJian.xcscheme": "1fd4f524f4bfab16a8dba20f05ea5cd1af4b95ebea867e9d44fe47f432a57b8c",
   "QingJian/README.md": "b5888f7c360e8b2d7d6404422677c267155e3553605712f9e711b74ae618963f",
   "QingJian/Tests/AccountBalanceTests.swift": "d783c7e28a96b30ec3718abb948c813922fc8ed49e86c12919428cd40d536b48",
@@ -180,6 +180,6 @@
   "QingJian/scripts/build-ipa.sh": "3c80b25e8b422dba45292f1d1cd1d408d46189cd984b4e5f6a1817b897030e7c",
   "QingJian/scripts/capture-previews.sh": "96d78d7526cfa8db00d8876e4d068c24141f39f6270ddac778bd88237578ef76",
   "QingJian/scripts/check-project.py": "45413d8f97514ec495b6ef8ceb16b83f8f706062f7267d2e844c7a628fb595a5",
-  "QingJian/scripts/generate-project.py": "80cfc4e8ff200675e7409683ee81278fbafea220239e12380ce4bd3ab48ff392",
+  "QingJian/scripts/generate-project.py": "266fafeddbca7ae093d1d12a75413d0669df11fdf103d8452a8752a755a7e79a",
   "QingJian/scripts/prepare-study-readings.py": "2f76ce8135f78674b7a6a378a7de6778a73eb8843692d9fc63f0362ab0d5efbd"
 }
