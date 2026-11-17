@@ -179,7 +179,8 @@ final class ColabClient: @unchecked Sendable {
         let id = UUID().uuidString
         let jobURL = base.appendingPathComponent("requests").appendingPathComponent(id)
         let transport = session(), polling = session()
-        let lease = await ColabBackgroundLease { transport.invalidateAndCancel() }
+        let streamGate = ColabStreamGate(session: transport)
+        let lease = await ColabBackgroundLease { streamGate.interrupt() }
         defer {
             transport.invalidateAndCancel(); polling.invalidateAndCancel()
             Task { @MainActor in lease.end() }
@@ -217,6 +218,7 @@ final class ColabClient: @unchecked Sendable {
                 await onProgress?(progress)
                 var streamRequest = try request(jobURL.appendingPathComponent("events"))
                 streamRequest.setValue("text/event-stream", forHTTPHeaderField: "Accept")
+                guard !streamGate.isInterrupted else { throw ColabStreamInterrupted() }
                 let (bytes, streamResponse) = try await transport.bytes(for: streamRequest)
                 try ColabError.validate(streamResponse)
                 var decoder = SSEByteDecoder()
@@ -358,6 +360,37 @@ private final class ColabBackgroundLease {
     func end() {}
 }
 #endif
+
+private struct ColabStreamInterrupted: Error {}
+
+private final class ColabStreamGate: @unchecked Sendable {
+    private let lock = NSLock()
+    private var interrupted = false
+    private weak var session: URLSession?
+
+    init(session: URLSession) {
+        self.session = session
+    }
+
+    func interrupt() {
+        let target: URLSession?
+        lock.lock()
+        interrupted = true
+        target = session
+        lock.unlock()
+        // Cancel active tasks without invalidating the URLSession until recoverableStream exits,
+        // preventing NSInvalidArgumentException in URLSession.bytes(for:) if interrupted early.
+        target?.getAllTasks { tasks in
+            for task in tasks { task.cancel() }
+        }
+    }
+
+    var isInterrupted: Bool {
+        lock.lock()
+        defer { lock.unlock() }
+        return interrupted
+    }
+}
 
 private final class ColabRedirectDelegate: NSObject, URLSessionTaskDelegate, @unchecked Sendable {
     func urlSession(_ session: URLSession, task: URLSessionTask,
