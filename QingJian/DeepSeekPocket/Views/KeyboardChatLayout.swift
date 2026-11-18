@@ -20,13 +20,24 @@ struct KeyboardChatLayout<Transcript: View, Composer: View>: UIViewControllerRep
     func updateUIViewController(_ controller: Controller, context: Context) {
         controller.transcriptHost.rootView = transcript
         controller.composerHost.rootView = composer
-        controller.composerHost.view.invalidateIntrinsicContentSize()
-        controller.view.setNeedsLayout()
+        let width = controller.view.bounds.width
+        if width > 0 {
+            let fitHeight = controller.composerHost.sizeThatFits(in: CGSize(width: width, height: .greatestFiniteMagnitude)).height
+            if abs(fitHeight - controller.lastComposerFitHeight) > 0.5 {
+                controller.lastComposerFitHeight = fitHeight
+                controller.composerHost.view.invalidateIntrinsicContentSize()
+                controller.view.setNeedsLayout()
+            }
+        } else {
+            controller.composerHost.view.invalidateIntrinsicContentSize()
+            controller.view.setNeedsLayout()
+        }
     }
 
     final class Controller: UIViewController {
         let transcriptHost: UIHostingController<Transcript>
         let composerHost: UIHostingController<Composer>
+        fileprivate var lastComposerFitHeight: CGFloat = -1
         private var composerBottom: NSLayoutConstraint!
         private var transcriptBottom: NSLayoutConstraint!
 

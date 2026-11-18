@@ -339,7 +339,12 @@ struct SettingsView: View {
                     }
                 AutoBackupSection()
         }
-        .sheet(isPresented: $showShare) {
+        .sheet(isPresented: $showShare, onDismiss: {
+            if let url = backupURL, url.path.hasPrefix(FileManager.default.temporaryDirectory.path) {
+                try? FileManager.default.removeItem(at: url)
+            }
+            backupURL = nil
+        }) {
             if let url = backupURL { ShareSheet(items: [url]) }
         }
         .sheet(item: $store.unifiedRestorePreview) { preview in

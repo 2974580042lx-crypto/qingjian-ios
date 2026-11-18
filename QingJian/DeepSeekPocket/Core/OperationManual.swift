@@ -449,7 +449,7 @@ struct OperationManualBook: Codable, Equatable, Sendable {
         OperationManualChapter(
             id: "cc-anti-slop",
             title: "CC 核心：去 AI 爹味与零套话规范",
-            whenToRead: "日常交流、论文润色、故事演绎或需要自然真人表达、讨厌机械套话时查阅",
+            whenToRead: "仅在用户明确要求润色文稿去 AI 味、排查套话或查看表达规范详情时查阅（日常聊天无需每轮重复翻阅）",
             content: """
             1. 零机械寒暄：严禁使用“这是一个非常深刻的问题”“总的来说”“值得注意的是”“作为 AI”“希望以上内容对你有帮助”等套话。
             2. 拒绝说教与端架子：不居高临下给用户灌鸡汤或生硬升华主题；完全贴合当前项目人设与语境自然说话。
@@ -457,7 +457,7 @@ struct OperationManualBook: Codable, Equatable, Sendable {
             """,
             scope: .general,
             isEnabled: true,
-            version: 1,
+            version: 2,
             isCustom: false,
             isUserModified: false,
             updatedAt: seedDate
@@ -627,7 +627,7 @@ enum OperationManualTools {
             let lines = active.map { "- [\($0.id)] \($0.title) — \($0.whenToRead)" }.joined(separator: "\n")
             blocks.append("""
             【内置文档规范目录（按需调用 manual_read / manual_search 查阅）】
-            你手边随时备有 Sermo 内置文档规范工具（`manual_search` / `manual_read`）。当用户问你“能不能看文档规范 / 平时怎么看规范”、点名让你看某章规范，或本轮需要执行对应操作且尚未读过该章时，请直接调用工具自行翻阅，绝不要让用户手动发文件给你；翻阅后依然用你自己的角色语气自然交流，不要背诵说明书：
+            日常交流默认自然真人语气、零机械寒暄、不端架子，普通问答切勿每轮重复调用 `manual_read`；仅当用户点名让你查规范，或本轮实际需要执行学习/外部工具复杂流程且本对话尚未读过对应章节时，再按需调用工具自行翻阅，绝不要让用户手动发文件给你；翻阅后依然用你自己的角色语气自然交流，不要背诵说明书：
             \(lines)
             """)
             return (blocks.joined(separator: "\n\n"), true)

@@ -1,3 +1,4 @@
+import Observation
 import SwiftUI
 import UIKit
 import PhotosUI
@@ -20,74 +21,50 @@ struct ContentView: View {
     @State private var showSidebar = previewFlag("sidebar")
     @State private var keyboardVisible = false
     @State private var composerPanelHeight: CGFloat = 130
-    @State private var sidebarDrag: CGFloat = 0
     @AppStorage("qingjian.haptics") private var hapticsEnabled = true
     @AppStorage(AppearanceMode.key) private var appearance = AppearanceMode.system.rawValue
 
     var body: some View {
+        let _ = StyleAppearance.shared.revision
+        let isSwiss = InterfaceStyle.isSwiss
         GeometryReader { geometry in
-            let width = min(geometry.size.width * 0.82, 360)
-            let position = min(width, max(0, (showSidebar ? width : 0) + sidebarDrag))
-            let progress = position / width
-            let isRevealed = progress > 0 || showSidebar
-            let frontPage = PageContour(radius: isRevealed ? Radius.pageFront : 0, topInset: geometry.safeAreaInsets.top, bottomInset: geometry.safeAreaInsets.bottom)
-            let backPage = PageContour(radius: isRevealed ? Radius.pageBack : 0, topInset: geometry.safeAreaInsets.top, bottomInset: geometry.safeAreaInsets.bottom)
-            ZStack(alignment: .leading) {
-                Ink.sheet.ignoresSafeArea()
-                HistorySidebar(close: { showSidebar = false },
+            let bottomInset = geometry.safeAreaInsets.bottom
+            let topInset = geometry.safeAreaInsets.top
+            let excludedHeight = composerPanelHeight + (keyboardVisible ? 0 : bottomInset + FloatingChrome.navigationHeight)
+            SidebarDrawerContainer(
+                isOpen: $showSidebar,
+                reduceMotion: reduceMotion,
+                isSwiss: isSwiss,
+                appearanceRaw: appearance,
+                styleRevision: StyleAppearance.shared.revision,
+                composerExcludedHeight: excludedHeight,
+                sidebarBuilder: {
+                    HistorySidebar(close: { showSidebar = false },
+                                   openSettings: { showSettings = true },
+                                   openProjects: { showProjects = true },
+                                   openAllChats: { showAllChats = true },
+                                   openBooks: { showBooks = true })
+                        .environmentObject(store)
+                        .environmentObject(profile)
+                        .preferredColorScheme(AppearanceMode.scheme(appearance))
+                },
+                main: NavigationStack {
+                    ChatScreen(openHistory: { showSidebar = true },
                                openSettings: { showSettings = true },
-                               openProjects: { showProjects = true },
-                               openAllChats: { showAllChats = true },
-                               openBooks: { showBooks = true })
-                .frame(width: width)
-                .background(Ink.sheet.ignoresSafeArea())
-                .clipShape(backPage)
-                .overlay(backPage.stroke(Ink.line.opacity(isRevealed ? 1 : 0), lineWidth: 0.5).allowsHitTesting(false))
-                .offset(x: -width * 0.16 * (1 - progress))
-                .opacity(isRevealed ? min(1, max(0.01, progress * 2.5)) : 0)
-                .allowsHitTesting(showSidebar)
-                .accessibilityHidden(!showSidebar)
-
-                NavigationStack {
-                    ChatScreen(openHistory: { showSidebar = true }, openSettings: { showSettings = true }, keyboardVisible: $keyboardVisible,
-                               composerPanelHeight: $composerPanelHeight, bottomInset: geometry.safeAreaInsets.bottom,
-                               topInset: geometry.safeAreaInsets.top)
+                               keyboardVisible: $keyboardVisible,
+                               composerPanelHeight: $composerPanelHeight,
+                               bottomInset: bottomInset,
+                               topInset: topInset,
+                               sidebarOpen: showSidebar)
                 }
-                .frame(maxWidth: .infinity, maxHeight: .infinity)
                 .tint(Ink.ink)
                 .background(AppBackground())
-                .overlay {
-                    if progress > 0 {
-                        Color.clear
-                            .contentShape(Rectangle())
-                            .onTapGesture { showSidebar = false }
-                    }
-                }
-                .clipShape(frontPage)
-                .background(frontPage.fill(Ink.paper)
-                    .shadow(color: Color.black.opacity(isRevealed ? 0.12 : 0), radius: 14, x: -6)
-                    .allowsHitTesting(false))
-                .overlay(frontPage.stroke(Ink.line.opacity(isRevealed ? 1 : 0), lineWidth: 0.6).allowsHitTesting(false))
-                .offset(x: position)
-                .accessibilityHidden(showSidebar)
-            }
-            .contentShape(Rectangle())
-            .animation(reduceMotion ? nil : .snappy(duration: 0.28), value: showSidebar)
-            .background(SidebarPan(enabled: true, isOpen: showSidebar,
-                maximumStartY: geometry.frame(in: .global).maxY - composerPanelHeight - (keyboardVisible ? 0 : FloatingChrome.navigationHeight),
-                changed: { distance in
-                    sidebarDrag = showSidebar ? max(-width, min(0, distance)) : min(width, max(0, distance))
-                }, ended: { distance, prediction in
-                    let threshold = min(65, width * 0.18)
-                    let open = showSidebar ? !(distance < -threshold || prediction < -width * 0.45) :
-                        (distance > threshold || prediction > width * 0.45)
-                    if open {
-                        UIApplication.shared.sendAction(#selector(UIResponder.resignFirstResponder), to: nil, from: nil, for: nil)
-                    }
-                    withAnimation(reduceMotion ? nil : .snappy(duration: 0.28)) { showSidebar = open; sidebarDrag = 0 }
-                }, cancelled: {
-                    withAnimation(reduceMotion ? nil : .snappy(duration: 0.28)) { sidebarDrag = 0 }
-                }))
+                .ignoresSafeArea(.keyboard, edges: .bottom)
+                .environmentObject(store)
+                .environmentObject(profile)
+                .preferredColorScheme(AppearanceMode.scheme(appearance))
+            )
+            .ignoresSafeArea()
         }
         .ignoresSafeArea(.keyboard, edges: .bottom)
         .preferredColorScheme(AppearanceMode.scheme(appearance))
@@ -256,6 +233,24 @@ enum ChatPhotoPicker {
     }
 }
 
+@MainActor @Observable
+private final class ChatScrollUIState {
+    var nearBottom = true
+    var showJumpToLatest = false
+}
+
+private struct ScrollBottomMetrics: Equatable {
+    let nearBottom: Bool
+    let showJump: Bool
+}
+
+private struct ContextUsageSnapshot {
+    let ratio: Double
+    let estimatedTokens: Int
+    let messageCount: Int
+    let cacheHitRate: Int?
+}
+
 @MainActor
 struct ChatScreen: View {
     @EnvironmentObject private var store: AppStore
@@ -269,6 +264,7 @@ struct ChatScreen: View {
     // The status bar; the chat now runs up behind the floating buttons, so its
     // first line is pushed down by this plus the button row instead.
     let topInset: CGFloat
+    let sidebarOpen: Bool
     private var topChrome: CGFloat { topInset + 56 }
     @FocusState private var composerFocused: Bool
     @State private var previewComposerFocused = false
@@ -282,7 +278,9 @@ struct ChatScreen: View {
     @State private var thinkingTarget: ThinkingTarget?
     @State private var pendingSuggestedReply: PendingSuggestedReply?
     @State private var followsOutput = true
-    @State private var nearBottom = true
+    @State private var scrollUIState = ChatScrollUIState()
+    @State private var timeReveal = SwipeTimeRevealModel()
+    @State private var cachedContext: ContextUsageSnapshot?
     @State private var choosingFiles = false
     @State private var choosingPhotos = false
     @State private var fileImportTask: Task<Void, Never>?
@@ -333,7 +331,6 @@ struct ChatScreen: View {
     @State private var messageBrowser: ChatMessageBrowserRequest?
     @State private var messageBrowserVisible = false
     @State private var pendingMessageJump: ChatMessageJump?
-    @State private var laidOutMessageJumpID: UUID?
     @State private var focusedMessageID: UUID?
     private var isEmptyPage: Bool { store.activeThread?.messages.isEmpty != false }
     private var composerPlaceholder: String {
@@ -455,8 +452,30 @@ struct ChatScreen: View {
                 set: { if !$0 { store.errorMessage = nil } })
     }
 
+    private func refreshContextStats() {
+        guard let thread = store.activeThread, !thread.messages.isEmpty else {
+            cachedContext = nil
+            return
+        }
+        let stats = ChatRequest.estimateContextUsage(
+            settings: store.activeChatSettings,
+            messages: thread.messages
+        )
+        let lastUsage = thread.messages.last(where: { $0.role == .assistant && $0.usage != nil })?.usage
+        let cacheHitRate: Int? = {
+            guard let u = lastUsage, u.promptTokens > 0, u.cachedTokens > 0 else { return nil }
+            return Int(round(Double(u.cachedTokens) / Double(u.promptTokens) * 100))
+        }()
+        cachedContext = ContextUsageSnapshot(
+            ratio: stats.ratio,
+            estimatedTokens: stats.estimatedTokens,
+            messageCount: stats.messageCount,
+            cacheHitRate: cacheHitRate
+        )
+    }
+
     private var transcript: some View {
-        Group {
+        ZStack(alignment: .bottom) {
             if isEmptyPage {
                 VStack(spacing: 0) {
                     Spacer(minLength: 12)
@@ -469,78 +488,91 @@ struct ChatScreen: View {
                     Spacer(minLength: 12)
                 }.padding(.top, topChrome).padding(.bottom, composerPanelHeight)
             } else {
-            ZStack(alignment: .bottom) {
-            ScrollView {
-                VStack(alignment: .leading, spacing: swiss ? 0 : 30) {
-                    if swiss, let thread = store.activeThread {
-                        SwissThreadHeader(title: thread.title, date: thread.createdAt,
-                                          model: store.pillModelTitle + " / " + store.pillEffortTitle,
-                                          rounds: thread.messages.filter { $0.role == .user }.count)
-                            .padding(.top, 6)
+                ScrollView {
+                    LazyVStack(alignment: .leading, spacing: swiss ? 0 : 30) {
+                        if swiss, let thread = store.activeThread {
+                            SwissThreadHeader(title: thread.title, date: thread.createdAt,
+                                              model: store.pillModelTitle + " / " + store.pillEffortTitle,
+                                              rounds: thread.messages.filter { $0.role == .user }.count)
+                                .padding(.top, 6)
+                        }
+                        if (store.activeThread?.messages.count ?? 0) > visibleMessageCount {
+                            Button("查看更早消息") {
+                                visibleMessageCount += 100
+                                scrollPosition.scrollTo(edge: .top)
+                            }.font(TypeScale.caption).foregroundStyle(Palette.secondary)
+                                .frame(maxWidth: .infinity)
+                        }
+                        messageRows
+                        Color.clear.frame(height: 2)
                     }
-                    if (store.activeThread?.messages.count ?? 0) > visibleMessageCount {
-                        Button("查看更早消息") {
-                            visibleMessageCount += 100
-                            scrollPosition.scrollTo(edge: .top)
-                        }.font(TypeScale.caption).foregroundStyle(Palette.secondary)
-                            .frame(maxWidth: .infinity)
-                    }
-                    messageRows
-                    Color.clear.frame(height: 2)
+                    .scrollTargetLayout()
+                    .padding(.horizontal, swiss ? 20 : Personal.margin).padding(.top, 10).padding(.bottom, 22)
                 }
-                .scrollTargetLayout()
-                .padding(.horizontal, swiss ? 20 : Personal.margin).padding(.top, 10).padding(.bottom, 22)
-            }
-            .accessibilityIdentifier("chat-scroll")
-            // The system's top edge effect drew a solid paper band behind the buttons, so
-            // they never looked afloat. Text now passes under the glass; only the clock
-            // keeps a short fade so it stays readable.
-            .scrollEdgeEffectHidden(true, for: .top)
-            .overlay(alignment: .top) {
-                // The clock row sits on the page colour fading out below it, so the time
-                // never prints over the text. A plain gradient: a live blur here had to be
-                // recomputed every frame while an answer streamed and scrolled under it.
-                LinearGradient(stops: [.init(color: Ink.paper, location: 0), .init(color: Ink.paper, location: 0.62),
-                                       .init(color: Ink.paper.opacity(0), location: 1)], startPoint: .top, endPoint: .bottom)
-                    .frame(height: topInset + 14).allowsHitTesting(false).accessibilityHidden(true)
-            }
-            .scrollPosition($scrollPosition)
-            .contentMargins(.top, topChrome, for: .scrollContent)
-            .contentMargins(.top, topChrome, for: .scrollIndicators)
-            .contentMargins(.bottom, composerPanelHeight + bottomInset + 12, for: .scrollContent)
-            .contentMargins(.bottom, composerPanelHeight + bottomInset + 12, for: .scrollIndicators)
-            .scrollDismissesKeyboard(.interactively)
-            .onAppear {
-                if !hasPositionedInitially && !store.isPreview {
-                    let threadID = store.activeThreadID
-                    DispatchQueue.main.async {
-                        if store.activeThreadID == threadID && shouldFollowOutput { scrollPosition.scrollTo(edge: .bottom) }
-                    }
+                .accessibilityIdentifier("chat-scroll")
+                // The system's top edge effect drew a solid paper band behind the buttons, so
+                // they never looked afloat. Text now passes under the glass; only the clock
+                // keeps a short fade so it stays readable.
+                .scrollEdgeEffectHidden(true, for: .top)
+                .background(TranscriptLeftSwipePan(enabled: !sidebarOpen, model: timeReveal))
+                .overlay(alignment: .top) {
+                    // The clock row sits on the page colour fading out below it, so the time
+                    // never prints over the text. A plain gradient: a live blur here had to be
+                    // recomputed every frame while an answer streamed and scrolled under it.
+                    LinearGradient(stops: [.init(color: Ink.paper, location: 0), .init(color: Ink.paper, location: 0.62),
+                                           .init(color: Ink.paper.opacity(0), location: 1)], startPoint: .top, endPoint: .bottom)
+                        .frame(height: topInset + 14).allowsHitTesting(false).accessibilityHidden(true)
                 }
-                hasPositionedInitially = true
+                .scrollPosition($scrollPosition)
+                .contentMargins(.top, topChrome, for: .scrollContent)
+                .contentMargins(.top, topChrome, for: .scrollIndicators)
+                .contentMargins(.bottom, composerPanelHeight + (keyboardVisible ? 16 : max(bottomInset, 16) + 12), for: .scrollContent)
+                .contentMargins(.bottom, composerPanelHeight + (keyboardVisible ? 16 : max(bottomInset, 16) + 12), for: .scrollIndicators)
+                .scrollDismissesKeyboard(.interactively)
+                .onAppear {
+                    if !hasPositionedInitially && !store.isPreview {
+                        let threadID = store.activeThreadID
+                        DispatchQueue.main.async {
+                            if store.activeThreadID == threadID && shouldFollowOutput { scrollPosition.scrollTo(edge: .bottom) }
+                        }
+                    }
+                    hasPositionedInitially = true
+                }
+                .onScrollGeometryChange(for: ScrollBottomMetrics.self) { g in
+                    let distance = g.contentSize.height + g.contentInsets.bottom - g.contentOffset.y - g.containerSize.height
+                    return ScrollBottomMetrics(nearBottom: distance < 48, showJump: distance > 120)
+                } action: { _, value in
+                    if scrollUIState.nearBottom != value.nearBottom { scrollUIState.nearBottom = value.nearBottom }
+                    if scrollUIState.showJumpToLatest != value.showJump { scrollUIState.showJumpToLatest = value.showJump }
+                }
+                .onScrollPhaseChange { _, phase in
+                    if phase == .interacting { followsOutput = false; clearMessageNavigation() }
+                    if phase == .idle && scrollUIState.nearBottom && pendingMessageJump == nil && focusedMessageID == nil { followsOutput = true }
+                }
+                .onChange(of: store.activeThread?.messages.count) { _, _ in
+                    // Straight to the new message: a glide here, on top of the list's own
+                    // update, left a ghost of the text while sending.
+                    guard shouldFollowOutput else { return }
+                    lastAutoScrollAt = Date()
+                    scrollPosition.scrollTo(edge: .bottom)
+                }
+                .onChange(of: store.activeThread?.messages.last?.content) { _, _ in
+                    followLiveText()
+                }
+                .onChange(of: store.activeThread?.messages.last?.replySuggestions) { _, _ in
+                    if shouldFollowOutput { scrollPosition.scrollTo(edge: .bottom) }
+                }
             }
-            .onScrollGeometryChange(for: Bool.self) { g in
-                g.contentSize.height + g.contentInsets.bottom - g.contentOffset.y - g.containerSize.height < 36
-            } action: { _, value in nearBottom = value }
-            .onScrollPhaseChange { _, phase in
-                if phase == .interacting { followsOutput = false; clearMessageNavigation() }
-                if phase == .idle && nearBottom && pendingMessageJump == nil && focusedMessageID == nil { followsOutput = true }
-            }
-            .onChange(of: store.activeThread?.messages.count) { _, _ in
-                // Straight to the new message: a glide here, on top of the list's own
-                // update, left a ghost of the text while sending.
-                guard shouldFollowOutput else { return }
-                lastAutoScrollAt = Date()
-                scrollPosition.scrollTo(edge: .bottom)
-            }
-            .onChange(of: store.activeThread?.messages.last?.content) { _, _ in
-                followLiveText()
-            }
-            .onChange(of: store.activeThread?.messages.last?.replySuggestions) { _, _ in
-                if shouldFollowOutput { scrollPosition.scrollTo(edge: .bottom) }
-            }
-            }
-            }
+
+            ChatFloatingControlsOverlay(
+                scrollUIState: scrollUIState,
+                hasMessages: !isEmptyPage,
+                canChooseProject: store.canChooseProject,
+                projectMenu: { projectPill },
+                jumpToLatest: jumpToLatest
+            )
+            .padding(.horizontal, 14)
+            .padding(.bottom, composerPanelHeight + 10)
         }
     }
 
@@ -551,10 +583,6 @@ struct ChatScreen: View {
     private var chatLayout: some View {
         KeyboardChatLayout {
             transcript.environmentObject(store).environmentObject(profile)
-                .onPreferenceChange(ChatMessageJumpLayoutKey.self) { requestID in
-                    laidOutMessageJumpID = requestID
-                    finishMessageJump()
-                }
         } composer: {
             composer.fixedSize(horizontal: false, vertical: true)
                 .environmentObject(store).environmentObject(profile)
@@ -599,7 +627,12 @@ struct ChatScreen: View {
             Button("取消", role: .cancel) { }
             Button("保存") { if let id = store.activeThreadID { store.renameThread(id, title: renameText) } }
         }
-        .sheet(isPresented: Binding(get: { exportURL != nil }, set: { if !$0 { exportURL = nil } })) {
+        .sheet(isPresented: Binding(get: { exportURL != nil }, set: { if !$0 { exportURL = nil } }), onDismiss: {
+            if let url = exportURL, url.path.hasPrefix(FileManager.default.temporaryDirectory.path) {
+                try? FileManager.default.removeItem(at: url)
+            }
+            exportURL = nil
+        }) {
             if let url = exportURL { ShareSheet(items: [url]) }
         }
     }
@@ -622,11 +655,16 @@ struct ChatScreen: View {
         }
         .onAppear {
             loadDraft()
+            refreshContextStats()
             if let incoming = store.incomingChatFileURL, let origin = store.activeThreadID ?? store.threads.first?.id {
                 store.incomingChatFileURL = nil
                 importDocuments([incoming], into: origin, removeAfterImport: true)
             }
         }
+        .onChange(of: store.activeThread?.messages.count) { _, _ in refreshContextStats() }
+        .onChange(of: store.isGenerating) { _, generating in if !generating { refreshContextStats() } }
+        .onChange(of: store.compactingThreadID) { _, _ in refreshContextStats() }
+        .onChange(of: store.activeChatSettings) { _, _ in refreshContextStats() }
         .onChange(of: store.incomingChatFileURL) { _, incoming in
             guard let incoming, let origin = store.activeThreadID ?? store.threads.first?.id else { return }
             store.incomingChatFileURL = nil
@@ -643,12 +681,15 @@ struct ChatScreen: View {
             draftPushTask?.cancel(); draftPushTask = nil
             if let old = draftThreadID, old != newID, store.draft(of: old) != localDraft { store.setDraft(localDraft, threadID: old) }
             loadDraft()
+            refreshContextStats()
             store.speech.stop()
             systemPromptTarget = nil; versionsTarget = nil
             messageBrowser = nil; clearMessageNavigation()
             store.webSearchEnabled = false
             storyPlayFor = nil; pendingSuggestedReply = nil
             visibleMessageCount = 100; followsOutput = true
+            scrollUIState.nearBottom = true
+            scrollUIState.showJumpToLatest = false
             DispatchQueue.main.async {
                 if store.activeThreadID == newID && shouldFollowOutput { scrollPosition.scrollTo(edge: .bottom) }
             }
@@ -745,14 +786,6 @@ struct ChatScreen: View {
         return ForEach(visibleMessages) { message in
             // Equatable: only the message that changed redraws while an answer streams.
             messageRow(message, threadID: threadID, isLast: message.id == lastID, round: rounds[message.id] ?? 1, style: look)
-                .background {
-                    if pendingMessageJump?.messageID == message.id, let requestID = pendingMessageJump?.id {
-                        GeometryReader { geometry in
-                            Color.clear.preference(key: ChatMessageJumpLayoutKey.self,
-                                                   value: geometry.size.height > 0 ? requestID : nil)
-                        }
-                    }
-                }
                 .overlay(alignment: .leading) {
                     if focusedMessageID == message.id {
                         RoundedRectangle(cornerRadius: 2).fill(Ink.seal.opacity(0.7)).frame(width: 3).padding(.leading, -10)
@@ -772,15 +805,14 @@ struct ChatScreen: View {
         guard let thread = store.activeThread, thread.id == threadID, !store.isHidden(thread),
               let index = thread.messages.firstIndex(where: { $0.id == messageID }) else { return }
         focusComposer(false); followsOutput = false
-        focusedMessageID = nil; laidOutMessageJumpID = nil
+        focusedMessageID = nil
         pendingMessageJump = ChatMessageJump(threadID: threadID, messageID: messageID)
         // Render the target even when it is older than the default last 100 messages.
         visibleMessageCount = max(visibleMessageCount, thread.messages.count - index)
         messageBrowser = nil
     }
     private func finishMessageJump() {
-        guard !messageBrowserVisible, messageBrowser == nil, let request = pendingMessageJump, laidOutMessageJumpID == request.id else { return }
-        // The target has reported a nonzero layout; issue the scroll on the next UI turn.
+        guard !messageBrowserVisible, messageBrowser == nil, let request = pendingMessageJump else { return }
         DispatchQueue.main.async {
             guard pendingMessageJump?.id == request.id, let thread = store.activeThread,
                   thread.id == request.threadID, !store.isHidden(thread),
@@ -788,11 +820,16 @@ struct ChatScreen: View {
             followsOutput = false
             focusedMessageID = request.messageID
             scrollPosition.scrollTo(id: request.messageID, anchor: .top)
-            pendingMessageJump = nil; laidOutMessageJumpID = nil
+            pendingMessageJump = nil
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.09) {
+                if focusedMessageID == request.messageID && store.activeThreadID == request.threadID {
+                    scrollPosition.scrollTo(id: request.messageID, anchor: .top)
+                }
+            }
         }
     }
     private func clearMessageNavigation() {
-        pendingMessageJump = nil; laidOutMessageJumpID = nil; focusedMessageID = nil
+        pendingMessageJump = nil; focusedMessageID = nil
     }
 
     /// Exchange numbers: each message of yours starts a new one, the answers after it share it.
@@ -807,14 +844,18 @@ struct ChatScreen: View {
     }
 
     @ViewBuilder private func messageRow(_ message: ChatMessage, threadID: UUID?, isLast: Bool, round: Int, style: InterfaceStyle) -> some View {
-        if message.state == .streaming {
-            // The answer being written redraws on its own, without the rest of the page.
-            LiveMessageRow(live: store.live, message: message, onGrow: followLiveText) { shown in
-                messageBody(shown, threadID: threadID, isLast: isLast, round: round, style: style)
-            }.id(message.id)
-        } else {
-            messageBody(message, threadID: threadID, isLast: isLast, round: round, style: style).id(message.id)
+        let timestamp: Date? = message.directive == nil ? message.createdAt : nil
+        SwipeTimestampRow(timeReveal: timeReveal, timestamp: timestamp) {
+            if message.state == .streaming {
+                // The answer being written redraws on its own, without the rest of the page.
+                LiveMessageRow(live: store.live, message: message, onGrow: followLiveText) { shown in
+                    messageBody(shown, threadID: threadID, isLast: isLast, round: round, style: style)
+                }
+            } else {
+                messageBody(message, threadID: threadID, isLast: isLast, round: round, style: style)
+            }
         }
+        .id(message.id)
     }
 
     private func messageBody(_ message: ChatMessage, threadID: UUID?, isLast: Bool, round: Int, style: InterfaceStyle) -> some View {
@@ -1213,35 +1254,7 @@ struct ChatScreen: View {
         }
     }
 
-    @ViewBuilder private var composerTopControls: some View {
-        let hasMessages = store.activeThread?.messages.isEmpty == false
-        if store.canChooseProject || (hasMessages && !nearBottom) {
-            // Small glass buttons floating above the composer: the project on a new page,
-            // 「回到最新」 on the right only while you are scrolled up. The instruction
-            // button lives in the 「+」 row now, so nothing sits on the text you read.
-            HStack(spacing: 10) {
-                if store.canChooseProject { projectPill }
-                Spacer(minLength: 0)
-                if hasMessages && !nearBottom {
-                    Button(action: jumpToLatest) {
-                        Image(systemName: "arrow.down").font(.system(size: 17, weight: .medium))
-                            .foregroundStyle(Ink.ink)
-                            .frame(width: 44, height: 44)
-                            .floatingGlass(in: AnyShape(Circle()))
-                            .contentShape(Circle())
-                    }
-                    .buttonStyle(.pressFeedback).accessibilityLabel("一键回到最新消息")
-                    .accessibilityIdentifier("chat-jump-to-latest")
-                    .transition(.opacity.combined(with: .scale(scale: 0.8)))
-                }
-            }
-            .animation(.snappy(duration: 0.2), value: nearBottom)
-        }
-    }
-
-    // Photos, files and pasted text behind one 「+」. It opens a small row inside the
-    // composer instead of a system menu: a picker started while a menu was still
-    // closing was dropped, so 「图片」 needed several taps before.
+    @ViewBuilder private var systemPromptControl: some View {
     private var attachmentButton: some View {
         Button {
             Haptic.tap()
@@ -1320,50 +1333,40 @@ struct ChatScreen: View {
     }
 
     @ViewBuilder private var contextStatusBar: some View {
-        if let thread = store.activeThread, !thread.messages.isEmpty {
-            let stats = ChatRequest.estimateContextUsage(
-                settings: store.activeChatSettings,
-                messages: thread.messages
-            )
-            let lastUsage = thread.messages.last(where: { $0.role == .assistant && $0.usage != nil })?.usage
-            let cacheHitRate: Int? = {
-                guard let u = lastUsage, u.promptTokens > 0, u.cachedTokens > 0 else { return nil }
-                return Int(round(Double(u.cachedTokens) / Double(u.promptTokens) * 100))
-            }()
-            if stats.messageCount >= 4 || store.compactingThreadID == thread.id {
-                let pct = max(1, Int(round(stats.ratio * 100)))
-                let barColor: Color = stats.ratio > 0.80 ? .red : (stats.ratio > 0.55 ? .orange : Ink.seal)
-                HStack(spacing: 8) {
-                    GeometryReader { geo in
-                        ZStack(alignment: .leading) {
-                            Capsule().fill(Ink.ink3.opacity(0.18))
-                            Capsule().fill(barColor).frame(width: max(4, geo.size.width * CGFloat(stats.ratio)))
-                        }
-                    }
-                    .frame(width: 44, height: 5)
-                    Text("上下文 \(pct)% · 约\(stats.estimatedTokens >= 1000 ? String(format: "%.1fk", Double(stats.estimatedTokens) / 1000.0) : "\(stats.estimatedTokens)")")
-                        .font(.system(size: 11, design: .monospaced))
-                        .foregroundStyle(Ink.ink3)
-                        .lineLimit(1)
-                    if let hit = cacheHitRate {
-                        Text("缓存 \(hit)%")
-                            .font(.system(size: 10.5, weight: .medium, design: .monospaced))
-                            .foregroundStyle(Ink.seal)
-                            .padding(.horizontal, 6)
-                            .padding(.vertical, 1.5)
-                            .background(Ink.seal.opacity(0.10), in: Capsule())
-                    }
-                    Spacer(minLength: 4)
-                    if store.compactingThreadID == thread.id {
-                        HStack(spacing: 4) {
-                            ProgressView().controlSize(.mini)
-                            Text("正在浓缩…").font(TypeScale.tiny).foregroundStyle(Ink.seal)
-                        }
+        if let thread = store.activeThread, let stats = cachedContext,
+           (stats.messageCount >= 4 || store.compactingThreadID == thread.id) {
+            let pct = max(1, Int(round(stats.ratio * 100)))
+            let barColor: Color = stats.ratio > 0.80 ? .red : (stats.ratio > 0.55 ? .orange : Ink.seal)
+            HStack(spacing: 8) {
+                GeometryReader { geo in
+                    ZStack(alignment: .leading) {
+                        Capsule().fill(Ink.ink3.opacity(0.18))
+                        Capsule().fill(barColor).frame(width: max(4, geo.size.width * CGFloat(stats.ratio)))
                     }
                 }
-                .padding(.horizontal, 8)
-                .transition(.opacity)
+                .frame(width: 44, height: 5)
+                Text("上下文 \(pct)% · 约\(stats.estimatedTokens >= 1000 ? String(format: "%.1fk", Double(stats.estimatedTokens) / 1000.0) : "\(stats.estimatedTokens)")")
+                    .font(.system(size: 11, design: .monospaced))
+                    .foregroundStyle(Ink.ink3)
+                    .lineLimit(1)
+                if let hit = stats.cacheHitRate {
+                    Text("缓存 \(hit)%")
+                        .font(.system(size: 10.5, weight: .medium, design: .monospaced))
+                        .foregroundStyle(Ink.seal)
+                        .padding(.horizontal, 6)
+                        .padding(.vertical, 1.5)
+                        .background(Ink.seal.opacity(0.10), in: Capsule())
+                }
+                Spacer(minLength: 4)
+                if store.compactingThreadID == thread.id {
+                    HStack(spacing: 4) {
+                        ProgressView().controlSize(.mini)
+                        Text("正在浓缩…").font(TypeScale.tiny).foregroundStyle(Ink.seal)
+                    }
+                }
             }
+            .padding(.horizontal, 8)
+            .transition(.opacity)
         }
     }
 
@@ -1443,7 +1446,6 @@ struct ChatScreen: View {
 
     private var composer: some View {
         VStack(spacing: 8) {
-            composerTopControls
             if let approval = store.pendingApproval {
                 InlineToolApprovalCard(approval: approval) { store.resolveApproval($0) }
             }
@@ -1702,8 +1704,27 @@ struct ChatScreen: View {
             }
         }
         .padding(.horizontal, 14).padding(.top, 8).padding(.bottom, 10)
+        .background(alignment: .bottom) {
+            LinearGradient(
+                stops: [
+                    .init(color: Ink.paper.opacity(0), location: 0),
+                    .init(color: Ink.paper.opacity(0.92), location: 0.24),
+                    .init(color: Ink.paper, location: 0.58),
+                    .init(color: Ink.paper, location: 1)
+                ],
+                startPoint: .top,
+                endPoint: .bottom
+            )
+            .padding(.top, -16)
+            .ignoresSafeArea(.container, edges: .bottom)
+            .allowsHitTesting(false)
+        }
         .accessibilityElement(children: .contain).accessibilityIdentifier("chat-composer-panel")
-        .onGeometryChange(for: CGFloat.self) { $0.size.height } action: { composerPanelHeight = $0 }
+        .onGeometryChange(for: CGFloat.self) { $0.size.height } action: { newHeight in
+            if abs(composerPanelHeight - newHeight) > 0.5 {
+                composerPanelHeight = newHeight
+            }
+        }
         .onChange(of: ghostSource?.id) { _, _ in suggestionIndex = 0 }
     }
 }
@@ -1725,10 +1746,63 @@ private struct ChatMessageJump {
     let messageID: UUID
 }
 
-private struct ChatMessageJumpLayoutKey: PreferenceKey {
-    static var defaultValue: UUID? { nil }
-    static func reduce(value: inout UUID?, nextValue: () -> UUID?) {
-        if let next = nextValue() { value = next }
+@MainActor
+private struct ChatFloatingControlsOverlay<ProjectMenu: View>: View {
+    let scrollUIState: ChatScrollUIState
+    let hasMessages: Bool
+    let canChooseProject: Bool
+    @ViewBuilder let projectMenu: () -> ProjectMenu
+    let jumpToLatest: () -> Void
+
+    var body: some View {
+        let showJump = hasMessages && scrollUIState.showJumpToLatest
+        if canChooseProject || showJump {
+            HStack(spacing: 10) {
+                if canChooseProject { projectMenu() }
+                Spacer(minLength: 0)
+                if showJump {
+                    Button(action: jumpToLatest) {
+                        Image(systemName: "arrow.down").font(.system(size: 17, weight: .medium))
+                            .foregroundStyle(Ink.ink)
+                            .frame(width: 44, height: 44)
+                            .floatingGlass(in: AnyShape(Circle()))
+                            .contentShape(Circle())
+                    }
+                    .buttonStyle(.pressFeedback)
+                    .accessibilityLabel("一键回到最新消息")
+                    .accessibilityIdentifier("chat-jump-to-latest")
+                    .transition(.opacity.combined(with: .scale(scale: 0.8)))
+                }
+            }
+            .animation(.snappy(duration: 0.2), value: showJump)
+        }
+    }
+}
+
+@MainActor
+private struct SwipeTimestampRow<Content: View>: View {
+    let timeReveal: SwipeTimeRevealModel
+    let timestamp: Date?
+    @ViewBuilder let content: () -> Content
+
+    var body: some View {
+        let offset = timestamp == nil ? 0 : timeReveal.offset
+        content()
+            .offset(x: offset)
+            .overlay(alignment: .trailing) {
+                if let timestamp, offset < -2 {
+                    let progress = min(1.0, max(0.0, Double(-offset - 2) / 38.0))
+                    Text(MessageTime.swipeLabel(timestamp))
+                        .font(.system(size: 11.5, weight: .medium, design: .monospaced))
+                        .foregroundStyle(Ink.ink3)
+                        .lineLimit(1)
+                        .fixedSize()
+                        .offset(x: 68 + offset)
+                        .opacity(progress)
+                        .allowsHitTesting(false)
+                        .accessibilityHidden(true)
+                }
+            }
     }
 }
 
@@ -1901,17 +1975,11 @@ struct MessageView: View, Equatable {
     var retryColab: (() -> Void)? = nil
     @State private var copied = false
     @State private var selecting = false
-    @GestureState private var timeRevealOffset: CGFloat = 0
-    @State private var timeHapticTriggered = false
 
     nonisolated static func == (lhs: MessageView, rhs: MessageView) -> Bool {
         lhs.message == rhs.message && lhs.threadID == rhs.threadID && lhs.isLast == rhs.isLast
             && lhs.isGenerating == rhs.isGenerating && lhs.canRegenerate == rhs.canRegenerate
             && lhs.showsSuggestions == rhs.showsSuggestions && lhs.round == rhs.round && lhs.style == rhs.style
-    }
-
-    private var swipeTimeProgress: Double {
-        min(1.0, max(0.0, Double(-timeRevealOffset - 6) / 38.0))
     }
 
     var body: some View {
@@ -1933,46 +2001,6 @@ struct MessageView: View, Equatable {
                 .frame(maxWidth: .infinity).padding(.vertical, 6)
             } else if style == .swiss { swissContent } else { paperContent }
         }
-        .offset(x: timeRevealOffset)
-        .animation(.spring(response: 0.28, dampingFraction: 0.82), value: timeRevealOffset == 0)
-        .overlay(alignment: .trailing) {
-            if message.directive == nil && timeRevealOffset < -2 {
-                Text(MessageTime.swipeLabel(message.createdAt))
-                    .font(.system(size: 11.5, weight: .medium, design: .monospaced))
-                    .foregroundStyle(Ink.ink3)
-                    .lineLimit(1)
-                    .fixedSize()
-                    .offset(x: 68 + timeRevealOffset)
-                    .opacity(swipeTimeProgress)
-                    .allowsHitTesting(false)
-                    .accessibilityHidden(true)
-            }
-        }
-        .simultaneousGesture(
-            DragGesture(minimumDistance: 14, coordinateSpace: .local)
-                .updating($timeRevealOffset) { value, state, _ in
-                    guard message.directive == nil else { return }
-                    let dx = value.translation.width
-                    let dy = value.translation.height
-                    // Only activate when dragging predominantly to the left so vertical scrolling stays 100% smooth.
-                    guard dx < -6, abs(dx) > abs(dy) * 1.3 else { state = 0; return }
-                    state = max(-68, (dx + 6) * 0.62)
-                }
-                .onChanged { value in
-                    guard message.directive == nil else { return }
-                    let dx = value.translation.width
-                    let dy = value.translation.height
-                    guard dx < -6, abs(dx) > abs(dy) * 1.3 else { return }
-                    let damped = max(-68, (dx + 6) * 0.62)
-                    if damped <= -42 && !timeHapticTriggered {
-                        timeHapticTriggered = true
-                        Haptic.tap()
-                    }
-                }
-                .onEnded { _ in
-                    timeHapticTriggered = false
-                }
-        )
         .contextMenu {
             // The three used most come first; everything else sits below a divider.
             Section {
@@ -2014,7 +2042,7 @@ struct MessageView: View, Equatable {
                     Spacer(minLength: 52)
                     VStack(alignment: .trailing, spacing: 6) {
                         discussionVoiceLabel
-                        if let names = message.images, !names.isEmpty { AttachmentRow(names: names) }
+                        if let names = message.images, !names.isEmpty { AttachmentRow(names: names, swiss: false) }
                         if !decoded.attachments.isEmpty {
                             MessageDocumentCards(attachments: decoded.attachments, swiss: false)
                         }
@@ -2070,7 +2098,7 @@ struct MessageView: View, Equatable {
                     MonoLabel(text: String(format: "Q.%02d", round)).frame(width: 46, alignment: .leading)
                     VStack(alignment: .leading, spacing: 8) {
                         discussionVoiceLabel
-                        if let names = message.images, !names.isEmpty { AttachmentRow(names: names) }
+                        if let names = message.images, !names.isEmpty { AttachmentRow(names: names, swiss: true) }
                         if !decoded.attachments.isEmpty {
                             MessageDocumentCards(attachments: decoded.attachments, swiss: true)
                         }
@@ -2354,27 +2382,15 @@ struct ReplySuggestionPanel: View {
 
 struct AttachmentRow: View {
     let names: [String]
-    private var side: CGFloat { names.count == 1 ? 168 : (names.count == 2 ? 120 : 76) }
+    var swiss: Bool = false
     var body: some View {
-        HStack(spacing: 8) {
-            ForEach(names, id: \.self) { name in
-                Group {
-                    if let image = ImageStore.thumbnail(named: name) {
-                        Image(uiImage: image).resizable().scaledToFill().accessibilityLabel("附带的图片")
-                    } else {
-                        Ink.raised.overlay(Image(systemName: "photo").foregroundStyle(Ink.ink3))
-                            .accessibilityLabel("图片文件已不在这台手机上")
-                    }
-                }
-                .frame(width: side, height: side)
-                .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
-            }
-        }
+        PhotoStackView(names: names, swiss: swiss)
     }
 }
 
 // Equatable so finished answers are not re-parsed while a new one streams in.
-// Paragraphs are Equatable too: while text arrives only the last one is parsed again.
+// Paragraphs, code, tables and math are Equatable too: while text arrives only
+// the actively growing block is re-tokenized or laid out again.
 struct MarkdownAnswer: View, Equatable {
     let content: String
     var style: InterfaceStyle = .paper
@@ -2418,71 +2434,13 @@ struct MarkdownAnswer: View, Equatable {
                                 .fill(swiss ? Ink.ink : Ink.seal.opacity(0.75)).frame(width: swiss ? 3 : 2.5)
                         }
                 case .table(let header, let rows, let alignments):
-                    // Wide tables scroll sideways inside the answer instead of squeezing.
-                    ScrollView(.horizontal, showsIndicators: false) {
-                        Grid(alignment: .leading, horizontalSpacing: 0, verticalSpacing: 0) {
-                            GridRow {
-                                ForEach(Array(header.enumerated()), id: \.offset) { column, cell in
-                                    TableCell(text: cell, header: true, alignment: alignments[min(column, alignments.count - 1)])
-                                }
-                            }
-                            ForEach(Array(rows.enumerated()), id: \.offset) { _, row in
-                                GridRow {
-                                    ForEach(Array(row.enumerated()), id: \.offset) { column, cell in
-                                        TableCell(text: cell, header: false, alignment: alignments[min(column, alignments.count - 1)])
-                                    }
-                                }
-                            }
-                        }
-                        .overlay(RoundedRectangle(cornerRadius: swiss ? 0 : 12, style: .continuous)
-                            .stroke(swiss ? Ink.ink : Ink.line, lineWidth: 1))
-                        .clipShape(RoundedRectangle(cornerRadius: swiss ? 0 : 12, style: .continuous))
-                    }
+                    MarkdownTableBlockView(header: header, rows: rows, alignments: alignments, swiss: swiss).equatable()
                 case .divider:
                     Rectangle().fill(swiss ? Ink.ink : Ink.line).frame(height: 1).padding(.vertical, 4)
                 case .code(let segment):
-                    let parsed = CodeSyntaxTokenizer.parseHeaderAndBody(segment)
-                    VStack(alignment: .leading, spacing: 8) {
-                        HStack {
-                            Text(swiss ? (parsed.language.map { "CODE · \($0)" } ?? "CODE") : (parsed.language.map { "代码 · \($0)" } ?? "代码"))
-                                .font(swiss ? TypeScale.mono(10) : TypeScale.tiny.weight(.semibold))
-                                .foregroundStyle(Ink.seal)
-                            Spacer()
-                            Button { UIPasteboard.general.string = parsed.body } label: { Image(systemName: "doc.on.doc").foregroundStyle(Ink.seal) }
-                                .font(.system(size: 11)).accessibilityLabel("复制代码")
-                        }
-                        ScrollView(.horizontal) {
-                            Text(Self.highlightedCode(parsed.body, language: parsed.language))
-                                .font(.system(size: 13, design: .monospaced))
-                                .textSelection(.enabled)
-                        }
-                    }.padding(14).background(Ink.raised, in: RoundedRectangle(cornerRadius: swiss ? 0 : 16, style: .continuous))
-                        .overlay(RoundedRectangle(cornerRadius: swiss ? 0 : 16, style: .continuous)
-                            .stroke(swiss ? Ink.line : Ink.seal.opacity(0.18), lineWidth: 1).allowsHitTesting(false))
+                    MarkdownCodeBlockView(segment: segment, swiss: swiss).equatable()
                 case .math(let formula):
-                    VStack(alignment: .leading, spacing: 8) {
-                        HStack {
-                            Text(swiss ? "MATH" : "公式")
-                                .font(swiss ? TypeScale.mono(10) : TypeScale.tiny.weight(.semibold))
-                                .foregroundStyle(Ink.seal)
-                            Spacer()
-                            Button { UIPasteboard.general.string = formula } label: { Image(systemName: "doc.on.doc").foregroundStyle(Ink.seal) }
-                                .font(.system(size: 11)).accessibilityLabel("复制公式原文")
-                        }
-                        ScrollView(.horizontal, showsIndicators: false) {
-                            Text(MathFormatter.format(formula))
-                                .font(.system(size: 16, design: .serif))
-                                .italic()
-                                .foregroundStyle(Ink.ink)
-                                .textSelection(.enabled)
-                                .frame(maxWidth: .infinity, alignment: .center)
-                                .padding(.vertical, 4)
-                        }
-                    }
-                    .padding(14)
-                    .background(Ink.raised, in: RoundedRectangle(cornerRadius: swiss ? 0 : 14, style: .continuous))
-                    .overlay(RoundedRectangle(cornerRadius: swiss ? 0 : 14, style: .continuous)
-                        .stroke(swiss ? Ink.line : Ink.seal.opacity(0.16), lineWidth: 1).allowsHitTesting(false))
+                    MarkdownMathBlockView(formula: formula, swiss: swiss).equatable()
                 }
             }
         }.frame(maxWidth: .infinity, alignment: .leading)
@@ -2491,7 +2449,7 @@ struct MarkdownAnswer: View, Equatable {
         HighlightMarks.parseInline(text)
             .applyingTerracottaCodeAndEmphasis(baseSize: baseSize, boldColor: Ink.seal)
     }
-    private static func highlightedCode(_ body: String, language: String?) -> AttributedString {
+    fileprivate static func highlightedCode(_ body: String, language: String?) -> AttributedString {
         let tokens = CodeSyntaxTokenizer.tokenize(body, language: language)
         var result = AttributedString()
         for token in tokens {
@@ -2514,6 +2472,152 @@ struct MarkdownAnswer: View, Equatable {
             result.append(part)
         }
         return result
+    }
+}
+
+private struct MarkdownTableBlockView: View, Equatable {
+    let header: [String]
+    let rows: [[String]]
+    let alignments: [TableAlignment]
+    let swiss: Bool
+
+    nonisolated static func == (lhs: MarkdownTableBlockView, rhs: MarkdownTableBlockView) -> Bool {
+        lhs.header == rhs.header && lhs.rows == rhs.rows && lhs.alignments == rhs.alignments && lhs.swiss == rhs.swiss
+    }
+
+    var body: some View {
+        ScrollView(.horizontal, showsIndicators: false) {
+            Grid(alignment: .leading, horizontalSpacing: 0, verticalSpacing: 0) {
+                GridRow {
+                    ForEach(Array(header.enumerated()), id: \.offset) { column, cell in
+                        TableCell(text: cell, header: true, alignment: alignments[min(column, alignments.count - 1)])
+                    }
+                }
+                ForEach(Array(rows.enumerated()), id: \.offset) { _, row in
+                    GridRow {
+                        ForEach(Array(row.enumerated()), id: \.offset) { column, cell in
+                            TableCell(text: cell, header: false, alignment: alignments[min(column, alignments.count - 1)])
+                        }
+                    }
+                }
+            }
+            .overlay(RoundedRectangle(cornerRadius: swiss ? 0 : 12, style: .continuous)
+                .stroke(swiss ? Ink.ink : Ink.line, lineWidth: 1))
+            .clipShape(RoundedRectangle(cornerRadius: swiss ? 0 : 12, style: .continuous))
+        }
+    }
+}
+
+private struct MarkdownCodeBlockView: View, Equatable {
+    let segment: String
+    let swiss: Bool
+    @State private var showHTMLPreview = false
+    @State private var copied = false
+
+    nonisolated static func == (lhs: MarkdownCodeBlockView, rhs: MarkdownCodeBlockView) -> Bool {
+        lhs.segment == rhs.segment && lhs.swiss == rhs.swiss
+    }
+
+    var body: some View {
+        let parsed = CodeSyntaxTokenizer.parseHeaderAndBody(segment)
+        let previewable = HTMLPreviewHelper.isPreviewable(language: parsed.language, body: parsed.body)
+        VStack(alignment: .leading, spacing: 8) {
+            HStack(spacing: 10) {
+                Text(swiss ? (parsed.language.map { "CODE · \($0)" } ?? "CODE") : (parsed.language.map { "代码 · \($0)" } ?? "代码"))
+                    .font(swiss ? TypeScale.mono(10) : TypeScale.tiny.weight(.semibold))
+                    .foregroundStyle(Ink.seal)
+                Spacer()
+                if previewable {
+                    Button {
+                        Haptic.tap()
+                        showHTMLPreview = true
+                    } label: {
+                        Label("预览网页", systemImage: "safari")
+                            .font(.system(size: 11, weight: .semibold))
+                            .foregroundStyle(Ink.seal)
+                            .padding(.horizontal, 8)
+                            .padding(.vertical, 3.5)
+                            .background(Ink.seal.opacity(0.12), in: Capsule())
+                    }
+                    .buttonStyle(.pressFeedback)
+                    .accessibilityLabel("预览网页效果")
+                }
+                Button {
+                    UIPasteboard.general.string = parsed.body
+                    Haptic.tap()
+                    copied = true
+                    Task { @MainActor in
+                        try? await Task.sleep(nanoseconds: 1_500_000_000)
+                        copied = false
+                    }
+                } label: {
+                    Image(systemName: copied ? "checkmark" : "doc.on.doc")
+                        .foregroundStyle(Ink.seal)
+                }
+                .font(.system(size: 11))
+                .accessibilityLabel("复制代码")
+            }
+            ScrollView(.horizontal) {
+                Text(MarkdownAnswer.highlightedCode(parsed.body, language: parsed.language))
+                    .font(.system(size: 13, design: .monospaced))
+                    .textSelection(.enabled)
+            }
+        }
+        .padding(14)
+        .background(Ink.raised, in: RoundedRectangle(cornerRadius: swiss ? 0 : 16, style: .continuous))
+        .overlay(RoundedRectangle(cornerRadius: swiss ? 0 : 16, style: .continuous)
+            .stroke(swiss ? Ink.line : Ink.seal.opacity(0.18), lineWidth: 1).allowsHitTesting(false))
+        .sheet(isPresented: $showHTMLPreview) {
+            HTMLPreviewSheet(code: parsed.body, language: parsed.language)
+        }
+    }
+}
+
+private struct MarkdownMathBlockView: View, Equatable {
+    let formula: String
+    let swiss: Bool
+    @State private var copied = false
+
+    nonisolated static func == (lhs: MarkdownMathBlockView, rhs: MarkdownMathBlockView) -> Bool {
+        lhs.formula == rhs.formula && lhs.swiss == rhs.swiss
+    }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            HStack {
+                Text(swiss ? "MATH" : "公式")
+                    .font(swiss ? TypeScale.mono(10) : TypeScale.tiny.weight(.semibold))
+                    .foregroundStyle(Ink.seal)
+                Spacer()
+                Button {
+                    UIPasteboard.general.string = formula
+                    Haptic.tap()
+                    copied = true
+                    Task { @MainActor in
+                        try? await Task.sleep(nanoseconds: 1_500_000_000)
+                        copied = false
+                    }
+                } label: {
+                    Image(systemName: copied ? "checkmark" : "doc.on.doc")
+                        .foregroundStyle(Ink.seal)
+                }
+                .font(.system(size: 11))
+                .accessibilityLabel("复制公式原文")
+            }
+            ScrollView(.horizontal, showsIndicators: false) {
+                Text(MathFormatter.format(formula))
+                    .font(.system(size: 16, design: .serif))
+                    .italic()
+                    .foregroundStyle(Ink.ink)
+                    .textSelection(.enabled)
+                    .frame(maxWidth: .infinity, alignment: .center)
+                    .padding(.vertical, 4)
+            }
+        }
+        .padding(14)
+        .background(Ink.raised, in: RoundedRectangle(cornerRadius: swiss ? 0 : 14, style: .continuous))
+        .overlay(RoundedRectangle(cornerRadius: swiss ? 0 : 14, style: .continuous)
+            .stroke(swiss ? Ink.line : Ink.seal.opacity(0.16), lineWidth: 1).allowsHitTesting(false))
     }
 }
 

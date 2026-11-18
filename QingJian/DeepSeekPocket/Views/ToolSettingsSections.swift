@@ -77,9 +77,20 @@ struct AutoBackupSection: View {
             let url = await store.exportUnifiedBackup()
             exportingToFolder = false
             guard let url else { return }
-            DocumentPicker.presentExport(url, onError: { store.errorMessage = $0 }) { savedURL in
-                store.noticeMessage = "已将完整备份存入「\(savedURL.deletingLastPathComponent().lastPathComponent)」。"
+            let cleanupTemp: () -> Void = {
+                if url.path.hasPrefix(FileManager.default.temporaryDirectory.path) {
+                    try? FileManager.default.removeItem(at: url)
+                }
             }
+            DocumentPicker.presentExport(
+                url,
+                onCancel: cleanupTemp,
+                onError: { err in cleanupTemp(); store.errorMessage = err },
+                onSaved: { savedURL in
+                    cleanupTemp()
+                    store.noticeMessage = "已将完整备份存入「\(savedURL.deletingLastPathComponent().lastPathComponent)」。"
+                }
+            )
         }
     }
 }

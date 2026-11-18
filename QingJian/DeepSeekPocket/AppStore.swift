@@ -1299,6 +1299,10 @@ final class AppStore: ObservableObject {
     // images are prepared JPEG data (see ImageStore.prepared), at most a few per message.
     @discardableResult func send(_ text: String, images: [Data] = []) -> Bool {
         guard !isGenerating, canPersist else { return false }
+        if compactingThreadID == activeThreadID {
+            errorMessage = "当前对话正在浓缩上文，请稍候几秒再发送。"
+            return false
+        }
         guard canChat else { errorMessage = chatUnavailableMessage; return false }
         let typed = text.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !typed.isEmpty || !images.isEmpty else { return false }
@@ -2066,7 +2070,13 @@ final class AppStore: ObservableObject {
         if !force && !hasRealData { return }
         if !force, let last = lastAutoBackup, Calendar.current.isDateInToday(last) { return }
         let snap = snapshot
-        let learning = (try? studyMemory?.exportAllStudyData()) ?? StudyMemoryArchive(version: 1, rows: [])
+        let learning: StudyMemoryArchive
+        do {
+            learning = try studyMemory?.exportAllStudyData() ?? StudyMemoryArchive(version: 1, rows: [])
+        } catch {
+            backupIssue = "自动备份中止：学习数据库未能读取（\(error.localizedDescription)）"
+            return
+        }
         let booksMeta = books.books
         let personas = books.personas
         let prefs = UnifiedBackupCodec.collectPreferences()
@@ -2565,7 +2575,8 @@ final class AppStore: ObservableObject {
         let fresh = ProjectMemory.pending(thread, in: project)
         guard fresh.count >= max(minimum, ProjectMemory.minimumNewMessages),
               let request = try? ProjectMemory.request(project: project, thread: thread, new: fresh) else { return }
-        let settled = (project.memorizedCounts?[threadID.uuidString] ?? 0) + fresh.count
+        let batchCount = min(fresh.count, 40)
+        let settled = (project.memorizedCounts?[threadID.uuidString] ?? 0) + batchCount
         let model = project.subscriptionModel ?? settings.subscriptionModel, before = project.memory, key = apiKey
         memorizingProjectID = project.id
         // Leaving for the background must not cut the request off halfway.
@@ -2633,9 +2644,16 @@ final class AppStore: ObservableObject {
             return
         }
         let threadID = thread.id
+        let originalSettledCount = thread.messages.filter { !$0.content.isEmpty && ($0.role == .user || $0.state == .complete) }.count
+        let tailFromOriginal = min(4, originalSettledCount)
+        let summarizedCount = max(1, originalSettledCount - tailFromOriginal)
         let subModel = proj?.subscriptionModel ?? settings.subscriptionModel
         compactingThreadID = threadID
+        let background = UIApplication.shared.beginBackgroundTask(withName: "compact-thread", expirationHandler: nil)
         Task { @MainActor [weak self] in
+            defer {
+                if background != .invalid { UIApplication.shared.endBackgroundTask(background) }
+            }
             guard let self else { return }
             defer { self.compactingThreadID = nil }
             let buffer = MemoryBuffer()
@@ -2654,8 +2672,8 @@ final class AppStore: ObservableObject {
                 guard !summary.isEmpty,
                       let current = self.threads.first(where: { $0.id == threadID }) else { return }
                 let settled = current.messages.filter { !$0.content.isEmpty && ($0.role == .user || $0.state == .complete) }
-                let tailCount = min(4, settled.count)
-                let compactedCount = max(1, settled.count - tailCount)
+                let compactedCount = min(summarizedCount, max(1, originalSettledCount))
+                let remainingMessages = Array(settled.dropFirst(min(compactedCount, settled.count)))
                 var headerMsg = ChatMessage(
                     role: .user,
                     content: "【前情无损浓缩摘要（/compact）】\n\(summary)",
@@ -2664,9 +2682,7 @@ final class AppStore: ObservableObject {
                 )
                 headerMsg.createdAt = settled.first?.createdAt ?? Date()
                 var newMessages: [ChatMessage] = [headerMsg]
-                if tailCount > 0 {
-                    newMessages.append(contentsOf: settled.suffix(tailCount))
-                }
+                newMessages.append(contentsOf: remainingMessages)
                 var compactedThread = current
                 compactedThread.id = UUID()
                 compactedThread.parentThreadID = current.id
@@ -2676,11 +2692,21 @@ final class AppStore: ObservableObject {
                 compactedThread.updatedAt = Date()
                 let oldThreads = self.threads, oldActive = self.activeThreadID
                 self.threads.insert(compactedThread, at: 0)
-                self.activeThreadID = compactedThread.id
+                if self.activeThreadID == threadID {
+                    self.activeThreadID = compactedThread.id
+                }
                 if !self.persistNow() {
                     self.threads = oldThreads
                     self.activeThreadID = oldActive
                 } else {
+                    if let projID = current.projectID,
+                       var latestProj = self.project(projID),
+                       latestProj.memorizedCounts?[threadID.uuidString] != nil {
+                        var counts = latestProj.memorizedCounts ?? [:]
+                        counts[compactedThread.id.uuidString] = newMessages.count
+                        latestProj.memorizedCounts = counts
+                        self.storeQuietly(latestProj)
+                    }
                     self.noticeMessage = "已将前 \(compactedCount) 条对话无损浓缩为四板块摘要，上下文水位已大幅降低（原完整记录随时可在右上角『旧答案』切回）。"
                 }
             } catch {
@@ -2691,8 +2717,16 @@ final class AppStore: ObservableObject {
 
     /// Triggers an immediate Auto-Dream consolidation pass on the active project's memory.
     func dreamConsolidateActiveProject() {
-        guard memoryTask == nil, !isGenerating, canPersist,
-              let thread = activeThread, let proj = project(thread.projectID) else {
+        guard memoryTask == nil else {
+            errorMessage = "后台正在整理项目记忆，请稍候片刻再试。"
+            return
+        }
+        guard !isGenerating else {
+            errorMessage = "请等当前回答完成后再整理项目记忆。"
+            return
+        }
+        guard canPersist else { return }
+        guard let thread = activeThread, let proj = project(thread.projectID) else {
             errorMessage = "请先进入一个项目对话，再使用 /做梦 整理项目记忆。"
             return
         }
@@ -2710,8 +2744,11 @@ final class AppStore: ObservableObject {
             return
         }
         let subModel = proj.subscriptionModel ?? settings.subscriptionModel
+        let before = proj.memory
         memorizingProjectID = proj.id
+        let background = UIApplication.shared.beginBackgroundTask(withName: "project-dream", expirationHandler: nil)
         memoryTask = Task { @MainActor [weak self] in
+            defer { if background != .invalid { UIApplication.shared.endBackgroundTask(background) } }
             guard let self else { return }
             defer { self.memoryTask = nil; self.memorizingProjectID = nil }
             let buffer = MemoryBuffer()
@@ -2726,7 +2763,7 @@ final class AppStore: ObservableObject {
                 ) { buffer.value.consume($0) }
                 self.recordUsage(buffer.value.usage, model: provider == .deepSeek ? .flash : nil, at: Date(), provider: provider)
                 let cleaned = try buffer.value.result()
-                guard !cleaned.isEmpty, var latest = self.project(proj.id) else { return }
+                guard !cleaned.isEmpty, var latest = self.project(proj.id), latest.memory == before else { return }
                 latest.memory = cleaned
                 latest.memoryUpdatedAt = Date()
                 self.storeQuietly(latest)
@@ -3255,7 +3292,13 @@ final class AppStore: ObservableObject {
         defer { unifiedBackupBusy = false }
         _ = persistNow()
         let snap = snapshot
-        let learning = (try? studyMemory?.exportAllStudyData()) ?? StudyMemoryArchive(version: 1, rows: [])
+        let learning: StudyMemoryArchive
+        do {
+            learning = try studyMemory?.exportAllStudyData() ?? StudyMemoryArchive(version: 1, rows: [])
+        } catch {
+            errorMessage = "完整备份未能导出：学习数据库读取失败（\(error.localizedDescription)）"
+            return nil
+        }
         let booksMeta = books.books
         let personas = books.personas
         let prefs = UnifiedBackupCodec.collectPreferences()

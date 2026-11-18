@@ -5,30 +5,43 @@ import SwiftUI
 struct StreamActivityView: View {
     @EnvironmentObject private var store: AppStore
     let message: ChatMessage
+
+    private var phase: ChatStreamPhase {
+        if !message.content.isEmpty { return .answering }
+        if !message.reasoning.isEmpty { return .thinking }
+        return store.generationProgress?.phase ?? .connecting
+    }
+
     var body: some View {
-        TimelineView(.periodic(from: .now, by: 1)) { timeline in
-            let seconds = max(0, Int(timeline.date.timeIntervalSince(message.createdAt)))
-            let phase = !message.content.isEmpty ? ChatStreamPhase.answering :
-                (!message.reasoning.isEmpty ? .thinking : (store.generationProgress?.phase ?? .connecting))
-            VStack(alignment: .leading, spacing: 7) {
-                HStack(spacing: 9) {
-                    // One flower is enough: the animated one lives in the thinking row.
-                    PulseDot()
-                    // The reasoning header above already says it is thinking and for how long.
-                    if phase == .connecting || phase == .waiting {
-                        Text("\(phase.title) · \(seconds) 秒").font(TypeScale.caption).monospacedDigit()
+        let currentPhase = phase
+        Group {
+            if currentPhase == .connecting || currentPhase == .waiting {
+                TimelineView(.periodic(from: .now, by: 1)) { timeline in
+                    let seconds = max(0, Int(timeline.date.timeIntervalSince(message.createdAt)))
+                    VStack(alignment: .leading, spacing: 7) {
+                        HStack(spacing: 9) {
+                            PulseDot()
+                            Text("\(currentPhase.title) · \(seconds) 秒").font(TypeScale.caption).monospacedDigit()
+                        }
+                        if seconds >= 30 {
+                            Text(currentPhase == .connecting
+                                 ? "尚未收到服务器响应，可以停止，或到设置运行实际对话测试。"
+                                 : "连接已建立，模型还没有开始返回内容。你可以停止后关闭思考再试。")
+                            .font(TypeScale.tiny)
+                        }
                     }
                 }
-                if seconds >= 30 && (phase == .connecting || phase == .waiting) {
-                    Text(phase == .connecting ? "尚未收到服务器响应，可以停止，或到设置运行实际对话测试。" :
-                        "连接已建立，模型还没有开始返回内容。你可以停止后关闭思考再试。")
-                        .font(TypeScale.tiny)
+            } else {
+                HStack(spacing: 9) {
+                    PulseDot()
                 }
-            }.foregroundStyle(Ink.ink3).padding(.vertical, 4)
-                .accessibilityElement(children: .combine)
-                .accessibilityLabel(phase.title)
-                .accessibilityIdentifier("stream-activity")
+            }
         }
+        .foregroundStyle(Ink.ink3)
+        .padding(.vertical, 4)
+        .accessibilityElement(children: .combine)
+        .accessibilityLabel(currentPhase.title)
+        .accessibilityIdentifier("stream-activity")
     }
 }
 

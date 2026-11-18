@@ -41,7 +41,7 @@ enum ProjectMemory {
         let today = Date().formatted(.dateTime.year().month(.twoDigits).day(.twoDigits).locale(Locale(identifier: "zh_CN")))
         let context = Context(project: project.name, today: today, instructions: String(project.instructions.prefix(2000)),
                               currentMemory: project.memory ?? "", conversationTitle: thread.title,
-                              newMessages: messages.suffix(40).map { .init(role: $0.role.rawValue, text: clip($0.content)) })
+                              newMessages: messages.prefix(40).map { .init(role: $0.role.rawValue, text: clip($0.content)) })
         guard let text = String(data: try JSONEncoder().encode(context), encoding: .utf8) else { throw ChatError.invalidResponse }
         var config = AppSettings()
         config.model = .flash

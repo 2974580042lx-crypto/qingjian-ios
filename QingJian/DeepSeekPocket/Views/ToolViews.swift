@@ -8,120 +8,124 @@ struct ToolActivityList: View {
     let signIn: () -> Void
     @State private var expandedIDs: Set<String> = []
 
+    private var visibleItems: [ToolActivity] {
+        items.filter { item in
+            !(item.kind == "manual" && item.status == .done && item.studyReport == nil && item.studyExcerpts == nil)
+        }
+    }
+
     private var doneCount: Int {
-        items.filter { $0.status == .done }.count
+        visibleItems.filter { $0.status == .done }.count
     }
 
     private var isAnyRunning: Bool {
-        items.contains { $0.status == .running }
+        visibleItems.contains { $0.status == .running }
     }
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 7) {
-            if items.count > 1 {
-                HStack(spacing: 6) {
-                    Image(systemName: isAnyRunning ? "circle.dotted" : "checklist.checked")
-                        .font(.system(size: 11, weight: .semibold))
-                        .foregroundStyle(Ink.seal)
-                    Text(isAnyRunning
-                         ? "步骤进度：已完成 \(doneCount)/\(items.count) 步 · 正在推进当前步骤…"
-                         : "步骤看板：已完成 \(doneCount)/\(items.count) 项工具操作 · 点卡片可展开明细")
-                        .font(.system(size: 11.5, weight: .medium))
-                        .foregroundStyle(Ink.ink3)
-                        .monospacedDigit()
+        if !visibleItems.isEmpty {
+            VStack(alignment: .leading, spacing: 6) {
+                if visibleItems.count > 1 {
+                    HStack(spacing: 5) {
+                        Text(isAnyRunning
+                             ? "正在执行工具（\(doneCount)/\(visibleItems.count)）…"
+                             : "已执行 \(visibleItems.count) 项操作")
+                            .font(TypeScale.tiny)
+                            .foregroundStyle(Ink.ink3)
+                            .monospacedDigit()
+                    }
                 }
-                .padding(.horizontal, 4)
-            }
-            ForEach(items) { item in
-                let hasExpandableDetail = (item.detail?.count ?? 0) > 42 || (item.detail?.contains("\n") == true)
-                let isExpanded = expandedIDs.contains(item.id)
-                VStack(alignment: .leading, spacing: 6) {
-                    HStack(alignment: .center, spacing: 8) {
-                        icon(for: item.status).frame(width: 15, height: 15)
-                        VStack(alignment: .leading, spacing: 2) {
-                            HStack(spacing: 6) {
-                                Text(item.title)
-                                    .font(.system(size: 13, weight: .medium))
-                                    .foregroundStyle(item.status == .running ? Ink.seal : Ink.ink2)
-                                    .lineLimit(2)
-                                Spacer(minLength: 4)
-                                if hasExpandableDetail {
-                                    Image(systemName: isExpanded ? "chevron.up" : "chevron.down")
-                                        .font(.system(size: 10, weight: .semibold))
-                                        .foregroundStyle(Ink.ink3)
-                                }
+                ForEach(visibleItems) { item in
+                    let hasDetail = (item.detail?.isEmpty == false)
+                    let isExpanded = expandedIDs.contains(item.id)
+                    VStack(alignment: .leading, spacing: 4) {
+                        HStack(alignment: .center, spacing: 6) {
+                            icon(for: item.status).frame(width: 13, height: 13)
+                            Text(item.title)
+                                .font(TypeScale.caption)
+                                .foregroundStyle(item.status == .running || item.status == .failed || item.status == .needsSignIn ? Ink.seal : Ink.ink3)
+                                .lineLimit(1)
+                            if !isExpanded, let detail = item.detail, !detail.isEmpty, !detail.contains("\n"), detail.count <= 28 {
+                                Text("· \(detail)")
+                                    .font(TypeScale.tiny)
+                                    .foregroundStyle(Ink.ink3.opacity(0.85))
+                                    .lineLimit(1)
                             }
-                            if let detail = item.detail, !detail.isEmpty {
-                                if isExpanded {
-                                    ToolDetailDiffView(detail: detail)
-                                        .padding(.top, 4)
+                            if hasDetail {
+                                Image(systemName: isExpanded ? "chevron.down" : "chevron.right")
+                                    .font(.system(size: 10, weight: .semibold))
+                                    .foregroundStyle(Ink.ink3.opacity(0.75))
+                            }
+                            Spacer(minLength: 0)
+                        }
+                        .contentShape(Rectangle())
+                        .onTapGesture {
+                            guard hasDetail else { return }
+                            withAnimation(.snappy(duration: 0.2)) {
+                                if expandedIDs.contains(item.id) {
+                                    expandedIDs.remove(item.id)
                                 } else {
-                                    Text(detail.replacingOccurrences(of: "\n", with: " · "))
-                                        .font(.system(size: 11.5))
-                                        .foregroundStyle(Ink.ink3)
-                                        .lineLimit(1)
+                                    expandedIDs.insert(item.id)
                                 }
                             }
-                            if item.status == .needsSignIn && item.kind != "github" {
-                                Button("登录谷歌云盘", action: signIn)
-                                    .font(.system(size: 12.5, weight: .semibold)).foregroundStyle(Ink.seal)
-                                    .padding(.horizontal, 10).frame(height: 28)
-                                    .background(Ink.paper, in: InkCapsule())
-                                    .buttonStyle(.plain)
-                                    .padding(.top, 2)
+                        }
+
+                        if isExpanded, let detail = item.detail, !detail.isEmpty {
+                            ToolDetailDiffView(detail: detail)
+                                .padding(.leading, 10)
+                                .overlay(alignment: .leading) {
+                                    Rectangle()
+                                        .fill(Ink.line)
+                                        .frame(width: 2)
+                                }
+                                .padding(.leading, 4)
+                                .padding(.top, 2)
+                        }
+
+                        if item.status == .needsSignIn && item.kind != "github" {
+                            Button("登录谷歌云盘", action: signIn)
+                                .font(.system(size: 12.5, weight: .semibold)).foregroundStyle(Ink.seal)
+                                .padding(.horizontal, 10).frame(height: 28)
+                                .background(Ink.raised, in: InkCapsule())
+                                .buttonStyle(.plain)
+                                .padding(.top, 2)
+                        }
+                    }
+                    .accessibilityElement(children: .combine)
+                    if let report = item.studyReport {
+                        DisclosureGroup("学习周报 · 第\(report.revision)版快照") {
+                            Text(report.text).font(TypeScale.body).foregroundStyle(Ink.ink).textSelection(.enabled)
+                            Text("生成于 \(report.createdAt.formatted(date: .abbreviated, time: .shortened))。后续记录有变化时，请在项目记忆页生成最新报告。")
+                                .font(TypeScale.caption).foregroundStyle(Ink.ink3)
+                        }
+                        .font(TypeScale.caption).tint(Ink.ink)
+                    }
+                    if item.status == .done, let excerpts = item.studyExcerpts {
+                        ForEach(Array(excerpts.enumerated()), id: \.offset) { _, excerpt in
+                            VStack(alignment: .leading, spacing: 10) {
+                                Text("资料原文 · " + excerpt.title).font(TypeScale.caption.weight(.semibold)).foregroundStyle(Ink.seal)
+                                Text(excerpt.text).font(TypeScale.body).foregroundStyle(Ink.ink).textSelection(.enabled)
+                                Text(excerpt.source).font(TypeScale.caption).foregroundStyle(Ink.ink3)
                             }
+                            .frame(maxWidth: .infinity, alignment: .leading).padding(14)
+                            .background(Ink.raised, in: InkRounded(radius: 14))
+                            .overlay(InkRounded(radius: 14).stroke(Ink.seal.opacity(0.25), lineWidth: 1))
                         }
-                    }
-                }
-                .padding(.horizontal, 11)
-                .padding(.vertical, 6.5)
-                .background(Ink.raised, in: InkRounded(radius: 12))
-                .overlay(InkRounded(radius: 12).stroke(Ink.seal.opacity(item.status == .running ? 0.30 : 0.14), lineWidth: 0.8))
-                .contentShape(Rectangle())
-                .onTapGesture {
-                    guard hasExpandableDetail else { return }
-                    withAnimation(.snappy(duration: 0.2)) {
-                        if expandedIDs.contains(item.id) {
-                            expandedIDs.remove(item.id)
-                        } else {
-                            expandedIDs.insert(item.id)
-                        }
-                    }
-                }
-                .accessibilityElement(children: .combine)
-                if let report = item.studyReport {
-                    DisclosureGroup("学习周报 · 第\(report.revision)版快照") {
-                        Text(report.text).font(TypeScale.body).foregroundStyle(Ink.ink).textSelection(.enabled)
-                        Text("生成于 \(report.createdAt.formatted(date: .abbreviated, time: .shortened))。后续记录有变化时，请在项目记忆页生成最新报告。")
-                            .font(TypeScale.caption).foregroundStyle(Ink.ink3)
-                    }
-                    .font(TypeScale.caption).tint(Ink.ink)
-                }
-                if item.status == .done, let excerpts = item.studyExcerpts {
-                    ForEach(Array(excerpts.enumerated()), id: \.offset) { _, excerpt in
-                        VStack(alignment: .leading, spacing: 10) {
-                            Text("资料原文 · " + excerpt.title).font(TypeScale.caption.weight(.semibold)).foregroundStyle(Ink.seal)
-                            Text(excerpt.text).font(TypeScale.body).foregroundStyle(Ink.ink).textSelection(.enabled)
-                            Text(excerpt.source).font(TypeScale.caption).foregroundStyle(Ink.ink3)
-                        }
-                        .frame(maxWidth: .infinity, alignment: .leading).padding(14)
-                        .background(Ink.raised, in: InkRounded(radius: 14))
-                        .overlay(InkRounded(radius: 14).stroke(Ink.seal.opacity(0.25), lineWidth: 1))
                     }
                 }
             }
+            .padding(.vertical, 2)
+            .accessibilityIdentifier("tool-activity")
         }
-        .padding(.vertical, 2)
-        .accessibilityIdentifier("tool-activity")
     }
 
     @ViewBuilder private func icon(for status: ToolActivity.Status) -> some View {
         switch status {
         case .running: ProgressView().controlSize(.mini).tint(Ink.seal)
-        case .done: Image(systemName: "checkmark.circle.fill").font(.system(size: 13)).foregroundStyle(Ink.seal)
-        case .failed: Image(systemName: "exclamationmark.triangle.fill").font(.system(size: 12)).foregroundStyle(Ink.seal)
-        case .declined: Image(systemName: "hand.raised").font(.system(size: 12)).foregroundStyle(Ink.ink3)
-        case .needsSignIn: Image(systemName: "person.crop.circle.badge.exclamationmark").font(.system(size: 12)).foregroundStyle(Ink.seal)
+        case .done: Image(systemName: "checkmark.circle").font(.system(size: 11.5)).foregroundStyle(Ink.ink3)
+        case .failed: Image(systemName: "exclamationmark.triangle.fill").font(.system(size: 11.5)).foregroundStyle(Ink.seal)
+        case .declined: Image(systemName: "hand.raised").font(.system(size: 11.5)).foregroundStyle(Ink.ink3)
+        case .needsSignIn: Image(systemName: "person.crop.circle.badge.exclamationmark").font(.system(size: 11.5)).foregroundStyle(Ink.seal)
         }
     }
 }
