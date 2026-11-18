@@ -140,7 +140,9 @@ struct SidebarDrawerContainer<Sidebar: View, Main: View>: UIViewControllerRepres
         }
 
         private var drawerWidth: CGFloat {
-            let width = view.bounds.width > 0 ? view.bounds.width : UIScreen.main.bounds.width
+            let width = view.bounds.width > 0
+                ? view.bounds.width
+                : (view.window?.windowScene?.screen.bounds.width ?? 390)
             return min(width * 0.82, 360)
         }
 
@@ -286,9 +288,6 @@ struct SidebarDrawerContainer<Sidebar: View, Main: View>: UIViewControllerRepres
                 ensureSidebarMounted()
             }
             let targetProgress: CGFloat = open ? 1 : 0
-            let animations = {
-                self.applyProgress(targetProgress, revealed: open)
-            }
             if animated && hasLaidOut {
                 UIView.animate(
                     withDuration: 0.28,
@@ -296,12 +295,23 @@ struct SidebarDrawerContainer<Sidebar: View, Main: View>: UIViewControllerRepres
                     usingSpringWithDamping: 0.92,
                     initialSpringVelocity: 0.35,
                     options: [.allowUserInteraction, .beginFromCurrentState],
-                    animations: animations
-                ) { _ in
-                    self.detachSidebarIfClosed()
-                }
+                    animations: {
+                        // Keep page rounded corners & shadow during the slide; snap to flat once shut.
+                        self.applyProgress(targetProgress, revealed: true)
+                        if !open {
+                            self.backContainerView.alpha = 0
+                            self.frontShadowView.layer.shadowOpacity = 0
+                        }
+                    },
+                    completion: { _ in
+                        if !self.currentOpen && !self.isDragging {
+                            self.applyProgress(0, revealed: false)
+                        }
+                        self.detachSidebarIfClosed()
+                    }
+                )
             } else {
-                animations()
+                applyProgress(targetProgress, revealed: open)
                 detachSidebarIfClosed()
             }
         }

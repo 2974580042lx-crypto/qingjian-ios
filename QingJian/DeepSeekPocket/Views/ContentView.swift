@@ -1254,7 +1254,6 @@ struct ChatScreen: View {
         }
     }
 
-    @ViewBuilder private var systemPromptControl: some View {
     private var attachmentButton: some View {
         Button {
             Haptic.tap()
