@@ -332,6 +332,10 @@ struct ChatScreen: View {
     @State private var messageBrowserVisible = false
     @State private var pendingMessageJump: ChatMessageJump?
     @State private var focusedMessageID: UUID?
+    @State private var quotingMessage: QuotedMessage?
+    private var currentLayoutMode: ChatLayoutMode {
+        ChatLayoutPreferences.shared.mode(for: store.activeThreadID)
+    }
     private var isEmptyPage: Bool { store.activeThread?.messages.isEmpty != false }
     private var composerPlaceholder: String {
         if store.activeThread?.bookDiscussion != nil, let character = store.activeThread?.discussionDraftCharacter {
@@ -366,7 +370,14 @@ struct ChatScreen: View {
         followsOutput = true
         if send {
             Haptic.tap()
-            if store.send(store.activeDraft, images: []) { focusComposer(false) }
+            if store.send(store.activeDraft, images: []) {
+                draftPushTask?.cancel()
+                draftPushTask = nil
+                localDraft = ""
+                lastPushedDraft = ""
+                quotingMessage = nil
+                focusComposer(false)
+            }
         } else {
             focusComposer(true)
         }
@@ -488,8 +499,9 @@ struct ChatScreen: View {
                     Spacer(minLength: 12)
                 }.padding(.top, topChrome).padding(.bottom, composerPanelHeight)
             } else {
+                let rowSpacing: CGFloat = swiss ? 0 : (currentLayoutMode == .imessage ? 16 : (currentLayoutMode == .smart ? 24 : 30))
                 ScrollView {
-                    LazyVStack(alignment: .leading, spacing: swiss ? 0 : 30) {
+                    LazyVStack(alignment: .leading, spacing: rowSpacing) {
                         if swiss, let thread = store.activeThread {
                             SwissThreadHeader(title: thread.title, date: thread.createdAt,
                                               model: store.pillModelTitle + " / " + store.pillEffortTitle,
@@ -519,9 +531,17 @@ struct ChatScreen: View {
                     // The clock row sits on the page colour fading out below it, so the time
                     // never prints over the text. A plain gradient: a live blur here had to be
                     // recomputed every frame while an answer streamed and scrolled under it.
-                    LinearGradient(stops: [.init(color: Ink.paper, location: 0), .init(color: Ink.paper, location: 0.62),
-                                           .init(color: Ink.paper.opacity(0), location: 1)], startPoint: .top, endPoint: .bottom)
-                        .frame(height: topInset + 14).allowsHitTesting(false).accessibilityHidden(true)
+                    LinearGradient(
+                        stops: [
+                            .init(color: Ink.paper, location: 0),
+                            .init(color: Ink.paper.opacity(0.92), location: 0.48),
+                            .init(color: Ink.paper.opacity(0.42), location: 0.78),
+                            .init(color: Ink.paper.opacity(0), location: 1)
+                        ],
+                        startPoint: .top,
+                        endPoint: .bottom
+                    )
+                    .frame(height: topInset + 30).allowsHitTesting(false).accessibilityHidden(true)
                 }
                 .scrollPosition($scrollPosition)
                 .contentMargins(.top, topChrome, for: .scrollContent)
@@ -539,13 +559,18 @@ struct ChatScreen: View {
                     hasPositionedInitially = true
                 }
                 .onScrollGeometryChange(for: ScrollBottomMetrics.self) { g in
+                    let visibleHeight = max(0, g.containerSize.height - g.contentInsets.top - g.contentInsets.bottom)
                     let distance = g.contentSize.height + g.contentInsets.bottom - g.contentOffset.y - g.containerSize.height
-                    return ScrollBottomMetrics(nearBottom: distance < 48, showJump: distance > 120)
+                    let overflows = g.contentSize.height > visibleHeight + 48
+                    return ScrollBottomMetrics(nearBottom: distance < 48, showJump: overflows && distance > 160)
                 } action: { _, value in
                     if scrollUIState.nearBottom != value.nearBottom { scrollUIState.nearBottom = value.nearBottom }
                     if scrollUIState.showJumpToLatest != value.showJump { scrollUIState.showJumpToLatest = value.showJump }
                 }
                 .onScrollPhaseChange { _, phase in
+                    if phase == .interacting || phase == .decelerating {
+                        if timeReveal.offset != 0 { timeReveal.offset = 0 }
+                    }
                     if phase == .interacting { followsOutput = false; clearMessageNavigation() }
                     if phase == .idle && scrollUIState.nearBottom && pendingMessageJump == nil && focusedMessageID == nil { followsOutput = true }
                 }
@@ -651,7 +676,14 @@ struct ChatScreen: View {
         chatWithPromptAndVersionSheets
         .onChange(of: isComposerFocused) { _, focused in
             keyboardVisible = focused
+            if timeReveal.offset != 0 { timeReveal.offset = 0 }
             if focused && shouldFollowOutput { scrollPosition.scrollTo(edge: .bottom) }
+        }
+        .onChange(of: sidebarOpen) { _, open in
+            if open && timeReveal.offset != 0 { timeReveal.offset = 0 }
+        }
+        .onReceive(NotificationCenter.default.publisher(for: UIApplication.willResignActiveNotification)) { _ in
+            if timeReveal.offset != 0 { timeReveal.offset = 0 }
         }
         .onAppear {
             loadDraft()
@@ -687,6 +719,8 @@ struct ChatScreen: View {
             messageBrowser = nil; clearMessageNavigation()
             store.webSearchEnabled = false
             storyPlayFor = nil; pendingSuggestedReply = nil
+            quotingMessage = nil
+            if timeReveal.offset != 0 { timeReveal.offset = 0 }
             visibleMessageCount = 100; followsOutput = true
             scrollUIState.nearBottom = true
             scrollUIState.showJumpToLatest = false
@@ -783,15 +817,31 @@ struct ChatScreen: View {
         let lastID = store.activeThread?.messages.last?.id, threadID = store.activeThreadID
         let rounds = Self.roundNumbers(store.activeThread?.messages ?? [])
         let look = self.style
-        return ForEach(visibleMessages) { message in
-            // Equatable: only the message that changed redraws while an answer streams.
-            messageRow(message, threadID: threadID, isLast: message.id == lastID, round: rounds[message.id] ?? 1, style: look)
-                .overlay(alignment: .leading) {
-                    if focusedMessageID == message.id {
-                        RoundedRectangle(cornerRadius: 2).fill(Ink.seal.opacity(0.7)).frame(width: 3).padding(.leading, -10)
-                            .allowsHitTesting(false).accessibilityHidden(true)
-                    }
+        let layout = self.currentLayoutMode
+        let visible = visibleMessages
+        return ForEach(Array(visible.enumerated()), id: \.element.id) { index, message in
+            let prev: ChatMessage? = index > 0 ? visible[index - 1] : nil
+            let showDivider = !swiss && MessageTimeDivider.shouldShow(previous: prev, current: message)
+            VStack(alignment: .leading, spacing: layout == .imessage ? 10 : 14) {
+                if showDivider {
+                    Text(MessageTimeDivider.label(message.createdAt))
+                        .font(TypeScale.tiny)
+                        .foregroundStyle(Ink.ink3.opacity(0.75))
+                        .frame(maxWidth: .infinity)
+                        .padding(.top, index == 0 ? 0 : 6)
+                        .padding(.bottom, 2)
                 }
+                // Equatable: only the message that changed redraws while an answer streams.
+                messageRow(message, threadID: threadID, isLast: message.id == lastID,
+                           round: rounds[message.id] ?? 1, style: look, layoutMode: layout)
+                    .overlay(alignment: .leading) {
+                        if focusedMessageID == message.id {
+                            RoundedRectangle(cornerRadius: 2).fill(Ink.seal.opacity(0.7)).frame(width: 3).padding(.leading, -10)
+                                .allowsHitTesting(false).accessibilityHidden(true)
+                        }
+                    }
+            }
+            .id(message.id)
         }
     }
 
@@ -843,22 +893,21 @@ struct ChatScreen: View {
         return result
     }
 
-    @ViewBuilder private func messageRow(_ message: ChatMessage, threadID: UUID?, isLast: Bool, round: Int, style: InterfaceStyle) -> some View {
+    @ViewBuilder private func messageRow(_ message: ChatMessage, threadID: UUID?, isLast: Bool, round: Int, style: InterfaceStyle, layoutMode: ChatLayoutMode) -> some View {
         let timestamp: Date? = message.directive == nil ? message.createdAt : nil
         SwipeTimestampRow(timeReveal: timeReveal, timestamp: timestamp) {
             if message.state == .streaming {
                 // The answer being written redraws on its own, without the rest of the page.
                 LiveMessageRow(live: store.live, message: message, onGrow: followLiveText) { shown in
-                    messageBody(shown, threadID: threadID, isLast: isLast, round: round, style: style)
+                    messageBody(shown, threadID: threadID, isLast: isLast, round: round, style: style, layoutMode: layoutMode)
                 }
             } else {
-                messageBody(message, threadID: threadID, isLast: isLast, round: round, style: style)
+                messageBody(message, threadID: threadID, isLast: isLast, round: round, style: style, layoutMode: layoutMode)
             }
         }
-        .id(message.id)
     }
 
-    private func messageBody(_ message: ChatMessage, threadID: UUID?, isLast: Bool, round: Int, style: InterfaceStyle) -> some View {
+    private func messageBody(_ message: ChatMessage, threadID: UUID?, isLast: Bool, round: Int, style: InterfaceStyle, layoutMode: ChatLayoutMode) -> some View {
         var markOff: (() -> Void)?
         var thoughts: (() -> Void)?
         var checkpoint: (() -> Void)?
@@ -877,6 +926,16 @@ struct ChatScreen: View {
                 thoughtsTarget = InnerThoughtsTarget(threadID: threadID, messageID: message.id)
             }
         }
+        let quoteHandler: (() -> Void)? = message.directive == nil && message.state != .streaming ? {
+            let author = message.role == .user ? "你" : (message.discussionCharacter ?? "Sermo")
+            let excerpt = MessageQuoteCodec.cleanExcerpt(
+                from: message.content,
+                hasImages: message.images?.isEmpty == false
+            )
+            quotingMessage = QuotedMessage(author: author, excerpt: excerpt)
+            Haptic.tap()
+            focusComposer(true)
+        } : nil
         return MessageView(message: message, threadID: threadID, isLast: isLast,
                     isGenerating: store.isGenerating, canRegenerate: store.canChat,
                     showsSuggestions: store.settings.shouldSuggestReplies && store.activeProject?.studySubject == nil,
@@ -884,7 +943,8 @@ struct ChatScreen: View {
                     regenerate: regeneratePreservingDraftImages,
                     openThinking: { if let threadID { thinkingTarget = ThinkingTarget(threadID: threadID, messageID: message.id) } },
                     useSuggestedReply: { text in prepareSuggestedReply(text, messageID: message.id) },
-                    signInDrive: { store.drive.signIn() }, round: round, style: style,
+                    signInDrive: { store.drive.signIn() }, round: round, style: style, layoutMode: layoutMode,
+                    quoteReply: quoteHandler,
                     markOffCharacter: markOff, showThoughts: thoughts, saveCheckpoint: checkpoint, showBookReferences: { bookEvidence = message },
                     speech: store.speech,
                     toggleBookmark: {
@@ -991,6 +1051,28 @@ struct ChatScreen: View {
                     Button("新建本书讨论", systemImage: "plus.bubble") { _ = store.startBookDiscussion(discussion.bookID) }
                 }
                 Divider()
+                if !swiss {
+                    Menu("排版样式 · \(currentLayoutMode.title)", systemImage: currentLayoutMode.symbol) {
+                        ForEach(ChatLayoutMode.allCases) { mode in
+                            Button {
+                                Haptic.tap()
+                                withAnimation(.snappy(duration: 0.24)) {
+                                    ChatLayoutPreferences.shared.setMode(mode, for: thread.id)
+                                }
+                            } label: {
+                                Label {
+                                    VStack(alignment: .leading) {
+                                        Text(mode.title)
+                                        Text(mode.summary)
+                                    }
+                                } icon: {
+                                    Image(systemName: currentLayoutMode == mode ? "checkmark" : mode.symbol)
+                                }
+                            }
+                        }
+                    }
+                    .accessibilityIdentifier("chat-layout-mode-menu")
+                }
                 Button("搜索本对话", systemImage: "magnifyingglass") { openMessageBrowser(.search) }
                 Button("本对话收藏", systemImage: "bookmark") { openMessageBrowser(.bookmarks) }
                 let versionCount = store.conversationVersions(for: thread.id).count
@@ -1559,6 +1641,38 @@ struct ChatScreen: View {
                         }
                     }
                 }
+                if let quote = quotingMessage {
+                    HStack(spacing: 8) {
+                        RoundedRectangle(cornerRadius: 1.5, style: .continuous)
+                            .fill(Ink.seal)
+                            .frame(width: 3)
+                        VStack(alignment: .leading, spacing: 2) {
+                            Text("回复 \(quote.author)")
+                                .font(.system(size: 11, weight: .semibold))
+                                .foregroundStyle(Ink.seal)
+                                .lineLimit(1)
+                            Text(quote.excerpt)
+                                .font(TypeScale.tiny)
+                                .foregroundStyle(Ink.ink2)
+                                .lineLimit(1)
+                        }
+                        Spacer(minLength: 4)
+                        Button {
+                            Haptic.tap()
+                            withAnimation(.snappy(duration: 0.18)) { quotingMessage = nil }
+                        } label: {
+                            Image(systemName: "xmark.circle.fill")
+                                .font(.system(size: 16))
+                                .foregroundStyle(Ink.ink3)
+                        }
+                        .buttonStyle(.plain)
+                        .accessibilityLabel("取消引用回复")
+                    }
+                    .padding(.horizontal, 10)
+                    .padding(.vertical, 7)
+                    .background(Ink.raised, in: RoundedRectangle(cornerRadius: swiss ? 0 : 12, style: .continuous))
+                    .transition(.opacity.combined(with: .move(edge: .bottom)))
+                }
                 Group {
                     if usesPreviewKeyboard {
                         PreviewKeyboardField(text: draft, isFocused: previewComposerFocused, focusChanged: { previewComposerFocused = $0 })
@@ -1673,10 +1787,16 @@ struct ChatScreen: View {
                             followsOutput = true
                             Haptic.tap()
                             flushDraft()
-                            let payload = PendingDocumentCodec.encode(userText: store.activeDraft, documents: pendingDocuments)
+                            let textWithQuote = MessageQuoteCodec.encode(quote: quotingMessage, userText: store.activeDraft)
+                            let payload = PendingDocumentCodec.encode(userText: textWithQuote, documents: pendingDocuments)
                             if store.send(payload, images: pendingImages.map(\.data)) {
+                                draftPushTask?.cancel()
+                                draftPushTask = nil
+                                localDraft = ""
+                                lastPushedDraft = ""
                                 pendingImages = []
                                 pendingDocuments = []
+                                quotingMessage = nil
                                 focusComposer(false)
                             }
                         }
@@ -1789,14 +1909,14 @@ private struct SwipeTimestampRow<Content: View>: View {
         content()
             .offset(x: offset)
             .overlay(alignment: .trailing) {
-                if let timestamp, offset < -2 {
-                    let progress = min(1.0, max(0.0, Double(-offset - 2) / 38.0))
+                if let timestamp, offset < -4 {
+                    let progress = min(1.0, max(0.0, Double(-offset - 4) / 34.0))
                     Text(MessageTime.swipeLabel(timestamp))
                         .font(.system(size: 11.5, weight: .medium, design: .monospaced))
                         .foregroundStyle(Ink.ink3)
                         .lineLimit(1)
                         .fixedSize()
-                        .offset(x: 68 + offset)
+                        .offset(x: 56 + offset)
                         .opacity(progress)
                         .allowsHitTesting(false)
                         .accessibilityHidden(true)
@@ -1947,7 +2067,6 @@ private struct ChatMessageMatchRow: View {
 // only the message that changed redraws while an answer streams.
 @MainActor
 struct MessageView: View, Equatable {
-    @AppStorage("qingjian.reading.aiBubble") private var aiBubble = false
     let message: ChatMessage
     let threadID: UUID?
     let isLast: Bool
@@ -1963,6 +2082,8 @@ struct MessageView: View, Equatable {
     // part of equality so a style switch redraws rows the stream would skip.
     var round = 1
     var style: InterfaceStyle = .paper
+    var layoutMode: ChatLayoutMode = .editorial
+    var quoteReply: (() -> Void)? = nil
     // Bookshelf conversations: 「这里不像」 on an answer (1.10.0).
     var markOffCharacter: (() -> Void)? = nil
     // A separate literary inner-voice supplement; available for completed assistant replies.
@@ -1978,7 +2099,15 @@ struct MessageView: View, Equatable {
     nonisolated static func == (lhs: MessageView, rhs: MessageView) -> Bool {
         lhs.message == rhs.message && lhs.threadID == rhs.threadID && lhs.isLast == rhs.isLast
             && lhs.isGenerating == rhs.isGenerating && lhs.canRegenerate == rhs.canRegenerate
-            && lhs.showsSuggestions == rhs.showsSuggestions && lhs.round == rhs.round && lhs.style == rhs.style
+            && lhs.showsSuggestions == rhs.showsSuggestions && lhs.round == rhs.round
+            && lhs.style == rhs.style && lhs.layoutMode == rhs.layoutMode
+    }
+
+    private var cleanCopyText: String {
+        guard message.role == .user else { return message.content }
+        let docFree = PendingDocumentCodec.decode(message.content).userText
+        let quoteFree = MessageQuoteCodec.decode(docFree).userText
+        return quoteFree.isEmpty ? message.content : quoteFree
     }
 
     var body: some View {
@@ -2001,11 +2130,46 @@ struct MessageView: View, Equatable {
             } else if style == .swiss { swissContent } else { paperContent }
         }
         .contextMenu {
-            // The three used most come first; everything else sits below a divider.
+            if message.directive == nil && message.state != .streaming {
+                ControlGroup {
+                    ForEach(MessageReactionStore.quickEmojis, id: \.self) { emoji in
+                        Button(emoji) {
+                            MessageReactionStore.shared.toggle(emoji, for: message.id)
+                        }
+                    }
+                }
+                Menu("更多表情", systemImage: "face.smiling") {
+                    ForEach(MessageReactionStore.moreEmojis, id: \.self) { emoji in
+                        Button(emoji) {
+                            MessageReactionStore.shared.toggle(emoji, for: message.id)
+                        }
+                    }
+                    if MessageReactionStore.shared.reaction(for: message.id) != nil {
+                        Divider()
+                        Button("移除表情", systemImage: "xmark.circle", role: .destructive) {
+                            MessageReactionStore.shared.clear(for: message.id)
+                        }
+                    }
+                }
+            }
+            // The most used actions come first; extra actions live below.
             Section {
-                Button("复制", systemImage: "doc.on.doc") { UIPasteboard.general.string = message.content; Haptic.tap() }
+                if let quoteReply {
+                    Button("引用回复", systemImage: "arrowshape.turn.up.left") { quoteReply() }
+                }
+                Button("复制", systemImage: "doc.on.doc") {
+                    UIPasteboard.general.string = cleanCopyText
+                    Haptic.tap()
+                }
                 Button("选择文字", systemImage: "selection.pin.in.out") { selecting = true }
                 Button("编辑文字", systemImage: "pencil") { edit() }.disabled(isGenerating)
+                if message.role == .assistant && message.state == .complete, let speech {
+                    Button(speech.isActive(message.id) ? "停止朗读" : "朗读回答",
+                           systemImage: speech.isActive(message.id) ? "stop.circle" : "speaker.wave.2") {
+                        if speech.isActive(message.id) { speech.stop() }
+                        else { speech.speak(message.content, messageID: message.id) }
+                    }
+                }
             }
             if let toggleBookmark {
                 Button(message.isBookmarked == true ? "取消收藏" : "收藏消息", systemImage: message.isBookmarked == true ? "bookmark.slash" : "bookmark") {
@@ -2025,40 +2189,63 @@ struct MessageView: View, Equatable {
                 Button("重新生成", systemImage: "arrow.clockwise") { regenerate() }
                     .disabled(isGenerating || !canRegenerate)
             }
+            if layoutMode == .imessage, let usage = message.usage {
+                Section {
+                    Text(usageLabel(usage))
+                }
+            }
         }
-        .sheet(isPresented: $selecting) { SelectableTextSheet(text: message.content) }
+        .sheet(isPresented: $selecting) { SelectableTextSheet(text: cleanCopyText) }
     }
 
-    // 纸笺: one column; your note set off by a thin rule, the answer as plain text.
+    // 纸笺: adapts seamlessly across 书页 (editorial), 信息气泡 (iMessage), and 智能 (hybrid).
     private var paperContent: some View {
-        VStack(alignment: .leading, spacing: 12) {
+        let isImessage = (layoutMode == .imessage && style != .swiss)
+        return VStack(alignment: .leading, spacing: 12) {
             if message.role == .user {
-                // Your words on the right in a soft rounded bubble, like the Claude app;
-                // the answer stays plain text on the page. 夜江 keeps its water line.
-                let decoded = PendingDocumentCodec.decode(message.content)
-                if style == .night && round > 1 { WaveRule().padding(.bottom, 8) }
+                let docDecoded = PendingDocumentCodec.decode(message.content)
+                let quoteDecoded = MessageQuoteCodec.decode(docDecoded.userText)
+                if style == .night && round > 1 && !isImessage { WaveRule().padding(.bottom, 8) }
                 HStack(spacing: 0) {
                     Spacer(minLength: 52)
                     VStack(alignment: .trailing, spacing: 6) {
                         discussionVoiceLabel
+                        if let quote = quoteDecoded.quote {
+                            QuotedReplyCard(quote: quote, alignTrailing: true, swiss: false)
+                        }
                         if let names = message.images, !names.isEmpty { AttachmentRow(names: names, swiss: false) }
-                        if !decoded.attachments.isEmpty {
-                            MessageDocumentCards(attachments: decoded.attachments, swiss: false)
+                        if !docDecoded.attachments.isEmpty {
+                            MessageDocumentCards(attachments: docDecoded.attachments, swiss: false)
                         }
-                        if !decoded.userText.isEmpty {
-                            Text(decoded.userText).userMessageStyle().lineSpacing(max(Personal.lineSpacing - 2, 3)).chineseReading()
-                                .foregroundStyle(Ink.ink).textSelection(.enabled)
+                        if !quoteDecoded.userText.isEmpty {
+                            let shape = AsymmetricBubbleShape.chatBubbleShape(isUser: true, position: .single)
+                            Text(quoteDecoded.userText).userMessageStyle().lineSpacing(max(Personal.lineSpacing - 2, 3)).chineseReading()
+                                .foregroundStyle(isImessage ? Ink.onSeal : Ink.ink)
+                                .textSelection(.enabled)
                                 .padding(.horizontal, 16).padding(.vertical, 11)
-                                .background(Personal.bubble, in: RoundedRectangle(cornerRadius: 20, style: .continuous))
+                                .background(
+                                    isImessage ? Ink.seal : Personal.bubble,
+                                    in: isImessage
+                                        ? AnyShape(shape)
+                                        : AnyShape(RoundedRectangle(cornerRadius: 20, style: .continuous))
+                                )
                         }
+                    }
+                    .overlay(alignment: .topLeading) {
+                        MessageReactionBadge(messageID: message.id)
+                            .offset(x: -8, y: -10)
                     }
                 }
                 .frame(maxWidth: .infinity, alignment: .trailing)
             } else {
                 answerParts
                 if message.state == .streaming {
-                    StreamActivityView(message: message)
-                } else {
+                    if isImessage && message.content.isEmpty && message.reasoning.isEmpty && (message.toolActivity?.isEmpty != false) {
+                        TypingIndicatorBubble()
+                    } else {
+                        StreamActivityView(message: message)
+                    }
+                } else if !(isImessage && message.state != .failed) {
                     HStack(spacing: 18) {
                         Button { copyAnswer() } label: { Image(systemName: copied ? "checkmark" : "doc.on.doc") }
                             .accessibilityLabel("复制回答")
@@ -2091,18 +2278,22 @@ struct MessageView: View, Equatable {
     private var swissContent: some View {
         VStack(alignment: .leading, spacing: 0) {
             if message.role == .user {
-                let decoded = PendingDocumentCodec.decode(message.content)
+                let docDecoded = PendingDocumentCodec.decode(message.content)
+                let quoteDecoded = MessageQuoteCodec.decode(docDecoded.userText)
                 if round > 1 { SwissRule(weight: 1, strong: true) }
                 HStack(alignment: .firstTextBaseline, spacing: 0) {
                     MonoLabel(text: String(format: "Q.%02d", round)).frame(width: 46, alignment: .leading)
                     VStack(alignment: .leading, spacing: 8) {
                         discussionVoiceLabel
-                        if let names = message.images, !names.isEmpty { AttachmentRow(names: names, swiss: true) }
-                        if !decoded.attachments.isEmpty {
-                            MessageDocumentCards(attachments: decoded.attachments, swiss: true)
+                        if let quote = quoteDecoded.quote {
+                            QuotedReplyCard(quote: quote, alignTrailing: false, swiss: true)
                         }
-                        if !decoded.userText.isEmpty {
-                            Text(decoded.userText).readingStyle(adjustment: -2).fontWeight(.medium).lineSpacing(5)
+                        if let names = message.images, !names.isEmpty { AttachmentRow(names: names, swiss: true) }
+                        if !docDecoded.attachments.isEmpty {
+                            MessageDocumentCards(attachments: docDecoded.attachments, swiss: true)
+                        }
+                        if !quoteDecoded.userText.isEmpty {
+                            Text(quoteDecoded.userText).readingStyle(adjustment: -2).fontWeight(.medium).lineSpacing(5)
                                 .textSelection(.enabled).foregroundStyle(Ink.ink)
                         }
                         MonoLabel(text: MessageTime.label(message.createdAt))
@@ -2155,7 +2346,7 @@ struct MessageView: View, Equatable {
         .buttonStyle(.plain)
     }
 
-    // Thinking, tool calls and the answer text: the same in both looks.
+    // Thinking, tool calls and the answer text: adapts between 书页, 信息气泡, and 智能.
     @ViewBuilder private var answerParts: some View {
         discussionVoiceLabel
         if !message.reasoning.isEmpty {
@@ -2165,10 +2356,57 @@ struct MessageView: View, Equatable {
             ToolActivityList(items: tools, signIn: signInDrive)
         }
         if !message.content.isEmpty {
-            let bubble = aiBubble && style != .swiss
-            MarkdownAnswer(content: message.content, style: style).equatable()
-                .padding(bubble ? 16 : 0)
-                .background(bubble ? Ink.raised : .clear, in: RoundedRectangle(cornerRadius: 20, style: .continuous))
+            let isImessage = (layoutMode == .imessage && style != .swiss)
+            let isSmartBubble = (layoutMode == .smart && style != .swiss && ChatBubbleRules.isCasualShortReply(message.content))
+            let showBubble = isImessage || isSmartBubble
+            answerBubbleBody(showBubble: showBubble)
+                .animation(.easeInOut(duration: 0.24), value: showBubble)
+                .overlay(alignment: .topTrailing) {
+                    MessageReactionBadge(messageID: message.id)
+                        .offset(x: 6, y: -10)
+                }
+        }
+    }
+
+    @ViewBuilder
+    private func answerBubbleBody(showBubble: Bool) -> some View {
+        let casualParts = showBubble
+            ? ChatBubbleRules.casualBubbleParts(for: message.content, mode: layoutMode, isStreaming: message.state == .streaming)
+            : nil
+        if let parts = casualParts {
+            VStack(alignment: .leading, spacing: 4) {
+                ForEach(Array(parts.enumerated()), id: \.offset) { index, part in
+                    let pos = BubbleGroupPosition.forIndex(index, total: parts.count)
+                    let shape = AsymmetricBubbleShape.chatBubbleShape(isUser: false, position: pos)
+                    HStack(spacing: 0) {
+                        MarkdownAnswer(content: part, style: style, expandsWidth: false).equatable()
+                            .padding(.horizontal, 15)
+                            .padding(.vertical, 10)
+                            .background(Ink.raised, in: shape)
+                            .overlay(shape.stroke(Ink.line.opacity(0.55), lineWidth: 0.6).allowsHitTesting(false))
+                        Spacer(minLength: 42)
+                    }
+                }
+            }
+        } else if showBubble {
+            let shape = AsymmetricBubbleShape.chatBubbleShape(isUser: false, position: .single)
+            if ChatBubbleRules.isCompactSingleBubble(message.content) {
+                HStack(spacing: 0) {
+                    MarkdownAnswer(content: message.content, style: style, expandsWidth: false).equatable()
+                        .padding(.horizontal, 15)
+                        .padding(.vertical, 11)
+                        .background(Ink.raised, in: shape)
+                        .overlay(shape.stroke(Ink.line.opacity(0.55), lineWidth: 0.6).allowsHitTesting(false))
+                    Spacer(minLength: 42)
+                }
+            } else {
+                MarkdownAnswer(content: message.content, style: style, expandsWidth: true).equatable()
+                    .padding(15)
+                    .background(Ink.raised, in: shape)
+                    .overlay(shape.stroke(Ink.line.opacity(0.55), lineWidth: 0.6).allowsHitTesting(false))
+            }
+        } else {
+            MarkdownAnswer(content: message.content, style: style, expandsWidth: true).equatable()
         }
     }
 
@@ -2393,14 +2631,17 @@ struct AttachmentRow: View {
 struct MarkdownAnswer: View, Equatable {
     let content: String
     var style: InterfaceStyle = .paper
-    nonisolated static func == (lhs: MarkdownAnswer, rhs: MarkdownAnswer) -> Bool { lhs.content == rhs.content && lhs.style == rhs.style }
+    var expandsWidth: Bool = true
+    nonisolated static func == (lhs: MarkdownAnswer, rhs: MarkdownAnswer) -> Bool {
+        lhs.content == rhs.content && lhs.style == rhs.style && lhs.expandsWidth == rhs.expandsWidth
+    }
     private var swiss: Bool { style == .swiss }
     // Paragraphs, headings, lists, quotes, dividers and code, each text block told
     // how many of the answer's highlighter marks it may still draw.
     private var blocks: [MarkdownBlock] { MarkdownBlock.parse(content) }
     var body: some View {
         // Paragraphs a clear step apart (about one line), so each reads as its own block.
-        VStack(alignment: .leading, spacing: style == .swiss ? 16 : Personal.paragraphGap) {
+        let column = VStack(alignment: .leading, spacing: style == .swiss ? 16 : Personal.paragraphGap) {
             ForEach(Array(blocks.enumerated()), id: \.offset) { _, block in
                 switch block {
                 case .paragraph(let text, let marks):
@@ -2442,7 +2683,12 @@ struct MarkdownAnswer: View, Equatable {
                     MarkdownMathBlockView(formula: formula, swiss: swiss).equatable()
                 }
             }
-        }.frame(maxWidth: .infinity, alignment: .leading)
+        }
+        if expandsWidth {
+            column.frame(maxWidth: .infinity, alignment: .leading)
+        } else {
+            column
+        }
     }
     fileprivate static func inline(_ text: String, baseSize: CGFloat = 18) -> AttributedString {
         HighlightMarks.parseInline(text)

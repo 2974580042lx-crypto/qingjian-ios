@@ -312,9 +312,9 @@ struct FlowRows: Layout {
 @MainActor
 struct PersonalizationView: View {
     @AppStorage("qingjian.reading.size") private var readingSize = 18.0
-    @AppStorage("qingjian.reading.aiBubble") private var aiBubble = false
     @AppStorage("qingjian.haptics") private var hapticsEnabled = true
     @State private var confirmReset = false
+    private let layoutPrefs = ChatLayoutPreferences.shared
     private var appliesHere: Bool { !InterfaceStyle.isSwiss && !InterfaceStyle.isNight }
 
     var body: some View {
@@ -350,9 +350,18 @@ struct PersonalizationView: View {
             Section {
                 choice("左右留白", key: Personal.marginKey, fallback: "standard",
                        options: [("narrow", "窄"), ("standard", "标准"), ("wide", "宽")])
-                Toggle("AI 回答使用气泡", isOn: $aiBubble)
+                Picker("默认对话排版", selection: Binding(
+                    get: { layoutPrefs.defaultMode },
+                    set: { layoutPrefs.setDefaultMode($0) }
+                )) {
+                    ForEach(ChatLayoutMode.allCases) { mode in
+                        Label(mode.title, systemImage: mode.symbol).tag(mode)
+                    }
+                }
                 Toggle("触感反馈", isOn: $hapticsEnabled)
-            } header: { Text("布局与手感") }
+            } header: { Text("布局与手感") } footer: {
+                Text("每个对话也可以在右上角「⋯」里随时单独切换「书页 / 信息气泡 / 智能」三种排版样式。")
+            }
             Section {
                 Button("恢复默认", role: .destructive) { confirmReset = true }
             } footer: {
@@ -468,18 +477,38 @@ private struct Swatch: View {
 private struct PersonalPreview: View {
     @AppStorage("qingjian.reading.size") private var readingSize = 18.0
     var body: some View {
+        let mode = ChatLayoutPreferences.shared.defaultMode
+        let isImessage = mode == .imessage
+        let showAssistantBubble = (mode == .imessage || mode == .smart)
         VStack(alignment: .leading, spacing: Personal.paragraphGap * 0.6) {
             HStack {
                 Spacer(minLength: 40)
-                Text("帮我想想周末去哪儿玩？").userMessageStyle().foregroundStyle(Ink.ink)
+                Text("帮我想想周末去哪儿玩？")
+                    .userMessageStyle()
+                    .foregroundStyle(isImessage ? Ink.onSeal : Ink.ink)
                     .padding(.horizontal, 16).padding(.vertical, 11)
-                    .background(Personal.bubble, in: RoundedRectangle(cornerRadius: 20, style: .continuous))
+                    .background(
+                        isImessage ? Ink.seal : Personal.bubble,
+                        in: AsymmetricBubbleShape.chatBubbleShape(isUser: true, position: .single)
+                    )
             }
             HStack(spacing: 5) {
                 Text("已思考 2 秒").font(.system(size: 13, weight: .regular)).foregroundStyle(Ink.ink3).monospacedDigit()
                 Image(systemName: "chevron.right").font(.system(size: 10, weight: .medium)).foregroundStyle(Ink.ink3.opacity(0.75))
             }
-            MarkdownParagraph(text: "天气好的话，可以下午 3 点去**城郊的湖边**走走，顺便复习 15 个 `English` 单词。")
+            Group {
+                if showAssistantBubble {
+                    MarkdownParagraph(text: "天气好的话，可以下午 3 点去**城郊的湖边**走走，顺便复习 15 个 `English` 单词。")
+                        .padding(.horizontal, 14).padding(.vertical, 10)
+                        .background(Ink.raised, in: AsymmetricBubbleShape.chatBubbleShape(isUser: false, position: .single))
+                        .overlay(
+                            AsymmetricBubbleShape.chatBubbleShape(isUser: false, position: .single)
+                                .stroke(Ink.line.opacity(0.55), lineWidth: 0.6)
+                        )
+                } else {
+                    MarkdownParagraph(text: "天气好的话，可以下午 3 点去**城郊的湖边**走走，顺便复习 15 个 `English` 单词。")
+                }
+            }
             HStack {
                 Spacer()
                 Image(systemName: "arrow.up").font(.system(size: 15, weight: .semibold)).foregroundStyle(.white)

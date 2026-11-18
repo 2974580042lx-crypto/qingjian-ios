@@ -6,12 +6,21 @@ private struct PhotoGallerySelection: Identifiable {
     let index: Int
 }
 
-/// Renders 1 photo as a clean card or 2–4 photos as an Apple/Telegram-style
-/// fanned stack that opens a full-screen swipeable gallery on tap.
+/// Marker view used by `SidebarDrawerContainer` and `TranscriptLeftSwipePan` to
+/// exclude photo-stack horizontal swipes from drawer/timestamp gestures.
+final class PhotoStackGestureHostView: UIView {}
+
+/// Renders 1 photo as a clean card or 2–4 photos as an interactive Apple iMessage-style
+/// fanned stack: drag the top card left/right to flip it to the back in-place, or
+/// tap to open the full-screen zoomable gallery.
 @MainActor
 struct PhotoStackView: View {
     let names: [String]
     var swiss: Bool = false
+
+    @State private var topIndex = 0
+    @State private var dragOffsetX: CGFloat = 0
+    @State private var isCycling = false
     @State private var gallerySelection: PhotoGallerySelection?
 
     private struct LayerGeometry {
@@ -21,7 +30,7 @@ struct PhotoStackView: View {
         let scale: CGFloat
     }
 
-    private func geometry(for layer: Int, total: Int) -> LayerGeometry {
+    private func restGeometry(for layer: Int, total: Int) -> LayerGeometry {
         if total == 2 {
             return layer == 0
                 ? LayerGeometry(angle: 0, offsetX: 0, offsetY: 0, scale: 1.0)
@@ -36,22 +45,23 @@ struct PhotoStackView: View {
     }
 
     var body: some View {
-        let displayed = Array(names.prefix(4))
-        Button {
-            Haptic.tap()
-            gallerySelection = PhotoGallerySelection(index: 0)
-        } label: {
-            Group {
-                if displayed.count <= 1, let first = displayed.first {
+        Group {
+            if names.count <= 1, let first = names.first {
+                Button {
+                    Haptic.tap()
+                    gallerySelection = PhotoGallerySelection(index: 0)
+                } label: {
                     singleCard(name: first)
-                } else {
-                    stackedDeck(displayed)
+                        .contentShape(Rectangle())
                 }
+                .buttonStyle(.pressFeedback)
+                .accessibilityLabel("查看大图")
+            } else {
+                stackedDeck
+                    .accessibilityElement(children: .ignore)
+                    .accessibilityLabel("照片堆叠，共 \(names.count) 张，当前第 \((topIndex % max(1, names.count)) + 1) 张。左右滑动切换，轻点查看大图。")
             }
-            .contentShape(Rectangle())
         }
-        .buttonStyle(.pressFeedback)
-        .accessibilityLabel(names.count > 1 ? "查看 \(names.count) 张图片" : "查看大图")
         .fullScreenCover(item: $gallerySelection) { selection in
             PhotoGallerySheet(names: names, initialIndex: selection.index)
         }
@@ -69,11 +79,36 @@ struct PhotoStackView: View {
             .shadow(color: swiss ? .clear : Color.black.opacity(0.08), radius: 6, y: 2)
     }
 
-    private func stackedDeck(_ displayed: [String]) -> some View {
+    private var stackedDeck: some View {
+        let total = names.count
+        let safeTop = ((topIndex % total) + total) % total
+        let visibleCount = min(total, 4)
         let radius: CGFloat = swiss ? 0 : 18
+        let dragProgress = min(1.0, abs(dragOffsetX) / 110.0)
+
         return ZStack {
-            ForEach(Array(displayed.enumerated()).reversed(), id: \.offset) { index, name in
-                let geom = geometry(for: index, total: displayed.count)
+            ForEach((0..<visibleCount).reversed(), id: \.self) { layer in
+                let photoIdx = (safeTop + layer) % total
+                let name = names[photoIdx]
+                let base = restGeometry(for: layer, total: visibleCount)
+
+                let isFront = (layer == 0)
+                let isSecond = (layer == 1)
+
+                let xOffset: CGFloat = isFront
+                    ? dragOffsetX
+                    : (isSecond ? base.offsetX * (1 - dragProgress) : base.offsetX)
+                let yOffset: CGFloat = isFront
+                    ? abs(dragOffsetX) * -0.04
+                    : (isSecond ? base.offsetY * (1 - dragProgress) : base.offsetY)
+                let angle: Double = isFront
+                    ? Double(dragOffsetX / 14.0)
+                    : (isSecond ? base.angle * (1 - Double(dragProgress)) : base.angle)
+                let scale: CGFloat = isFront
+                    ? max(0.92, 1.0 - abs(dragOffsetX) / 1400.0)
+                    : (isSecond ? base.scale + (1.0 - base.scale) * dragProgress : base.scale)
+                let opacity: Double = (isFront && isCycling) ? max(0.15, 1.0 - Double(abs(dragOffsetX)) / 180.0) : 1.0
+
                 thumbnailImage(named: name)
                     .frame(width: 164, height: 164)
                     .clipShape(RoundedRectangle(cornerRadius: radius, style: .continuous))
@@ -81,13 +116,13 @@ struct PhotoStackView: View {
                         RoundedRectangle(cornerRadius: radius, style: .continuous)
                             .stroke(swiss ? Ink.line : Ink.paper, lineWidth: swiss ? 1 : 2.2)
                     )
-                    .shadow(color: swiss ? .clear : Color.black.opacity(index == 0 ? 0.16 : 0.10), radius: 7, y: 3)
+                    .shadow(color: swiss ? .clear : Color.black.opacity(isFront ? 0.16 : 0.10), radius: 7, y: 3)
                     .overlay(alignment: .bottomTrailing) {
-                        if index == 0 {
+                        if isFront {
                             HStack(spacing: 4) {
                                 Image(systemName: "photo.stack.fill")
                                     .font(.system(size: 10, weight: .semibold))
-                                Text("\(names.count) 张")
+                                Text("\(safeTop + 1)/\(total)")
                                     .font(.system(size: 11.5, weight: .semibold))
                                     .monospacedDigit()
                             }
@@ -98,14 +133,59 @@ struct PhotoStackView: View {
                             .padding(8)
                         }
                     }
-                    .scaleEffect(geom.scale)
-                    .rotationEffect(.degrees(geom.angle))
-                    .offset(x: geom.offsetX, y: geom.offsetY)
+                    .scaleEffect(scale)
+                    .rotationEffect(.degrees(angle))
+                    .offset(x: xOffset, y: yOffset)
+                    .opacity(opacity)
+                    .zIndex(Double(visibleCount - layer))
             }
         }
-        .padding(.horizontal, 16)
+        .padding(.horizontal, 18)
         .padding(.top, 10)
         .padding(.bottom, 4)
+        .overlay {
+            PhotoStackPanOverlay(
+                onChanged: { dx in
+                    guard !isCycling else { return }
+                    dragOffsetX = max(-185, min(185, dx))
+                },
+                onEnded: { dx, vx in
+                    guard !isCycling else { return }
+                    let shouldFlip = abs(dx) > 48 || abs(vx) > 340
+                    guard shouldFlip else {
+                        withAnimation(.spring(response: 0.30, dampingFraction: 0.80)) {
+                            dragOffsetX = 0
+                        }
+                        return
+                    }
+                    Haptic.tap()
+                    isCycling = true
+                    let direction: CGFloat = (abs(vx) > 250 ? vx : dx) >= 0 ? 1 : -1
+                    withAnimation(.easeOut(duration: 0.13)) {
+                        dragOffsetX = direction * 155
+                    }
+                    Task { @MainActor in
+                        try? await Task.sleep(nanoseconds: 135_000_000)
+                        topIndex = (safeTop + 1) % total
+                        isCycling = false
+                        dragOffsetX = -direction * 14
+                        withAnimation(.spring(response: 0.32, dampingFraction: 0.78)) {
+                            dragOffsetX = 0
+                        }
+                    }
+                },
+                onCancelled: {
+                    isCycling = false
+                    withAnimation(.spring(response: 0.30, dampingFraction: 0.82)) {
+                        dragOffsetX = 0
+                    }
+                },
+                onTap: {
+                    Haptic.tap()
+                    gallerySelection = PhotoGallerySelection(index: safeTop)
+                }
+            )
+        }
     }
 
     @ViewBuilder
@@ -119,6 +199,97 @@ struct PhotoStackView: View {
             Ink.raised
                 .overlay(Image(systemName: "photo").foregroundStyle(Ink.ink3))
                 .accessibilityLabel("图片文件已不在这台手机上")
+        }
+    }
+}
+
+@MainActor
+private struct PhotoStackPanOverlay: UIViewRepresentable {
+    let onChanged: (CGFloat) -> Void
+    let onEnded: (CGFloat, CGFloat) -> Void
+    let onCancelled: () -> Void
+    let onTap: () -> Void
+
+    func makeCoordinator() -> Coordinator { Coordinator(self) }
+
+    func makeUIView(context: Context) -> PhotoStackGestureHostView {
+        let view = PhotoStackGestureHostView()
+        view.backgroundColor = .clear
+        view.isUserInteractionEnabled = true
+
+        let pan = UIPanGestureRecognizer(target: context.coordinator, action: #selector(Coordinator.handlePan(_:)))
+        pan.delegate = context.coordinator
+        pan.maximumNumberOfTouches = 1
+
+        let tap = UITapGestureRecognizer(target: context.coordinator, action: #selector(Coordinator.handleTap))
+        tap.require(toFail: pan)
+
+        view.addGestureRecognizer(pan)
+        view.addGestureRecognizer(tap)
+        return view
+    }
+
+    func updateUIView(_ view: PhotoStackGestureHostView, context: Context) {
+        context.coordinator.owner = self
+    }
+
+    @MainActor
+    final class Coordinator: NSObject, UIGestureRecognizerDelegate {
+        var owner: PhotoStackPanOverlay
+
+        init(_ owner: PhotoStackPanOverlay) {
+            self.owner = owner
+        }
+
+        func gestureRecognizerShouldBegin(_ gestureRecognizer: UIGestureRecognizer) -> Bool {
+            guard let pan = gestureRecognizer as? UIPanGestureRecognizer, let view = pan.view else {
+                return true
+            }
+            let velocity = pan.velocity(in: view)
+            return abs(velocity.x) > abs(velocity.y) * 1.35
+        }
+
+        func gestureRecognizer(
+            _ gestureRecognizer: UIGestureRecognizer,
+            shouldRecognizeSimultaneouslyWith otherGestureRecognizer: UIGestureRecognizer
+        ) -> Bool {
+            true
+        }
+
+        @objc func handlePan(_ recognizer: UIPanGestureRecognizer) {
+            guard let view = recognizer.view else { return }
+            let dx = recognizer.translation(in: view).x
+            switch recognizer.state {
+            case .began:
+                cancelParentScrollPans(from: view)
+                owner.onChanged(dx)
+            case .changed:
+                owner.onChanged(dx)
+            case .ended:
+                owner.onEnded(dx, recognizer.velocity(in: view).x)
+            case .cancelled, .failed:
+                owner.onCancelled()
+            default:
+                break
+            }
+        }
+
+        @objc func handleTap() {
+            owner.onTap()
+        }
+
+        private func cancelParentScrollPans(from view: UIView) {
+            var current = view.superview
+            while let ancestor = current {
+                if let scroll = ancestor as? UIScrollView, !(ancestor is UITextView) {
+                    let pan = scroll.panGestureRecognizer
+                    if pan.state == .began || pan.state == .changed {
+                        pan.isEnabled = false
+                        pan.isEnabled = true
+                    }
+                }
+                current = ancestor.superview
+            }
         }
     }
 }

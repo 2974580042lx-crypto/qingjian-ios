@@ -332,6 +332,7 @@ struct SidebarDrawerContainer<Sidebar: View, Main: View>: UIViewControllerRepres
             var current = touch.view
             while let candidate = current {
                 if candidate is UITabBar { return false }
+                if candidate is PhotoStackGestureHostView { return false }
                 if candidate.isFirstResponder && (candidate is UITextField || candidate is UITextView) {
                     return false
                 }
@@ -460,6 +461,9 @@ struct TranscriptLeftSwipePan: UIViewRepresentable {
         context.coordinator.owner = self
         context.coordinator.attachmentView = view
         context.coordinator.attach(to: view.window)
+        if !enabled {
+            context.coordinator.cancelAndResetIfNeeded()
+        }
     }
 
     static func dismantleUIView(_ view: AttachmentView, coordinator: Coordinator) {
@@ -494,12 +498,24 @@ struct TranscriptLeftSwipePan: UIViewRepresentable {
 
         func attach(to next: UIWindow?) {
             guard window !== next else { return }
+            resetOffset(animated: false)
             window?.removeGestureRecognizer(pan)
             window = next
             next?.addGestureRecognizer(pan)
         }
 
+        func cancelAndResetIfNeeded() {
+            if pan.state == .began || pan.state == .changed {
+                pan.isEnabled = false
+                pan.isEnabled = true
+            }
+            resetOffset(animated: false)
+        }
+
         func gestureRecognizer(_ gestureRecognizer: UIGestureRecognizer, shouldReceive touch: UITouch) -> Bool {
+            if pan.state == .possible && owner.model.offset != 0 {
+                resetOffset(animated: false)
+            }
             guard owner.enabled,
                   let window,
                   let host = attachmentView,
@@ -509,15 +525,20 @@ struct TranscriptLeftSwipePan: UIViewRepresentable {
             let location = touch.location(in: host)
             guard host.bounds.contains(location) else { return false }
 
+            if hasActiveVerticalScroll(in: host.superview ?? host) {
+                return false
+            }
+
             var current = touch.view
             while let candidate = current {
                 if candidate is UITabBar { return false }
+                if candidate is PhotoStackGestureHostView { return false }
                 if candidate.isFirstResponder && (candidate is UITextField || candidate is UITextView) {
                     return false
                 }
                 if let scroll = candidate as? UIScrollView,
                    scroll.isScrollEnabled,
-                   scroll.contentSize.width > scroll.bounds.width + 2 {
+                   (scroll.isDragging || scroll.isDecelerating || scroll.contentSize.width > scroll.bounds.width + 2) {
                     return false
                 }
                 current = candidate.superview
@@ -533,7 +554,7 @@ struct TranscriptLeftSwipePan: UIViewRepresentable {
                 return false
             }
             let velocity = recognizer.velocity(in: window)
-            return velocity.x < -30 && abs(velocity.x) > abs(velocity.y) * 1.6
+            return velocity.x < -85 && abs(velocity.x) > abs(velocity.y) * 2.2
         }
 
         func gestureRecognizer(
@@ -544,33 +565,53 @@ struct TranscriptLeftSwipePan: UIViewRepresentable {
         }
 
         @objc private func handle(_ recognizer: UIPanGestureRecognizer) {
-            guard let window else { return }
             switch recognizer.state {
+            case .ended, .cancelled, .failed:
+                resetOffset(animated: true)
             case .began:
+                guard let window else { resetOffset(animated: false); return }
                 hapticTriggered = false
                 if let container = attachmentView?.superview {
                     cancelVerticalScrollPans(in: container)
                 }
                 updateOffset(for: recognizer.translation(in: window).x)
             case .changed:
+                guard let window else { resetOffset(animated: false); return }
                 updateOffset(for: recognizer.translation(in: window).x)
-            case .ended, .cancelled, .failed:
-                hapticTriggered = false
-                withAnimation(.spring(response: 0.28, dampingFraction: 0.84)) {
-                    owner.model.offset = 0
-                }
             default:
                 break
             }
         }
 
         private func updateOffset(for translationX: CGFloat) {
-            let clamped = max(-68, min(0, translationX) * 0.65)
+            // 10pt horizontal deadzone prevents micro-twitches from nudging the page left.
+            let effective = min(0, translationX + 10)
+            let clamped = max(-68, effective * 0.68)
             owner.model.offset = clamped
             if clamped <= -40 && !hapticTriggered {
                 hapticTriggered = true
                 Haptic.tap()
             }
+        }
+
+        private func resetOffset(animated: Bool) {
+            hapticTriggered = false
+            guard owner.model.offset != 0 else { return }
+            if animated {
+                withAnimation(.spring(response: 0.26, dampingFraction: 0.86)) {
+                    owner.model.offset = 0
+                }
+            } else {
+                owner.model.offset = 0
+            }
+        }
+
+        private func hasActiveVerticalScroll(in root: UIView) -> Bool {
+            if let scroll = root as? UIScrollView, !(root is UITextView),
+               (scroll.isDragging || scroll.isDecelerating) {
+                return true
+            }
+            return root.subviews.contains { hasActiveVerticalScroll(in: $0) }
         }
 
         private func cancelVerticalScrollPans(in root: UIView) {
