@@ -1364,24 +1364,6 @@ struct ChatScreen: View {
                             ProgressView().controlSize(.mini)
                             Text("正在浓缩…").font(TypeScale.tiny).foregroundStyle(Ink.seal)
                         }
-                    } else if stats.canCompact && !store.isGenerating {
-                        Button {
-                            Haptic.tap()
-                            store.compactActiveThread()
-                        } label: {
-                            HStack(spacing: 3) {
-                                Image(systemName: "arrow.down.right.and.arrow.up.left")
-                                    .font(.system(size: 9.5, weight: .semibold))
-                                Text("浓缩上文")
-                                    .font(.system(size: 11, weight: .semibold))
-                            }
-                            .foregroundStyle(stats.ratio > 0.60 ? Ink.onSolid : Ink.seal)
-                            .padding(.horizontal, 9)
-                            .padding(.vertical, 3.5)
-                            .background(stats.ratio > 0.60 ? Ink.solid : Ink.seal.opacity(0.12), in: Capsule())
-                        }
-                        .buttonStyle(.plain)
-                        .accessibilityIdentifier("compact-context-button")
                     }
                 }
                 .padding(.horizontal, 8)
