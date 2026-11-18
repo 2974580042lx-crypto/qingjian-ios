@@ -87,8 +87,10 @@ final class ChatLayoutPreferences {
         var updated = overrides
         updated[threadID.uuidString] = mode.rawValue
         if updated.count > 500 {
-            let trimmed = Dictionary(updated.prefix(450), uniquingKeysWith: { first, _ in first })
-            updated = trimmed
+            for key in updated.keys where key != threadID.uuidString {
+                updated.removeValue(forKey: key)
+                if updated.count <= 450 { break }
+            }
         }
         overrides = updated
         UserDefaults.standard.set(updated, forKey: Self.perThreadKey)
@@ -316,7 +318,10 @@ final class MessageReactionStore {
         guard let url = fileURL else { return }
         var snapshot = reactions
         if snapshot.count > 2000 {
-            snapshot = Dictionary(snapshot.prefix(1500), uniquingKeysWith: { first, _ in first })
+            for key in snapshot.keys {
+                snapshot.removeValue(forKey: key)
+                if snapshot.count <= 1500 { break }
+            }
             reactions = snapshot
         }
         Task.detached(priority: .utility) {
