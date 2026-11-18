@@ -29,12 +29,57 @@ enum DocumentPicker {
         show(types, asCopy: asCopy, multiple: true, onCancel: onCancel, onError: onError, pick: pick)
     }
 
+    // A folder is chosen with the tick beside it plus 「打开」, the same way as files. In
+    // single-choice mode the picker only lets you tap into a folder, and on recent iOS
+    // 「打开」 often stayed grey even inside it, so no folder could ever be chosen.
     @discardableResult
     static func presentFolder(onCancel: (() -> Void)? = nil, onError: ((String) -> Void)? = nil,
                               pick: @escaping (URL) -> Void) -> Bool {
-        show([.folder], asCopy: false, multiple: false, onCancel: onCancel, onError: onError) { urls in
+        show([.folder], asCopy: false, multiple: true, onCancel: onCancel, onError: onError) { urls in
             if let url = urls.first { pick(url) }
         }
+    }
+
+    // Native "Save to Files" exporter: lets the user navigate INSIDE any folder and tap
+    // top-right 「存储」 (Save), avoiding the folder-open picker's greyed-out files confusion.
+    @discardableResult
+    static func presentExport(_ fileURL: URL, onCancel: (() -> Void)? = nil,
+                              onError: ((String) -> Void)? = nil,
+                              onSaved: ((URL) -> Void)? = nil) -> Bool {
+        if let open = current, open.picker == nil || (open.picker?.presentingViewController == nil && open.picker?.isBeingPresented == false) {
+            current = nil
+            open.cancel?()
+        }
+        guard current == nil else { onError?("文件选择器已经打开，请先完成或取消当前选择。"); return false }
+        let presentBlock: @MainActor (UIViewController) -> Void = { top in
+            let coordinator = Coordinator(pick: { urls in
+                if let saved = urls.first { onSaved?(saved) }
+            }, cancel: onCancel)
+            let picker = UIDocumentPickerViewController(forExporting: [fileURL], asCopy: true)
+            picker.delegate = coordinator
+            picker.shouldShowFileExtensions = true
+            coordinator.picker = picker
+            current = coordinator
+            top.view.endEditing(true)
+            top.present(picker, animated: true) {
+                coordinator.startDismissWatchdog()
+            }
+        }
+        if let top = topViewController(), top.viewIfLoaded?.window != nil, !top.isBeingPresented, !top.isBeingDismissed {
+            presentBlock(top)
+            return true
+        }
+        Task { @MainActor in
+            try? await Task.sleep(for: .milliseconds(180))
+            guard current == nil, let top = topViewController(), top.viewIfLoaded?.window != nil,
+                  !top.isBeingPresented, !top.isBeingDismissed else {
+                onCancel?()
+                onError?("当前页面还在切换，暂时无法打开文件选择器，请稍后再试。")
+                return
+            }
+            presentBlock(top)
+        }
+        return true
     }
 
     private static func show(_ types: [UTType], asCopy: Bool, multiple: Bool,

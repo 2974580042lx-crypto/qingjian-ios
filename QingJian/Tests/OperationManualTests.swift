@@ -5,8 +5,8 @@ final class OperationManualTests: XCTestCase {
 
     func testDefaultBookIsPersonaFriendlyAndComplete() {
         let book = OperationManualBook.defaultBook()
-        XCTAssertEqual(book.chapters.count, 9)
-        XCTAssertEqual(book.enabledCount, 9)
+        XCTAssertEqual(book.chapters.count, 14)
+        XCTAssertEqual(book.enabledCount, 14)
         XCTAssertFalse(book.hasUserChanges)
 
         let ids = Set(book.chapters.map(\.id))
@@ -19,7 +19,12 @@ final class OperationManualTests: XCTestCase {
             "study-memory-practice",
             "study-weekly-report",
             "tool-external",
-            "app-backup-guide"
+            "app-backup-guide",
+            "cc-karpathy-laws",
+            "cc-confidence-check",
+            "cc-anti-slop",
+            "cc-auto-dream",
+            "cc-deep-explore"
         ])
 
         let reading = try! XCTUnwrap(book.chapters.first { $0.id == "study-english-reading" })
@@ -186,7 +191,7 @@ final class OperationManualTests: XCTestCase {
         let store = OperationManualStore(url: fileURL)
 
         var book = store.load()
-        XCTAssertEqual(book.chapters.count, 9)
+        XCTAssertEqual(book.chapters.count, 14)
 
         // 1. User modifies a built-in chapter
         var reading = try XCTUnwrap(book.chapters.first { $0.id == "study-english-reading" })
@@ -214,7 +219,7 @@ final class OperationManualTests: XCTestCase {
 
         // Reload & simulate app upgrade merge
         let reloaded = store.load()
-        XCTAssertEqual(reloaded.chapters.count, 10)
+        XCTAssertEqual(reloaded.chapters.count, 15)
         let savedReading = try XCTUnwrap(reloaded.chapters.first { $0.id == "study-english-reading" })
         XCTAssertTrue(savedReading.isUserModified)
         XCTAssertEqual(savedReading.version, 4)
@@ -269,7 +274,7 @@ final class OperationManualTests: XCTestCase {
         )
         let encoded = try UnifiedBackupCodec.encode(payload)
         let decodedPkg = try UnifiedBackupCodec.decodeAny(encoded)
-        XCTAssertEqual(decodedPkg.manualChapterCount, 10)
+        XCTAssertEqual(decodedPkg.manualChapterCount, 15)
 
         guard case .unified(let restoredPayload) = decodedPkg,
               let restoredManual = restoredPayload.operationManual else {
@@ -278,7 +283,7 @@ final class OperationManualTests: XCTestCase {
 
         // Merge into a clean default book
         let merged = OperationManualBook.defaultBook().mergedFromBackup(restoredManual, mode: .merge)
-        XCTAssertEqual(merged.chapters.count, 10)
+        XCTAssertEqual(merged.chapters.count, 15)
         XCTAssertTrue(merged.chapters.first { $0.id == "study-resume" }?.content.contains("用户个人补充条款") == true)
         XCTAssertNotNil(merged.chapters.first { $0.id == "custom-backup-check" })
     }

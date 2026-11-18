@@ -34,6 +34,7 @@ struct GoogleDriveSection: View {
 @MainActor
 struct AutoBackupSection: View {
     @EnvironmentObject private var store: AppStore
+    @State private var exportingToFolder = false
     var body: some View {
         Section {
             LabeledContent("备份到", value: BackupFolder.localLocation)
@@ -42,20 +43,44 @@ struct AutoBackupSection: View {
             } ?? "尚未备份")
             Button("立即备份") { store.autoBackupIfNeeded(force: true) }
                 .disabled(!store.canPersist)
+            Button {
+                exportBackupToFolder()
+            } label: {
+                HStack {
+                    Label("立即备份并另存到文件夹…", systemImage: "square.and.arrow.down.on.square")
+                    if exportingToFolder {
+                        Spacer()
+                        ProgressView().controlSize(.small)
+                    }
+                }
+            }
+            .disabled(!store.canPersist || exportingToFolder || store.unifiedBackupBusy)
             if let name = store.backupFolderName {
                 LabeledContent("额外存一份到", value: name)
                 Button("更换额外文件夹") { chooseFolder() }
                 Button("不再额外存一份", role: .destructive) { store.clearBackupFolder() }
             } else {
-                Button { chooseFolder() } label: { Label("额外存一份到其他文件夹", systemImage: "folder.badge.plus") }
+                Button { chooseFolder() } label: { Label("额外存一份到其他文件夹（左侧勾选后点打开）", systemImage: "folder.badge.plus") }
             }
             if let issue = store.backupIssue { Text(issue).font(TypeScale.serif(13)).foregroundStyle(.secondary) }
         } header: { Text("自动备份") } footer: {
-            Text("每天第一次打开 Sermo 时自动生成一份完整备份（.sermobackup，包含聊天、项目、指令库、学习进度、书架档案与人物卡，不含小说正文），存进「文件」App 的「我的 iPhone › Sermo › 自动备份」。想在 iCloud 云盘等地方再存一份，可另选一个文件夹。自动保留最近 7 份；不含 API Key 和登录凭证。")
+            Text("每天第一次打开 Sermo 时自动生成一份完整备份（.sermobackup，包含聊天、项目、指令库、内置文档规范、学习进度、书架档案与人物卡，不含小说正文），存进「文件」App 的「我的 iPhone › Sermo › 自动备份」。\n• 想手动把备份存进任意目录：点「立即备份并另存到文件夹…」，直接点进目标文件夹后按右上角「存储」。\n• 想设置每日自动同步目录：点「额外存一份到其他文件夹」，在列表中勾选文件夹左侧圆圈（不要点进文件夹内部），再点右上角「打开」。自动保留最近 7 份；不含 API Key 和登录凭证。")
         }
     }
     private func chooseFolder() {
         DocumentPicker.presentFolder(onError: { store.errorMessage = $0 }) { url in store.setBackupFolder(url) }
+    }
+    private func exportBackupToFolder() {
+        guard !exportingToFolder else { return }
+        exportingToFolder = true
+        Task { @MainActor in
+            let url = await store.exportUnifiedBackup()
+            exportingToFolder = false
+            guard let url else { return }
+            DocumentPicker.presentExport(url, onError: { store.errorMessage = $0 }) { savedURL in
+                store.noticeMessage = "已将完整备份存入「\(savedURL.deletingLastPathComponent().lastPathComponent)」。"
+            }
+        }
     }
 }
 

@@ -61,6 +61,40 @@ struct ChatRequest: Encodable, Sendable {
     static let contextByteBudget = 512000
     // Pictures are re-uploaded with every request, so only the latest few travel.
     static let imageMessageLimit = 4
+
+    /// Estimates context saturation ratio (0.0...1.0) and approximate token count for the Claude Code style statusline gauge.
+    static func estimateContextUsage(settings: AppSettings, messages: [ChatMessage], systemPromptBytes: Int = 2400) -> (ratio: Double, estimatedTokens: Int, messageCount: Int, canCompact: Bool) {
+        let config = settings.validated()
+        let settled = messages.filter { !$0.content.isEmpty && ($0.role == .user || $0.state == .complete) }
+        let windowed = Array(settled.suffix(config.contextMessageLimit))
+        let historyBytes = windowed.reduce(0) { $0 + $1.content.utf8.count }
+        let totalBytes = systemPromptBytes + historyBytes
+        // Approx 3 UTF-8 bytes per CJK/mixed token
+        let estimatedTokens = max(0, totalBytes / 3)
+        let msgRatio = Double(windowed.count) / Double(max(1, config.contextMessageLimit))
+        let byteRatio = Double(totalBytes) / Double(120_000) // practical active comfort ceiling (~40k tokens)
+        let ratio = min(1.0, max(msgRatio * 0.65, byteRatio))
+        return (ratio: ratio, estimatedTokens: estimatedTokens, messageCount: settled.count, canCompact: settled.count >= 6)
+    }
+
+    /// Microcompact: trims stale `<untrusted_search_results>` or `<web_page>` payloads in older turns (> 4 messages ago)
+    /// without mutating persisted messages, saving context window and improving cache efficiency.
+    static func microcompact(_ text: String, isRecentTurn: Bool) -> String {
+        guard !isRecentTurn, text.count > 2400 else { return text }
+        var result = text
+        for tag in ["untrusted_search_results", "web_page"] {
+            let open = "<\(tag)>"
+            let close = "</\(tag)>"
+            if let r1 = result.range(of: open), let r2 = result.range(of: close), r1.upperBound < r2.lowerBound {
+                let inner = result[r1.upperBound..<r2.lowerBound]
+                if inner.count > 600 {
+                    let compactInner = String(inner.prefix(400)) + "\n…〔历史检索正文已由 Microcompact 自动折叠，仅保留核心摘要〕"
+                    result.replaceSubrange(r1.upperBound..<r2.lowerBound, with: compactInner)
+                }
+            }
+        }
+        return result
+    }
     let model: String
     private(set) var messages: [APIMessage]
     let stream = true
@@ -166,12 +200,15 @@ struct ChatRequest: Encodable, Sendable {
         }
         let withPictures = history.filter { $0.role == .user && !($0.images ?? []).isEmpty }
         let pictureIDs = Set(withPictures.suffix(Self.imageMessageLimit).map(\.id))
-        for message in history {
+        let recentCutoff = max(0, history.count - 4)
+        for (idx, message) in history.enumerated() {
             var urls: [String] = []
             if let imageLoader, pictureIDs.contains(message.id) {
                 urls = (message.images ?? []).compactMap { imageLoader($0) }
             }
-            var item = APIMessage(role: message.role.rawValue, content: message.content, images: urls)
+            let isRecent = idx >= recentCutoff
+            let bodyText = Self.microcompact(message.content, isRecentTurn: isRecent)
+            var item = APIMessage(role: message.role.rawValue, content: bodyText, images: urls)
             item.reasoningContent = reasoning(of: message)
             outgoing.append(item)
         }

@@ -40,7 +40,7 @@ struct OperationManualView: View {
                         Label("将全部内置章节恢复为出厂默认", systemImage: "arrow.counterclockwise")
                     }
                 } footer: {
-                    Text("只恢复内置的 9 个章节及其启用开关；你自己新建的章节会完整保留。")
+                    Text("只恢复内置的 \(OperationManualBook.defaultChapters.count) 个章节及其启用开关；你自己新建的章节会完整保留。")
                 }
             }
         }

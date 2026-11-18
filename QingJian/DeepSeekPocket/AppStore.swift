@@ -84,6 +84,7 @@ final class AppStore: ObservableObject {
     private var backupRunning = false
     private var subscriptionObserver: AnyCancellable?
     @Published private(set) var memorizingProjectID: UUID?
+    @Published private(set) var compactingThreadID: UUID?
     private var memoryTask: Task<Void, Never>?
     private var studyMemory: StudyMemoryStore?
     private var installedStudySubjects: [StudySubject] = []
@@ -1584,12 +1585,11 @@ final class AppStore: ObservableObject {
         }
         let usesTools = !specs.isEmpty
         // {{时间}} and the other placeholders are filled in here, for this request only.
+        // Static/dynamic boundary (CC Prompt Caching optimization): keep `systemPrompt` static across minutes
+        // by attaching minute-level time notes to the latest user turn rather than the system prefix.
         let now = Date()
         let variables = PromptVariables.Context(now: now, userName: userName,
                                                 modelName: modelTitle(for: provider))
-        if discussion == nil && story == nil && chatProject?.timeAwareness != false {
-            notes.append(PromptVariables.currentTimeNote(variables))
-        }
         let discussionCharacter = discussion == nil ? nil : threads[ti].messages.last(where: { $0.role == .user })?.discussionCharacter
         let basePrompt = discussion.map { BookDiscussion.prompt($0, book: books.book($0.bookID), character: discussionCharacter) }
             ?? story.map { storyPrompt($0) }
@@ -1602,7 +1602,12 @@ final class AppStore: ObservableObject {
         if discussion == nil && story == nil && chatProject?.timeAwareness != false,
            let last = threads[ti].messages.lastIndex(where: { $0.role == .user }) {
             let previous = last > 0 ? threads[ti].messages[last - 1].createdAt : nil
-            if let note = PromptVariables.elapsedNote(since: previous, context: variables) { built = built.prefixingLastUserMessage(note) }
+            let timeNote = PromptVariables.currentTimeNote(variables)
+            if let elapsed = PromptVariables.elapsedNote(since: previous, context: variables) {
+                built = built.prefixingLastUserMessage(timeNote + "\n" + elapsed)
+            } else {
+                built = built.prefixingLastUserMessage(timeNote)
+            }
         }
         let request = built
         var answer = ChatMessage(role: .assistant, state: .streaming, model: provider == .deepSeek ? settings.model : nil)
@@ -1652,6 +1657,17 @@ final class AppStore: ObservableObject {
                        let mi = self.threads[ti].messages.firstIndex(where: { $0.id == answerID }) {
                         self.threads[ti].messages[mi].webSources = result.sources
                         self.threads[ti].messages[mi].searchUsage = result.usage
+                        if !result.searchLog.isEmpty {
+                            var activities = self.threads[ti].messages[mi].toolActivity ?? []
+                            activities.append(ToolActivity(
+                                id: "web-deep-\(answerID.uuidString.prefix(6))",
+                                title: "深度联网探索 · 已核对 \(result.sources.count) 篇网页",
+                                status: .done,
+                                detail: result.searchLog,
+                                kind: "web"
+                            ))
+                            self.threads[ti].messages[mi].toolActivity = activities
+                        }
                     }
                     self.recordUsage(result.usage, model: nil, at: Date())
                     self.persistNow()
@@ -2595,6 +2611,129 @@ final class AppStore: ObservableObject {
         project.memory = clean.isEmpty ? nil : String(clean.prefix(ChatProject.memoryCharacterLimit))
         project.memoryUpdatedAt = Date()
         return updateProject(project)
+    }
+
+    /// Claude Code style `/compact`: summarizes long conversation history into a structured 4-part
+    /// briefing while preserving the full original conversation in 「旧答案」.
+    func compactActiveThread() {
+        guard !isGenerating, compactingThreadID == nil, canPersist,
+              let thread = activeThread else { return }
+        let provider = auxiliaryProvider(for: thread)
+        guard isReady(provider) else {
+            errorMessage = "请先在设置中配置可用的模型服务后再浓缩对话。"
+            return
+        }
+        let proj = project(thread.projectID)
+        let request: ChatRequest
+        do {
+            request = try ProjectMemory.compactRequest(thread: thread, project: proj)
+        } catch {
+            errorMessage = error.localizedDescription
+            return
+        }
+        let threadID = thread.id
+        let subModel = proj?.subscriptionModel ?? settings.subscriptionModel
+        compactingThreadID = threadID
+        Task { @MainActor [weak self] in
+            guard let self else { return }
+            defer { self.compactingThreadID = nil }
+            let buffer = MemoryBuffer()
+            do {
+                try await self.streamModel(
+                    request,
+                    provider: provider,
+                    subscriptionModel: subModel,
+                    requestTimeout: 90,
+                    resourceTimeout: 150,
+                    onRestart: { buffer.value = MemoryAccumulator() }
+                ) { buffer.value.consume($0) }
+                self.recordUsage(buffer.value.usage, model: provider == .deepSeek ? .flash : nil, at: Date(), provider: provider)
+                let raw = try buffer.value.result()
+                let summary = ProjectMemory.parseCompactSummary(raw)
+                guard !summary.isEmpty,
+                      let current = self.threads.first(where: { $0.id == threadID }) else { return }
+                let settled = current.messages.filter { !$0.content.isEmpty && ($0.role == .user || $0.state == .complete) }
+                let tailCount = min(4, settled.count)
+                let compactedCount = max(1, settled.count - tailCount)
+                var headerMsg = ChatMessage(
+                    role: .user,
+                    content: "【前情无损浓缩摘要（/compact）】\n\(summary)",
+                    directive: "已无损浓缩前 \(compactedCount) 条消息（点开查看摘要，完整原记录仍在『旧答案』）",
+                    directiveDetail: summary
+                )
+                headerMsg.createdAt = settled.first?.createdAt ?? Date()
+                var newMessages: [ChatMessage] = [headerMsg]
+                if tailCount > 0 {
+                    newMessages.append(contentsOf: settled.suffix(tailCount))
+                }
+                var compactedThread = current
+                compactedThread.id = UUID()
+                compactedThread.parentThreadID = current.id
+                let baseTitle = String(current.title.prefix(28))
+                compactedThread.title = baseTitle + " · 修改"
+                compactedThread.messages = newMessages
+                compactedThread.updatedAt = Date()
+                let oldThreads = self.threads, oldActive = self.activeThreadID
+                self.threads.insert(compactedThread, at: 0)
+                self.activeThreadID = compactedThread.id
+                if !self.persistNow() {
+                    self.threads = oldThreads
+                    self.activeThreadID = oldActive
+                } else {
+                    self.noticeMessage = "已将前 \(compactedCount) 条对话无损浓缩为四板块摘要，上下文水位已大幅降低（原完整记录随时可在右上角『旧答案』切回）。"
+                }
+            } catch {
+                self.errorMessage = "浓缩对话未完成：\(error.localizedDescription)"
+            }
+        }
+    }
+
+    /// Triggers an immediate Auto-Dream consolidation pass on the active project's memory.
+    func dreamConsolidateActiveProject() {
+        guard memoryTask == nil, !isGenerating, canPersist,
+              let thread = activeThread, let proj = project(thread.projectID) else {
+            errorMessage = "请先进入一个项目对话，再使用 /做梦 整理项目记忆。"
+            return
+        }
+        let provider = auxiliaryProvider(for: thread)
+        guard isReady(provider) else {
+            errorMessage = "请先配置可用的模型服务后再执行记忆整合。"
+            return
+        }
+        let projectThreads = threads.filter { $0.projectID == proj.id }
+        let request: ChatRequest
+        do {
+            request = try ProjectMemory.dreamRequest(project: proj, recentThreads: projectThreads)
+        } catch {
+            errorMessage = error.localizedDescription
+            return
+        }
+        let subModel = proj.subscriptionModel ?? settings.subscriptionModel
+        memorizingProjectID = proj.id
+        memoryTask = Task { @MainActor [weak self] in
+            guard let self else { return }
+            defer { self.memoryTask = nil; self.memorizingProjectID = nil }
+            let buffer = MemoryBuffer()
+            do {
+                try await self.streamModel(
+                    request,
+                    provider: provider,
+                    subscriptionModel: subModel,
+                    requestTimeout: 90,
+                    resourceTimeout: 150,
+                    onRestart: { buffer.value = MemoryAccumulator() }
+                ) { buffer.value.consume($0) }
+                self.recordUsage(buffer.value.usage, model: provider == .deepSeek ? .flash : nil, at: Date(), provider: provider)
+                let cleaned = try buffer.value.result()
+                guard !cleaned.isEmpty, var latest = self.project(proj.id) else { return }
+                latest.memory = cleaned
+                latest.memoryUpdatedAt = Date()
+                self.storeQuietly(latest)
+                self.noticeMessage = "已完成「\(proj.name)」的 Auto-Dream 睡眠记忆整合（已去重、消歧并合并近期重点）。"
+            } catch {
+                self.errorMessage = "记忆整合未完成：\(error.localizedDescription)"
+            }
+        }
     }
 
 

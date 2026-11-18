@@ -310,10 +310,61 @@ struct ConversationVersionsSheet: View {
         let current = versions
         return List {
             Section {
-                Text("重新生成或修改后重发会保留旧版本。切回不额外生成回答，你可以接着那个版本继续聊。")
+                Text("重新生成、修改后重发或执行 /compact 浓缩对话都会保留旧版本。点下方时间轴圆点可直接切换分支，不额外消耗模型额度。")
                     .font(TypeScale.label).foregroundStyle(Ink.ink2)
+                if current.count > 1 {
+                    ScrollView(.horizontal, showsIndicators: false) {
+                        HStack(spacing: 0) {
+                            ForEach(Array(current.enumerated()), id: \.element.id) { index, version in
+                                let isCurrent = version.id == store.activeThreadID
+                                let isCompacted = version.messages.first?.directive?.contains("无损浓缩") == true
+                                HStack(spacing: 0) {
+                                    Button {
+                                        guard !isCurrent, !store.isGenerating else { return }
+                                        if store.selectConversationVersion(version.id) {
+                                            selectionError = nil
+                                            dismiss()
+                                        } else {
+                                            selectionError = "暂时无法切换到这个版本，请稍后再试。"
+                                        }
+                                    } label: {
+                                        VStack(spacing: 4) {
+                                            ZStack {
+                                                Circle()
+                                                    .fill(isCurrent ? Ink.seal : Ink.paper)
+                                                    .frame(width: 26, height: 26)
+                                                Circle()
+                                                    .stroke(Ink.seal, lineWidth: isCurrent ? 2.5 : 1.2)
+                                                    .frame(width: 26, height: 26)
+                                                Text("\(index + 1)")
+                                                    .font(.system(size: 12, weight: .bold, design: .monospaced))
+                                                    .foregroundStyle(isCurrent ? Ink.onSolid : Ink.ink)
+                                            }
+                                            Text(isCompacted ? "浓缩版" : "分支 \(index + 1)")
+                                                .font(TypeScale.tiny)
+                                                .foregroundStyle(isCurrent ? Ink.seal : Ink.ink2)
+                                            Text("\(version.messages.count)条")
+                                                .font(.system(size: 10, design: .monospaced))
+                                                .foregroundStyle(Ink.ink3)
+                                        }
+                                        .padding(.horizontal, 8)
+                                        .padding(.vertical, 6)
+                                    }
+                                    .buttonStyle(.plain)
+                                    if index < current.count - 1 {
+                                        Rectangle()
+                                            .fill(Ink.seal.opacity(0.35))
+                                            .frame(width: 22, height: 1.5)
+                                            .padding(.bottom, 22)
+                                    }
+                                }
+                            }
+                        }
+                        .padding(.vertical, 4)
+                    }
+                }
                 if current.count == 1 {
-                    Text("目前只有这个版本；后续重新生成时，新旧版本都会显示在这里。")
+                    Text("目前只有这个版本；后续重新生成或浓缩上文时，新旧分支都会显示在这里。")
                         .font(TypeScale.tiny).foregroundStyle(Ink.ink3)
                 }
                 if store.isGenerating {

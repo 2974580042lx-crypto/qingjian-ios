@@ -15,6 +15,8 @@ struct WebSearchResult: Sendable {
     var summary = ""
     // Text the app read from the top pages itself, keyed by URL.
     var pages: [String: String] = [:]
+    // Multi-round deep search & page-fetch audit log, shown in expandable tool activity.
+    var searchLog = ""
 
     var context: String {
         let rows = sources.enumerated().map { index, source in
@@ -211,10 +213,39 @@ enum WebSearchProtocol {
         let summary = String(summaryLines.joined(separator: "\n").prefix(6000))
         return WebSearchResult(sources: sources, usage: nil, summary: summary, pages: pages)
     }
+
+    /// Builds a complementary Round-2 search query when the user's question has multiple facets
+    /// or when Round 1 returned sparse full-text coverage.
+    static func deriveFollowUpQuery(originalQuery: String, contextHint: String, firstRound: WebSearchResult) -> String? {
+        let richPages = firstRound.pages.values.filter { $0.count >= 400 }.count
+        let clauses = originalQuery
+            .components(separatedBy: CharacterSet(charactersIn: "？?。！!；;，,\n"))
+            .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
+            .filter { $0.count >= 4 }
+        // If Round 1 already has 3+ rich full-text pages and the query is a single short clause, 1 round suffices.
+        if richPages >= 3 && clauses.count <= 1 && originalQuery.count < 28 {
+            return nil
+        }
+        if clauses.count >= 2 {
+            let tail = clauses.suffix(2).joined(separator: " ")
+            let normalizedTail = normalize(tail, maxScalars: 96, keepTail: true)
+            let normalizedOrig = normalize(originalQuery, maxScalars: 96, keepTail: false)
+            if !normalizedTail.isEmpty && normalizedTail != normalizedOrig {
+                return normalizedTail
+            }
+        }
+        // Extract distinctive keywords or combine with contextHint for cross-verification.
+        let hintClean = normalize(contextHint, maxScalars: 48, keepTail: true)
+        let baseClean = normalize(originalQuery, maxScalars: 72, keepTail: false)
+        guard !baseClean.isEmpty else { return nil }
+        let candidate = hintClean.isEmpty ? "\(baseClean) 详情 解析 最新进展" : "\(baseClean) \(hintClean)"
+        let finalCandidate = normalize(candidate, maxScalars: maxQueryScalars, keepTail: false)
+        return finalCandidate != baseClean ? finalCandidate : nil
+    }
 }
 
 final class WebSearchClient: @unchecked Sendable {
-    func search(query: String, oriQuestion: String? = nil, key: String) async throws -> WebSearchResult {
+    func search(query: String, oriQuestion: String? = nil, count: Int = 12, key: String) async throws -> WebSearchResult {
         let config = URLSessionConfiguration.ephemeral
         config.timeoutIntervalForRequest = 30
         config.timeoutIntervalForResource = 45
@@ -226,7 +257,7 @@ final class WebSearchClient: @unchecked Sendable {
         request.httpMethod = "POST"
         request.setValue("Bearer \(key)", forHTTPHeaderField: "Authorization")
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
-        request.httpBody = try WebSearchProtocol.body(query: query, oriQuestion: oriQuestion)
+        request.httpBody = try WebSearchProtocol.body(query: query, oriQuestion: oriQuestion, count: count)
         try Task.checkCancellation()
         let (data, response) = try await session.data(for: request)
         try Task.checkCancellation()
@@ -235,8 +266,9 @@ final class WebSearchClient: @unchecked Sendable {
         return try WebSearchProtocol.parse(data)
     }
 
-    /// Reads any explicit http(s) / GitHub URLs in the query directly first; falls back to or combines with keyword search when needed.
-    func searchOrReadDirectURLs(query: String, contextHint: String = "", key: String, githubToken: String? = nil) async throws -> WebSearchResult {
+    /// Reads any explicit http(s) / GitHub URLs in the query directly first; otherwise performs DeepSeek
+    /// multi-round Deep Search + official Fetch API full-text extraction.
+    func searchOrReadDirectURLs(query: String, contextHint: String = "", key: String, githubToken: String? = nil, deepSearch: Bool = true) async throws -> WebSearchResult {
         let reader = WebPageReader(githubToken: githubToken, apiKey: key)
         let directURLs = Array(WebText.extractURLs(from: query).prefix(3))
         var directSources: [WebSource] = []
@@ -256,26 +288,73 @@ final class WebSearchClient: @unchecked Sendable {
         }
 
         if !directSources.isEmpty {
+            let log = directSources.map { "• 直读链接：\($0.title) (\($0.url))" }.joined(separator: "\n")
             return WebSearchResult(
                 sources: directSources,
                 usage: nil,
                 summary: "已直接读取用户提供链接的内容（共 \(directSources.count) 个来源）。",
-                pages: directPages
+                pages: directPages,
+                searchLog: log
             )
         }
 
         let trimmedHint = contextHint.trimmingCharacters(in: .whitespacesAndNewlines)
         let oriQuestion = trimmedHint.isEmpty ? nil : "\(trimmedHint) \(query)"
-        var result = try await search(query: query, oriQuestion: oriQuestion, key: key)
-        let missingSources = Array(result.sources.prefix(4)).filter { source in
-            (result.pages[source.url]?.count ?? 0) < 120
-        }
-        if !missingSources.isEmpty {
-            let fetched = await reader.readTop(missingSources, count: 4)
-            for (url, text) in fetched where !text.isEmpty {
-                result.pages[url] = text
+        let cleanFirstQuery = WebSearchProtocol.normalize(query, maxScalars: WebSearchProtocol.maxQueryScalars)
+        var result = try await search(query: query, oriQuestion: oriQuestion, count: 12, key: key)
+        var logLines: [String] = ["第 1 轮检索：「\(cleanFirstQuery)」→ 命中 \(result.sources.count) 条来源"]
+
+        // Round 2: Adaptive follow-up search (Explore style) when deepSearch is enabled
+        if deepSearch,
+           let followUp = WebSearchProtocol.deriveFollowUpQuery(originalQuery: query, contextHint: trimmedHint, firstRound: result),
+           !Task.isCancelled {
+            if let second = try? await search(query: followUp, oriQuestion: query, count: 8, key: key) {
+                var mergedSources = result.sources
+                var mergedPages = result.pages
+                var addedCount = 0
+                for src in second.sources where !mergedSources.contains(where: { $0.url == src.url }) {
+                    if mergedSources.count < 10 {
+                        mergedSources.append(src)
+                        addedCount += 1
+                    }
+                    if let p = second.pages[src.url], !p.isEmpty {
+                        mergedPages[src.url] = p
+                    }
+                }
+                let combinedSummary = [result.summary, second.summary]
+                    .filter { !$0.isEmpty }
+                    .joined(separator: "\n")
+                result = WebSearchResult(
+                    sources: mergedSources,
+                    usage: TokenUsage.combined(result.usage, second.usage),
+                    summary: String(combinedSummary.prefix(6000)),
+                    pages: mergedPages
+                )
+                if addedCount > 0 {
+                    logLines.append("第 2 轮追搜：「\(followUp)」→ 补充 \(addedCount) 条交叉核对来源")
+                }
             }
         }
+
+        let missingSources = Array(result.sources.prefix(5)).filter { source in
+            (result.pages[source.url]?.count ?? 0) < 200
+        }
+        if !missingSources.isEmpty {
+            let fetched = await reader.readTop(missingSources, count: 5, limit: 4500)
+            var fetchedTitles: [String] = []
+            for (url, text) in fetched where !text.isEmpty {
+                result.pages[url] = text
+                if let title = result.sources.first(where: { $0.url == url })?.title {
+                    fetchedTitles.append(String(title.prefix(36)))
+                }
+            }
+            if !fetchedTitles.isEmpty {
+                logLines.append("官方深读抓取（\(fetchedTitles.count) 篇）：" + fetchedTitles.joined(separator: "、"))
+            }
+        }
+        let richCount = result.sources.filter { (result.pages[$0.url]?.count ?? 0) >= 200 }.count
+        logLines.append("共整合 \(result.sources.count) 条来源（其中 \(richCount) 篇含完整正文节选）")
+        result.searchLog = logLines.joined(separator: "\n")
         return result
     }
 }

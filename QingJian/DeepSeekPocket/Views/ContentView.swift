@@ -694,10 +694,6 @@ struct ChatScreen: View {
     private var chatWithToolSheets: some View {
         chatWithStorySheets
         .sheet(item: $thinkingTarget) { target in ThinkingSheet(target: target).environmentObject(store) }
-        // A Drive write the model asked for waits here; closing the sheet counts as "no".
-        .sheet(item: Binding(get: { store.pendingApproval }, set: { if $0 == nil { store.resolveApproval(false) } })) { approval in
-            ToolApprovalSheet(approval: approval) { store.resolveApproval($0) }
-        }
         .alert("替换输入框里的文字？", isPresented: Binding(
             get: { pendingSuggestedReply != nil },
             set: { if !$0 { pendingSuggestedReply = nil } })) {
@@ -961,6 +957,18 @@ struct ChatScreen: View {
                     }
                     .accessibilityLabel("查看旧答案和历史版本")
                     .accessibilityIdentifier("chat-versions")
+                }
+                if thread.messages.count >= 6 {
+                    Button("浓缩本对话上文（/compact）", systemImage: "arrow.down.right.and.arrow.up.left") {
+                        store.compactActiveThread()
+                    }
+                    .disabled(store.isGenerating || store.compactingThreadID != nil)
+                }
+                if thread.projectID != nil {
+                    Button("Auto-Dream 整理项目记忆", systemImage: "moon.stars") {
+                        store.dreamConsolidateActiveProject()
+                    }
+                    .disabled(store.isGenerating || store.memorizingProjectID != nil)
                 }
                 if thread.story != nil {
                     Button("剧情控制、记忆与存档", systemImage: "arrow.triangle.branch") { storyPlayFor = thread.id }
@@ -1303,12 +1311,162 @@ struct ChatScreen: View {
         .accessibilityIdentifier(id)
     }
 
+    private var isSlashCommandActive: Bool {
+        let trimmed = localDraft.trimmingCharacters(in: .whitespaces)
+        return trimmed.hasPrefix("/") || trimmed.hasPrefix("／")
+    }
+
+    @ViewBuilder private var contextStatusBar: some View {
+        if let thread = store.activeThread, !thread.messages.isEmpty {
+            let stats = ChatRequest.estimateContextUsage(
+                settings: store.activeChatSettings,
+                messages: thread.messages
+            )
+            let lastUsage = thread.messages.last(where: { $0.role == .assistant && $0.usage != nil })?.usage
+            let cacheHitRate: Int? = {
+                guard let u = lastUsage, u.promptTokens > 0, u.cachedTokens > 0 else { return nil }
+                return Int(round(Double(u.cachedTokens) / Double(u.promptTokens) * 100))
+            }()
+            if stats.messageCount >= 4 || store.compactingThreadID == thread.id {
+                let pct = max(1, Int(round(stats.ratio * 100)))
+                let barColor: Color = stats.ratio > 0.80 ? .red : (stats.ratio > 0.55 ? .orange : Ink.seal)
+                HStack(spacing: 8) {
+                    GeometryReader { geo in
+                        ZStack(alignment: .leading) {
+                            Capsule().fill(Ink.ink3.opacity(0.18))
+                            Capsule().fill(barColor).frame(width: max(4, geo.size.width * CGFloat(stats.ratio)))
+                        }
+                    }
+                    .frame(width: 44, height: 5)
+                    Text("上下文 \(pct)% · 约\(stats.estimatedTokens >= 1000 ? String(format: "%.1fk", Double(stats.estimatedTokens) / 1000.0) : "\(stats.estimatedTokens)")")
+                        .font(.system(size: 11, design: .monospaced))
+                        .foregroundStyle(Ink.ink3)
+                        .lineLimit(1)
+                    if let hit = cacheHitRate {
+                        Text("缓存 \(hit)%")
+                            .font(.system(size: 10.5, weight: .medium, design: .monospaced))
+                            .foregroundStyle(Ink.seal)
+                            .padding(.horizontal, 6)
+                            .padding(.vertical, 1.5)
+                            .background(Ink.seal.opacity(0.10), in: Capsule())
+                    }
+                    Spacer(minLength: 4)
+                    if store.compactingThreadID == thread.id {
+                        HStack(spacing: 4) {
+                            ProgressView().controlSize(.mini)
+                            Text("正在浓缩…").font(TypeScale.tiny).foregroundStyle(Ink.seal)
+                        }
+                    } else if stats.canCompact && !store.isGenerating {
+                        Button {
+                            Haptic.tap()
+                            store.compactActiveThread()
+                        } label: {
+                            HStack(spacing: 3) {
+                                Image(systemName: "arrow.down.right.and.arrow.up.left")
+                                    .font(.system(size: 9.5, weight: .semibold))
+                                Text("浓缩上文")
+                                    .font(.system(size: 11, weight: .semibold))
+                            }
+                            .foregroundStyle(stats.ratio > 0.60 ? Ink.onSolid : Ink.seal)
+                            .padding(.horizontal, 9)
+                            .padding(.vertical, 3.5)
+                            .background(stats.ratio > 0.60 ? Ink.solid : Ink.seal.opacity(0.12), in: Capsule())
+                        }
+                        .buttonStyle(.plain)
+                        .accessibilityIdentifier("compact-context-button")
+                    }
+                }
+                .padding(.horizontal, 8)
+                .transition(.opacity)
+            }
+        }
+    }
+
+    @ViewBuilder private var slashCommandBar: some View {
+        if isSlashCommandActive && !store.isGenerating {
+            ScrollView(.horizontal, showsIndicators: false) {
+                HStack(spacing: 8) {
+                    slashPill("/深搜", subtitle: "多轮深度搜索") {
+                        store.webSearchEnabled = true
+                        let remainder = String(localDraft.drop(while: { $0 != " " })).trimmingCharacters(in: .whitespaces)
+                        localDraft = remainder
+                        scheduleDraftPush()
+                    }
+                    slashPill("/浓缩", subtitle: "无损浓缩上文") {
+                        localDraft = ""
+                        scheduleDraftPush()
+                        store.compactActiveThread()
+                    }
+                    if store.activeThread?.projectID != nil {
+                        slashPill("/做梦", subtitle: "整合去重记忆") {
+                            localDraft = ""
+                            scheduleDraftPush()
+                            store.dreamConsolidateActiveProject()
+                        }
+                    }
+                    if store.activeProject?.studySubject == .english {
+                        slashPill("/考词", subtitle: "随机抽10个词") {
+                            localDraft = ""
+                            flushDraft()
+                            _ = store.send("请随机抽 10 个单词考考我。", images: [])
+                            focusComposer(false)
+                        }
+                    }
+                    if store.activeProject?.studySubject != nil {
+                        slashPill("/周报", subtitle: "生成本周周报") {
+                            localDraft = ""
+                            flushDraft()
+                            _ = store.send("帮我生成本周学习周报。", images: [])
+                            focusComposer(false)
+                        }
+                    }
+                    if showsSystemPromptControl, let thread = store.activeThread, store.canChooseSystemPrompt(for: thread) {
+                        slashPill("/指令", subtitle: "切换系统指令") {
+                            localDraft = ""
+                            scheduleDraftPush()
+                            focusComposer(false)
+                            systemPromptTarget = ConversationPanelTarget(threadID: thread.id)
+                        }
+                    }
+                }
+                .padding(.horizontal, 4)
+            }
+            .transition(.opacity.combined(with: .move(edge: .bottom)))
+        }
+    }
+
+    private func slashPill(_ command: String, subtitle: String, action: @escaping () -> Void) -> some View {
+        Button {
+            Haptic.tap()
+            action()
+        } label: {
+            HStack(spacing: 5) {
+                Text(command)
+                    .font(.system(size: 12.5, weight: .bold, design: .monospaced))
+                    .foregroundStyle(Ink.seal)
+                Text(subtitle)
+                    .font(.system(size: 11.5))
+                    .foregroundStyle(Ink.ink2)
+            }
+            .padding(.horizontal, 11)
+            .padding(.vertical, 6)
+            .background(Ink.raised, in: Capsule())
+            .overlay(Capsule().stroke(Ink.seal.opacity(0.28), lineWidth: 0.8))
+        }
+        .buttonStyle(.pressFeedback)
+    }
+
     private var composer: some View {
         VStack(spacing: 8) {
             composerTopControls
+            if let approval = store.pendingApproval {
+                InlineToolApprovalCard(approval: approval) { store.resolveApproval($0) }
+            }
+            contextStatusBar
+            slashCommandBar
             ghostBar
             if store.searchingThreadID == store.activeThreadID && store.isGenerating {
-                HStack { ProgressView(); Text("正在联网搜索…").font(TypeScale.caption) }
+                HStack { ProgressView(); Text("正在深度联网检索与核对正文…").font(TypeScale.caption) }
                     .accessibilityIdentifier("web-search-progress")
             }
 
@@ -1758,11 +1916,17 @@ struct MessageView: View, Equatable {
     var retryColab: (() -> Void)? = nil
     @State private var copied = false
     @State private var selecting = false
+    @State private var timeRevealOffset: CGFloat = 0
+    @State private var timeHapticTriggered = false
 
     nonisolated static func == (lhs: MessageView, rhs: MessageView) -> Bool {
         lhs.message == rhs.message && lhs.threadID == rhs.threadID && lhs.isLast == rhs.isLast
             && lhs.isGenerating == rhs.isGenerating && lhs.canRegenerate == rhs.canRegenerate
             && lhs.showsSuggestions == rhs.showsSuggestions && lhs.round == rhs.round && lhs.style == rhs.style
+    }
+
+    private var swipeTimeProgress: Double {
+        min(1.0, max(0.0, Double(-timeRevealOffset - 6) / 38.0))
     }
 
     var body: some View {
@@ -1784,9 +1948,44 @@ struct MessageView: View, Equatable {
                 .frame(maxWidth: .infinity).padding(.vertical, 6)
             } else if style == .swiss { swissContent } else { paperContent }
         }
+        .offset(x: timeRevealOffset)
+        .overlay(alignment: .trailing) {
+            if message.directive == nil && timeRevealOffset < -2 {
+                Text(MessageTime.swipeLabel(message.createdAt))
+                    .font(.system(size: 11.5, weight: .medium, design: .monospaced))
+                    .foregroundStyle(Ink.ink3)
+                    .lineLimit(1)
+                    .fixedSize()
+                    .offset(x: 68 + timeRevealOffset)
+                    .opacity(swipeTimeProgress)
+                    .allowsHitTesting(false)
+                    .accessibilityHidden(true)
+            }
+        }
+        .simultaneousGesture(
+            DragGesture(minimumDistance: 14, coordinateSpace: .local)
+                .onChanged { value in
+                    guard message.directive == nil else { return }
+                    let dx = value.translation.width
+                    let dy = value.translation.height
+                    // Only activate when dragging predominantly to the left so vertical scrolling stays 100% smooth.
+                    guard dx < -6, abs(dx) > abs(dy) * 1.3 else { return }
+                    let damped = max(-68, (dx + 6) * 0.62)
+                    timeRevealOffset = damped
+                    if damped <= -42 && !timeHapticTriggered {
+                        timeHapticTriggered = true
+                        Haptic.tap()
+                    }
+                }
+                .onEnded { _ in
+                    guard timeRevealOffset != 0 else { return }
+                    withAnimation(.spring(response: 0.30, dampingFraction: 0.80)) {
+                        timeRevealOffset = 0
+                        timeHapticTriggered = false
+                    }
+                }
+        )
         .contextMenu {
-            // Times are no longer printed under every message; they are one press away.
-            Text(MessageTime.label(message.createdAt))
             // The three used most come first; everything else sits below a divider.
             Section {
                 Button("复制", systemImage: "doc.on.doc") { UIPasteboard.general.string = message.content; Haptic.tap() }
@@ -2483,6 +2682,8 @@ struct EditMessageView: View {
 
 // "10月13日 14:32"; the year is added only for another year.
 enum MessageTime {
+    private static let todayOnly: DateFormatter = make("HH:mm")
+    private static let sameYearShort: DateFormatter = make("M/d HH:mm")
     private static let sameYear: DateFormatter = make("M月d日 HH:mm")
     private static let otherYear: DateFormatter = make("yyyy年M月d日 HH:mm")
     private static func make(_ format: String) -> DateFormatter {
@@ -2494,6 +2695,11 @@ enum MessageTime {
     static func label(_ date: Date) -> String {
         let calendar = Calendar.current
         return (calendar.isDate(date, equalTo: Date(), toGranularity: .year) ? sameYear : otherYear).string(from: date)
+    }
+    static func swipeLabel(_ date: Date) -> String {
+        let calendar = Calendar.current
+        if calendar.isDateInToday(date) { return todayOnly.string(from: date) }
+        return (calendar.isDate(date, equalTo: Date(), toGranularity: .year) ? sameYearShort : otherYear).string(from: date)
     }
 }
 

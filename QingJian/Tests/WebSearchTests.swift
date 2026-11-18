@@ -206,4 +206,39 @@ final class WebSearchTests: XCTestCase {
             "第一章 导论"
         )
     }
+
+    func testDeepSearchFollowUpAndMicrocompactAndCompactParsing() throws {
+        let sparseFirst = WebSearchResult(
+            sources: [WebSource(title: "短页", url: "https://example.com/1", snippet: "简短")],
+            usage: nil,
+            summary: "简短",
+            pages: ["https://example.com/1": "只有几十个字"]
+        )
+        let followUp = WebSearchProtocol.deriveFollowUpQuery(
+            originalQuery: "宋代清明集里的红白契怎么区分？对田宅典卖有什么影响？",
+            contextHint: "毕业论文第三章",
+            firstRound: sparseFirst
+        )
+        XCTAssertNotNil(followUp)
+        XCTAssertFalse(followUp!.isEmpty)
+
+        let longWebBlock = "<untrusted_search_results>\n" + String(repeating: "网页长正文内容", count: 400) + "\n</untrusted_search_results>"
+        let keptRecent = ChatRequest.microcompact(longWebBlock, isRecentTurn: true)
+        XCTAssertEqual(keptRecent, longWebBlock)
+        let compactedOld = ChatRequest.microcompact(longWebBlock, isRecentTurn: false)
+        XCTAssertLessThan(compactedOld.count, longWebBlock.count)
+        XCTAssertTrue(compactedOld.contains("Microcompact 自动折叠"))
+
+        let rawSummary = """
+        <analysis>先梳理前文脉络</analysis>
+        【核心意图与偏好】严谨考据宋代土地契约。
+        【已推进的关键事实与结论】已确认红契加盖官印、白契为私契。
+        【易错点与修正记录】不混淆典卖与绝卖。
+        【当前进度与下一步】准备进入先尽亲邻案例分析。
+        """
+        let cleanSummary = ProjectMemory.parseCompactSummary(rawSummary)
+        XCTAssertFalse(cleanSummary.contains("<analysis>"))
+        XCTAssertTrue(cleanSummary.contains("【核心意图与偏好】"))
+        XCTAssertTrue(cleanSummary.contains("【当前进度与下一步】"))
+    }
 }

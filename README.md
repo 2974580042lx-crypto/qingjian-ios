@@ -12,6 +12,21 @@
 
 ## 每日进展日志
 
+### 2026-11-18
+- **今日完成**：
+  - 梳理 DeepSeek 官方联网搜索与「深度思考搜索 / 网页抓取（Fetch）」API 现状：确认 Sermo 已内置官方独立搜索端点（复用现有 DeepSeek API Key，5 元/千次成功调用），并规划后续升级「边思考边多次追搜 + 官方网页抓取」的两套方案（尊重当前旧数据升级调查优先期，待确认后再合入主工程）。
+  - 排查「自动备份 → 额外存一份到其他文件夹」在 iOS 文件选择器中无法选中文件夹、右上角「打开」置灰的根因：定位到 `DocumentPicker.presentFolder` 在 `ca90f29d` 提交中被误从 `multiple: true`（显示文件夹左侧勾选圆圈）改回 `multiple: false`（点击仅进入文件夹且内部文件置灰），拟定恢复勾选模式并补充原生文件另存（`forExporting`）的双保险修复方案。
+  - 参照 Claude Code（CC）严谨的契约式文档架构，结合现有 `AppManual.swift`（用户说明书）与 `OperationManual.swift`（AI 按需查阅规范），完成新版《Sermo 内置使用文档与 AI 行为调教规范》完整重写稿。
+- **下一步待办**：
+  - 经用户确认后，将文件夹选择器修复、CC 风格内置使用文档与 AI 调教规范（及后续深度搜索增强）同步写入工程源码并通过 CI 编译验证。
+
+### 2026-11-17
+- **今日完成**：
+  - 核对 GitHub `main` 最新状态为 `1.37.1`（Build 75，`2f18e6e`，Release 编译通过）；协助排查 Sermo「其他模型（兼容端点）」接入第三方中转站问题（确认软件侧 OpenAI 兼容格式与 Base URL 校验无误，修正 API Key 换行及字符识别误差后通过测试连接，定位 `deepseek-v4-pro` 502 为中转站上游通道故障，切换 `deepseek-v4.1-flash` 正常对话；说明中转站余额需在对应机器人或后台查询）。
+  - 配合完成 Colab 开源无审查 + Claude 蒸馏 MoE 候选调研与定制改造前置准备（未动 App 源码、未启动 GPU）：定位 `Jongsim` 35B-A3B Opus 4.6 版速度满意但因后置 SFT 重新引入成人向拒答；拟定后续 A100 去拒答投影 + 轻度 LoRA 顺文风方案，并从本机历史记录预提取 79 组干净非谄媚自然对话备用（详见 `D:\AI\EasyColab\README.md`）。
+- **下一步待办**：
+  - 等用户自行攒好 Claude 4.6 高质量对话语料后，择期在 A100 上完成去拒答投影与轻度文风微调并压回 L4 使用；App 端仍保持旧数据升级调查优先，暂不新增功能代码。
+
 ### 2026-11-15
 - **今日完成**：
   - 排查并梳理 Sermo（`cleanup-1.37`，基线 Build 74 / `2dbddf2`）全链路传文件现状与痛点，编写设计审阅稿 [`docs/superpowers/specs/2026-11-15-universal-file-import-design.md`](docs/superpowers/specs/2026-11-15-universal-file-import-design.md)。
