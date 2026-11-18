@@ -54,7 +54,13 @@ final class ColabStore: ObservableObject {
         }
         refreshTask = task
         defer { refreshTask = nil; refreshing = false }
-        do { try await task.value }
+        do {
+            try await withTaskCancellationHandler {
+                try await task.value
+            } onCancel: {
+                task.cancel()
+            }
+        }
         catch { issue = error.localizedDescription; throw error }
     }
     func probe(configuration: ColabConfiguration? = nil, key: String? = nil) async {

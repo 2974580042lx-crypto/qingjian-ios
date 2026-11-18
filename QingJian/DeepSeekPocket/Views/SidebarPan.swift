@@ -65,6 +65,11 @@ struct SidebarPan: UIViewRepresentable {
             while let current = view {
                 if current is UITabBar { return false }
                 if current.isFirstResponder && (current is UITextField || current is UITextView) { return false }
+                if let scroll = current as? UIScrollView,
+                   scroll.isScrollEnabled,
+                   scroll.contentSize.width > scroll.bounds.width + 2 {
+                    return false
+                }
                 view = current.superview
             }
             return true

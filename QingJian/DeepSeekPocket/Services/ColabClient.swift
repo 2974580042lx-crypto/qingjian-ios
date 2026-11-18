@@ -235,7 +235,7 @@ final class ColabClient: @unchecked Sendable {
                 // fully delivered events, so snapshot recovery cannot duplicate text.
             }
             var failures = 0
-            while !(done && terminal) {
+            while !(done || terminal) {
                 try Task.checkCancellation()
                 guard Date().timeIntervalSince(started) < 3600 else {
                     throw ColabRecoveryFailure("恢复等待已超时，已收到的文字已保留。")
@@ -277,10 +277,10 @@ final class ColabClient: @unchecked Sendable {
                 if snapshot.state == "error" || snapshot.state == "cancelled" {
                     throw ColabRecoveryFailure("云端生成已中断，已收到的文字已保留。")
                 }
-                if snapshot.state == "completed" && !snapshot.hasMore && !(done && terminal) {
+                if snapshot.state == "completed" && !snapshot.hasMore && !(done || terminal) {
                     throw ColabRecoveryFailure("云端回复缺少完整结束标记，已收到的文字已保留。")
                 }
-                if !snapshot.hasMore && !(done && terminal) { try await Task.sleep(nanoseconds: 700_000_000) }
+                if !snapshot.hasMore && !(done || terminal) { try await Task.sleep(nanoseconds: 700_000_000) }
             }
             await onEvent(parser.consume(StreamEvent(), finish: true))
             progress.phase = .complete

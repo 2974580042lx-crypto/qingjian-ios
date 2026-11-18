@@ -207,6 +207,7 @@ enum ChatPhotoPicker {
         coordinator.picker = picker
         picker.delegate = coordinator
         picker.modalPresentationStyle = .pageSheet
+        picker.presentationController?.delegate = coordinator
         current = coordinator
         presenter.view.endEditing(true)
         presenter.present(picker, animated: true) { picker.presentationController?.delegate = coordinator }
@@ -241,10 +242,15 @@ enum ChatPhotoPicker {
         func picker(_ picker: PHPickerViewController, didFinishPicking results: [PHPickerResult]) {
             guard !finished else { return }
             finished = true
-            picker.dismiss(animated: true) {
+            var delivered = false
+            let deliver = {
+                guard !delivered else { return }
+                delivered = true
                 ChatPhotoPicker.current = nil
                 self.picked(results)
             }
+            picker.dismiss(animated: true, completion: deliver)
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.6, execute: deliver)
         }
         func presentationControllerDidDismiss(_ presentationController: UIPresentationController) {
             guard !finished else { return }
@@ -405,6 +411,7 @@ struct ChatScreen: View {
     @State private var scrollPosition = ScrollPosition(edge: .top)
     @State private var visibleMessageCount = 100
     @State private var hasPositionedInitially = false
+    @State private var lastAutoScrollAt = Date.distantPast
     private var visibleMessages: [ChatMessage] { Array((store.activeThread?.messages ?? []).suffix(visibleMessageCount)) }
     private var navigationSpace: CGFloat { 0 }
     // Read in body, so switching the look in Settings redraws this page.
@@ -518,7 +525,7 @@ struct ChatScreen: View {
                 hasPositionedInitially = true
             }
             .onScrollGeometryChange(for: Bool.self) { g in
-                g.contentSize.height + g.contentInsets.bottom - g.contentOffset.y - g.containerSize.height < 80
+                g.contentSize.height + g.contentInsets.bottom - g.contentOffset.y - g.containerSize.height < 36
             } action: { _, value in nearBottom = value }
             .onScrollPhaseChange { _, phase in
                 if phase == .interacting { followsOutput = false; clearMessageNavigation() }
@@ -528,12 +535,11 @@ struct ChatScreen: View {
                 // Straight to the new message: a glide here, on top of the list's own
                 // update, left a ghost of the text while sending.
                 guard shouldFollowOutput else { return }
+                lastAutoScrollAt = Date()
                 scrollPosition.scrollTo(edge: .bottom)
             }
             .onChange(of: store.activeThread?.messages.last?.content) { _, _ in
-                if shouldFollowOutput && store.generatingThreadID == store.activeThreadID {
-                    scrollPosition.scrollTo(edge: .bottom)
-                }
+                followLiveText()
             }
             .onChange(of: store.activeThread?.messages.last?.replySuggestions) { _, _ in
                 if shouldFollowOutput { scrollPosition.scrollTo(edge: .bottom) }
@@ -855,9 +861,11 @@ struct ChatScreen: View {
     }
 
     private func followLiveText() {
-        if shouldFollowOutput && store.generatingThreadID == store.activeThreadID {
-            scrollPosition.scrollTo(edge: .bottom)
-        }
+        guard shouldFollowOutput && store.generatingThreadID == store.activeThreadID else { return }
+        let now = Date()
+        guard now.timeIntervalSince(lastAutoScrollAt) >= 0.18 else { return }
+        lastAutoScrollAt = now
+        scrollPosition.scrollTo(edge: .bottom)
     }
 
     private func regeneratePreservingDraftImages() {
@@ -1916,7 +1924,7 @@ struct MessageView: View, Equatable {
     var retryColab: (() -> Void)? = nil
     @State private var copied = false
     @State private var selecting = false
-    @State private var timeRevealOffset: CGFloat = 0
+    @GestureState private var timeRevealOffset: CGFloat = 0
     @State private var timeHapticTriggered = false
 
     nonisolated static func == (lhs: MessageView, rhs: MessageView) -> Bool {
@@ -1949,6 +1957,7 @@ struct MessageView: View, Equatable {
             } else if style == .swiss { swissContent } else { paperContent }
         }
         .offset(x: timeRevealOffset)
+        .animation(.spring(response: 0.28, dampingFraction: 0.82), value: timeRevealOffset == 0)
         .overlay(alignment: .trailing) {
             if message.directive == nil && timeRevealOffset < -2 {
                 Text(MessageTime.swipeLabel(message.createdAt))
@@ -1964,25 +1973,27 @@ struct MessageView: View, Equatable {
         }
         .simultaneousGesture(
             DragGesture(minimumDistance: 14, coordinateSpace: .local)
-                .onChanged { value in
+                .updating($timeRevealOffset) { value, state, _ in
                     guard message.directive == nil else { return }
                     let dx = value.translation.width
                     let dy = value.translation.height
                     // Only activate when dragging predominantly to the left so vertical scrolling stays 100% smooth.
+                    guard dx < -6, abs(dx) > abs(dy) * 1.3 else { state = 0; return }
+                    state = max(-68, (dx + 6) * 0.62)
+                }
+                .onChanged { value in
+                    guard message.directive == nil else { return }
+                    let dx = value.translation.width
+                    let dy = value.translation.height
                     guard dx < -6, abs(dx) > abs(dy) * 1.3 else { return }
                     let damped = max(-68, (dx + 6) * 0.62)
-                    timeRevealOffset = damped
                     if damped <= -42 && !timeHapticTriggered {
                         timeHapticTriggered = true
                         Haptic.tap()
                     }
                 }
                 .onEnded { _ in
-                    guard timeRevealOffset != 0 else { return }
-                    withAnimation(.spring(response: 0.30, dampingFraction: 0.80)) {
-                        timeRevealOffset = 0
-                        timeHapticTriggered = false
-                    }
+                    timeHapticTriggered = false
                 }
         )
         .contextMenu {

@@ -1833,6 +1833,7 @@ final class AppStore: ObservableObject {
         do {
             if let confirm = tool.confirm {
                 let text = try await confirm()
+                try Task.checkCancellation()
                 activity.title = text.title
                 record(activity, threadID: threadID, answerID: answerID)
                 guard await askApproval(ToolApproval(title: text.title, detail: text.detail)) else {
