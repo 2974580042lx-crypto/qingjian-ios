@@ -220,8 +220,9 @@ struct HistorySidebar: View {
                     if night && thread.isPinned != true {
                         MoonPhaseIcon(phase: MoonPhaseIcon.phase(for: thread))
                     } else {
-                        Image(systemName: thread.isPinned == true ? "pin" : "bubble.left")
-                            .font(.system(size: 16)).foregroundStyle(Ink.ink2)
+                        Image(systemName: thread.isPinned == true ? "pin" : (active && !night ? "bubble.left.fill" : "bubble.left"))
+                            .font(.system(size: 16))
+                            .foregroundStyle(active && !night ? Ink.seal : Ink.ink2)
                     }
                 }
                 .frame(width: 24)
@@ -235,12 +236,11 @@ struct HistorySidebar: View {
                     Text(project.name).font(TypeScale.tiny).foregroundStyle(Ink.ink3).lineLimit(1)
                 }
             }
-            .padding(.vertical, 11)
+            .padding(.vertical, 10)
+            .padding(.horizontal, 12)
             .frame(maxWidth: .infinity, alignment: .leading)
-            .padding(.horizontal, 10)
-            .background(active && !night ? Ink.line.opacity(0.7) : Color.clear, in: RoundedRectangle(cornerRadius: 12, style: .continuous))
-            .padding(.horizontal, -10)
-            .contentShape(Rectangle())
+            .background(active && !night ? Ink.line.opacity(0.65) : Color.clear, in: Capsule())
+            .contentShape(Capsule())
         }
         .buttonStyle(.plain)
         .accessibilityIdentifier("history-thread-row")

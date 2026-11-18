@@ -29,26 +29,22 @@ struct ContentView: View {
             let width = min(geometry.size.width * 0.82, 360)
             let position = min(width, max(0, (showSidebar ? width : 0) + sidebarDrag))
             let progress = position / width
-            let frontPage = PageContour(radius: Radius.pageFront * progress, topInset: geometry.safeAreaInsets.top, bottomInset: geometry.safeAreaInsets.bottom)
-            let backPage = PageContour(radius: Radius.pageBack * progress, topInset: geometry.safeAreaInsets.top, bottomInset: geometry.safeAreaInsets.bottom)
+            let isRevealed = progress > 0 || showSidebar
+            let frontPage = PageContour(radius: isRevealed ? Radius.pageFront : 0, topInset: geometry.safeAreaInsets.top, bottomInset: geometry.safeAreaInsets.bottom)
+            let backPage = PageContour(radius: isRevealed ? Radius.pageBack : 0, topInset: geometry.safeAreaInsets.top, bottomInset: geometry.safeAreaInsets.bottom)
             ZStack(alignment: .leading) {
                 Ink.sheet.ignoresSafeArea()
-                // Not built while closed, so it does not redraw with every streamed chunk.
-                Group {
-                    if progress > 0 || showSidebar {
-                        HistorySidebar(close: { showSidebar = false },
-                                       openSettings: { showSettings = true },
-                                       openProjects: { showProjects = true },
-                                       openAllChats: { showAllChats = true },
-                                       openBooks: { showBooks = true })
-                    } else { Color.clear }
-                }
+                HistorySidebar(close: { showSidebar = false },
+                               openSettings: { showSettings = true },
+                               openProjects: { showProjects = true },
+                               openAllChats: { showAllChats = true },
+                               openBooks: { showBooks = true })
                 .frame(width: width)
                 .background(Ink.sheet.ignoresSafeArea())
                 .clipShape(backPage)
-                .overlay(backPage.stroke(Ink.line.opacity(progress), lineWidth: 0.5).allowsHitTesting(false))
-                .offset(x: -width * 0.2 * (1 - progress))
-                .opacity(min(1, progress * 3))
+                .overlay(backPage.stroke(Ink.line.opacity(isRevealed ? 1 : 0), lineWidth: 0.5).allowsHitTesting(false))
+                .offset(x: -width * 0.16 * (1 - progress))
+                .opacity(isRevealed ? min(1, max(0.01, progress * 2.5)) : 0)
                 .allowsHitTesting(showSidebar)
                 .accessibilityHidden(!showSidebar)
 
@@ -58,7 +54,6 @@ struct ContentView: View {
                                topInset: geometry.safeAreaInsets.top)
                 }
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
-                .scrollDisabled(sidebarDrag != 0)
                 .tint(Ink.ink)
                 .background(AppBackground())
                 .overlay {
@@ -70,9 +65,9 @@ struct ContentView: View {
                 }
                 .clipShape(frontPage)
                 .background(frontPage.fill(Ink.paper)
-                    .shadow(color: Color.black.opacity(0.16 * progress), radius: 24, x: -8)
+                    .shadow(color: Color.black.opacity(isRevealed ? 0.12 : 0), radius: 14, x: -6)
                     .allowsHitTesting(false))
-                .overlay(frontPage.stroke(Ink.line.opacity(progress), lineWidth: 0.6).allowsHitTesting(false))
+                .overlay(frontPage.stroke(Ink.line.opacity(isRevealed ? 1 : 0), lineWidth: 0.6).allowsHitTesting(false))
                 .offset(x: position)
                 .accessibilityHidden(showSidebar)
             }

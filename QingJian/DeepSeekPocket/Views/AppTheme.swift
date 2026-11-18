@@ -95,8 +95,8 @@ enum Space {
 enum Radius {
     static let control: CGFloat = 14, field: CGFloat = 20, sheet: CGFloat = 34
     // The page corners while the sidebar is open; the Swiss look keeps them square.
-    static var pageFront: CGFloat { InterfaceStyle.isSwiss ? 0 : 42 }
-    static var pageBack: CGFloat { InterfaceStyle.isSwiss ? 0 : 32 }
+    static var pageFront: CGFloat { InterfaceStyle.isSwiss ? 0 : 54 }
+    static var pageBack: CGFloat { InterfaceStyle.isSwiss ? 0 : 44 }
 }
 
 enum TypeScale {
