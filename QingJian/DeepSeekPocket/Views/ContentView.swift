@@ -501,7 +501,7 @@ struct ChatScreen: View {
             } else {
                 let rowSpacing: CGFloat = swiss ? 0 : (currentLayoutMode == .imessage ? 16 : (currentLayoutMode == .smart ? 24 : 30))
                 ScrollView {
-                    LazyVStack(alignment: .leading, spacing: rowSpacing) {
+                    VStack(alignment: .leading, spacing: rowSpacing) {
                         if swiss, let thread = store.activeThread {
                             SwissThreadHeader(title: thread.title, date: thread.createdAt,
                                               model: store.pillModelTitle + " / " + store.pillEffortTitle,
@@ -519,6 +519,7 @@ struct ChatScreen: View {
                         Color.clear.frame(height: 2)
                     }
                     .scrollTargetLayout()
+                    .frame(maxWidth: .infinity, alignment: .leading)
                     .padding(.horizontal, swiss ? 20 : Personal.margin).padding(.top, 10).padding(.bottom, 22)
                 }
                 .accessibilityIdentifier("chat-scroll")
@@ -546,8 +547,8 @@ struct ChatScreen: View {
                 .scrollPosition($scrollPosition)
                 .contentMargins(.top, topChrome, for: .scrollContent)
                 .contentMargins(.top, topChrome, for: .scrollIndicators)
-                .contentMargins(.bottom, composerPanelHeight + (keyboardVisible ? 16 : max(bottomInset, 16) + 12), for: .scrollContent)
-                .contentMargins(.bottom, composerPanelHeight + (keyboardVisible ? 16 : max(bottomInset, 16) + 12), for: .scrollIndicators)
+                .contentMargins(.bottom, composerPanelHeight + 18, for: .scrollContent)
+                .contentMargins(.bottom, composerPanelHeight + 18, for: .scrollIndicators)
                 .scrollDismissesKeyboard(.interactively)
                 .onAppear {
                     if !hasPositionedInitially && !store.isPreview {

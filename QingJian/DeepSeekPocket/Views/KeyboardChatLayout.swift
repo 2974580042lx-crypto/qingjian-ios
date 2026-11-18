@@ -91,10 +91,20 @@ struct KeyboardChatLayout<Transcript: View, Composer: View>: UIViewControllerRep
         // chat under the top buttons. SwiftUI's own switch did not reach it, because the
         // transcript lives in this separate host, so it is turned off on the scroll view.
         private weak var transcriptScroll: UIScrollView?
-        private func hideTopEdgeEffect() {
-            if let scroll = transcriptScroll, scroll.window != nil { return }
-            transcriptScroll = firstScrollView(in: transcriptHost.view)
-            transcriptScroll?.topEdgeEffect.isHidden = true
+        private func configureTranscriptScroll() {
+            if transcriptScroll == nil || transcriptScroll?.window == nil {
+                transcriptScroll = firstScrollView(in: transcriptHost.view)
+            }
+            guard let scroll = transcriptScroll else { return }
+            scroll.topEdgeEffect.isHidden = true
+            scroll.alwaysBounceHorizontal = false
+            scroll.showsHorizontalScrollIndicator = false
+            if abs(scroll.contentOffset.x) > 0.5,
+               !scroll.isTracking,
+               !scroll.isDragging,
+               scroll.contentSize.width <= scroll.bounds.width + 2 {
+                scroll.contentOffset.x = 0
+            }
         }
         private func firstScrollView(in root: UIView) -> UIScrollView? {
             if let scroll = root as? UIScrollView, !(root is UITextView) { return scroll }
@@ -106,7 +116,7 @@ struct KeyboardChatLayout<Transcript: View, Composer: View>: UIViewControllerRep
 
         override func viewDidLayoutSubviews() {
             super.viewDidLayoutSubviews()
-            hideTopEdgeEffect()
+            configureTranscriptScroll()
             // reloadInputViews can leave the keyboard guide below an actual
             // app-owned accessory. Compare both in THIS view's coordinate space,
             // never add an offset back to an already-adjusted composer frame.
