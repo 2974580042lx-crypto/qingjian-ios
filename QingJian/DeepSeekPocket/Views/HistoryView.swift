@@ -33,33 +33,54 @@ struct HistorySidebar: View {
 
     var body: some View {
         let night = InterfaceStyle.isNight
+        let swiss = InterfaceStyle.isSwiss
         VStack(alignment: .leading, spacing: 0) {
             HStack(alignment: night ? .top : .center) {
-                VStack(alignment: .leading, spacing: 6) {
-                    // The wordmark is always the bundled serif, whatever font the app uses,
-                    // like the serif title in the Claude app's sidebar.
-                    Text("Sermo").font(.custom(InterfaceStyle.isSwiss ? "PingFangSC-Semibold" : "NotoSerifSC-Bold", size: 30, relativeTo: .largeTitle))
+                VStack(alignment: .leading, spacing: 4) {
+                    // Refined serif wordmark matching Claude's restrained sidebar header.
+                    Text("Sermo")
+                        .font(TypeScale.editorialDisplay(25, weight: .medium, relativeTo: .title))
                         .foregroundStyle(Ink.ink)
                         .accessibilityAddTraits(.isHeader).accessibilityIdentifier("history-title")
                     if night {
-                        Text("千江有水千江月").font(TypeScale.serif(13)).tracking(3).foregroundStyle(Ink.ink3)
+                        Text("千江有水千江月").font(TypeScale.ui(12.5)).tracking(3).foregroundStyle(Ink.ink3)
                     }
                 }
                 Spacer()
-                GlassCircle(symbol: searching ? "xmark" : "magnifyingglass", label: searching ? "关闭搜索" : "搜索对话") {
+                Button {
                     withAnimation(.easeOut(duration: 0.2)) { searching.toggle() }
                     if searching { searchFocused = true } else { search = ""; searchFocused = false }
+                } label: {
+                    Image(systemName: searching ? "xmark" : "magnifyingglass")
+                        .font(.system(size: 15.5, weight: .regular))
+                        .foregroundStyle(Ink.ink2)
+                        .frame(width: 40, height: 40)
+                        .background {
+                            if swiss {
+                                Rectangle().fill(Ink.raised).overlay(Rectangle().stroke(Ink.ink, lineWidth: 1.5))
+                            } else {
+                                Circle().fill(Color.adaptive(light: 0xE5E4E0, dark: 0x262624))
+                            }
+                        }
+                        .contentShape(Circle())
                 }
+                .buttonStyle(.pressFeedback)
+                .accessibilityLabel(searching ? "关闭搜索" : "搜索对话")
+                .accessibilityIdentifier(searching ? "关闭搜索" : "搜索对话")
             }
-            .padding(.bottom, 18)
+            .padding(.horizontal, 10)
+            .padding(.bottom, 14)
             if searching {
-                TextField("搜索对话", text: $search).font(TypeScale.serif(17)).autocorrectionDisabled()
+                TextField("搜索对话", text: $search).font(TypeScale.ui(15.5)).autocorrectionDisabled()
                     .focused($searchFocused)
-                    .padding(.horizontal, 14).frame(height: 44).clearGlass(radius: 22)
-                    .padding(.bottom, 12)
+                    .padding(.horizontal, 14).frame(height: 40)
+                    .background(Ink.card, in: InkRounded(radius: 20))
+                    .overlay(InkRounded(radius: 20).stroke(Ink.line, lineWidth: 0.7))
+                    .padding(.horizontal, 10)
+                    .padding(.bottom, 10)
             }
             ScrollView {
-                LazyVStack(alignment: .leading, spacing: 0) {
+                LazyVStack(alignment: .leading, spacing: 1) {
                     if searching && !search.isEmpty {
                         groupLabel(results.isEmpty ? "没有找到相关对话" : "搜索结果")
                         ForEach(results) { row($0) }
@@ -70,7 +91,8 @@ struct HistorySidebar: View {
                         groupLabel("最近")
                         let recent = store.recentThreads
                         if recent.isEmpty {
-                            Text("还没有对话").font(TypeScale.serif(15)).foregroundStyle(Ink.ink3).padding(.vertical, 10)
+                            Text("还没有对话").font(TypeScale.ui(14.5)).foregroundStyle(Ink.ink3)
+                                .padding(.vertical, 10).padding(.horizontal, 10)
                         }
                         ForEach(recent.prefix(Self.recentLimit)) { row($0) }
                         if night && !recent.isEmpty {
@@ -78,30 +100,30 @@ struct HistorySidebar: View {
                                 MoonPhaseIcon(phase: 0.15, size: 13)
                                 MoonPhaseIcon(phase: 0.5, size: 13)
                                 MoonPhaseIcon(phase: 1, size: 13)
-                                Text("月越圆，这局戏聊得越深").font(TypeScale.serif(13)).foregroundStyle(Ink.ink3)
+                                Text("月越圆，这局戏聊得越深").font(TypeScale.ui(12.5)).foregroundStyle(Ink.ink3)
                             }
-                            .padding(.top, 10)
+                            .padding(.top, 10).padding(.horizontal, 10)
                             .accessibilityElement(children: .ignore)
                             .accessibilityLabel("对话前的月相表示聊了多久")
                         }
                         Button { openAllChats() } label: {
-                            HStack(spacing: 6) {
+                            HStack(spacing: 5) {
                                 Text("查看全部")
-                                Image(systemName: "chevron.right").font(.system(size: 12, weight: .medium))
+                                Image(systemName: "chevron.right").font(.system(size: 11, weight: .medium))
                             }
-                            .font(TypeScale.serif(17)).foregroundStyle(Ink.ink2)
-                            .padding(.vertical, 14).contentShape(Rectangle())
+                            .font(TypeScale.ui(14.5, weight: .medium)).foregroundStyle(Ink.ink3)
+                            .padding(.vertical, 12).padding(.horizontal, 10).contentShape(Rectangle())
                         }
                         .buttonStyle(.plain).accessibilityIdentifier("sidebar-all-chats")
                     }
                 }
             }
             .scrollDismissesKeyboard(.interactively)
-            .contentMargins(.bottom, 90, for: .scrollContent)
-            .contentMargins(.bottom, 90, for: .scrollIndicators)
+            .contentMargins(.bottom, 108, for: .scrollContent)
+            .contentMargins(.bottom, 108, for: .scrollIndicators)
             .overlay(alignment: .bottom) { footer }
         }
-        .padding(.horizontal, 20).padding(.top, 16)
+        .padding(.horizontal, 12).padding(.top, 16)
         .foregroundStyle(Ink.ink)
         .alert("重命名对话", isPresented: Binding(get: { renameID != nil }, set: { if !$0 { renameID = nil } })) {
             TextField("对话名称", text: $renameText)
@@ -115,56 +137,78 @@ struct HistorySidebar: View {
     }
 
     private var footer: some View {
-        HStack(spacing: 12) {
+        HStack(spacing: 10) {
             Button {
                 UIApplication.shared.sendAction(#selector(UIResponder.resignFirstResponder), to: nil, from: nil, for: nil)
                 openSettings()
             } label: {
-                HStack(spacing: 10) {
-                    ProfileAvatar(image: profile.avatar, size: 46, initial: profile.name.first.map(String.init))
-                        .glassEffect(.regular.interactive(), in: .circle)
-                    VStack(alignment: .leading, spacing: 2) {
+                HStack(spacing: 8) {
+                    ProfileAvatar(image: profile.avatar, size: 38, initial: profile.name.first.map(String.init))
+                    VStack(alignment: .leading, spacing: 1.5) {
                         if let balance = store.balanceText {
-                            Text("余额 \(balance)").font(TypeScale.serif(13)).monospacedDigit().foregroundStyle(Ink.ink2).lineLimit(1)
+                            Text("余额 \(balance)")
+                                .font(.system(size: 11.5, weight: .medium))
+                                .monospacedDigit()
+                                .foregroundStyle(Ink.ink2)
+                                .lineLimit(1)
+                                .minimumScaleFactor(0.85)
                         }
-                        // DeepSeek's price band right now, so the cheaper hours are easy to remember.
-                        Text(Pricing.statusLabel()).font(TypeScale.serif(11)).monospacedDigit().foregroundStyle(Ink.ink3).lineLimit(1)
+                        // Compact DeepSeek price band so it never truncates at 390pt width.
+                        Text(Pricing.compactStatusLabel())
+                            .font(.system(size: 10.5, weight: .regular))
+                            .foregroundStyle(Ink.ink3)
+                            .lineLimit(1)
+                            .minimumScaleFactor(0.85)
                             .accessibilityIdentifier("sidebar-price-band")
                     }
-                }.contentShape(Rectangle())
+                }
+                .contentShape(Rectangle())
             }
             .buttonStyle(.plain)
             .accessibilityLabel("个人资料与设置")
             .accessibilityIdentifier("sidebar-profile")
-            Spacer(minLength: 8)
+            Spacer(minLength: 6)
             Button { store.createNewChat(); finish() } label: {
-                HStack(spacing: 8) {
-                    Image(systemName: "plus").font(.system(size: 15, weight: .medium))
-                    Text("新建会话").font(TypeScale.serif(17).weight(.semibold))
+                HStack(spacing: 6) {
+                    Image(systemName: "plus").font(.system(size: 13.5, weight: .medium))
+                    Text("新建会话")
                 }
-                .foregroundStyle(InterfaceStyle.isNight ? Ink.onSeal : Ink.onSolid)
-                .padding(.horizontal, 20).frame(height: 48)
-                .background(InterfaceStyle.isNight ? Ink.seal : Ink.solid, in: InkCapsule())
-                .contentShape(Capsule())
+                .fixedSize(horizontal: true, vertical: false)
             }
-            .buttonStyle(.plain)
+            .buttonStyle(.claudeSecondaryPill)
             .accessibilityIdentifier("sidebar-new-chat")
         }
+        .padding(.horizontal, 10)
+        .padding(.top, 22)
         .padding(.bottom, 10)
+        .background {
+            LinearGradient(
+                stops: [
+                    .init(color: Ink.sheet.opacity(0), location: 0),
+                    .init(color: Ink.sheet.opacity(0.92), location: 0.36),
+                    .init(color: Ink.sheet, location: 0.64),
+                    .init(color: Ink.sheet, location: 1)
+                ],
+                startPoint: .top,
+                endPoint: .bottom
+            )
+            .ignoresSafeArea(edges: .bottom)
+            .allowsHitTesting(false)
+        }
     }
 
     private func groupLabel(_ title: String) -> some View {
-        Text(title).font(TypeScale.serif(15)).foregroundStyle(Ink.ink3)
-            .padding(.top, 22).padding(.bottom, 6)
+        Text(title).font(TypeScale.ui(13, weight: .medium)).foregroundStyle(Ink.ink3)
+            .padding(.top, 18).padding(.bottom, 6).padding(.horizontal, 10)
     }
 
     private func navRow(_ title: String, symbol: String, identifier: String, action: @escaping () -> Void) -> some View {
         Button(action: action) {
-            HStack(spacing: 14) {
-                Image(systemName: symbol).font(.system(size: 18)).frame(width: 24)
-                Text(title).font(TypeScale.serif(17))
+            HStack(spacing: 12) {
+                ClaudeIconBadge(systemName: symbol, color: Ink.ink2, size: 17)
+                Text(title).font(TypeScale.ui(15.5, weight: .regular))
             }
-            .foregroundStyle(Ink.ink).padding(.vertical, 12)
+            .foregroundStyle(Ink.ink).padding(.vertical, 10).padding(.horizontal, 10)
             .frame(maxWidth: .infinity, alignment: .leading).contentShape(Rectangle())
         }
         .buttonStyle(.plain).accessibilityIdentifier(identifier)
@@ -181,14 +225,14 @@ struct HistorySidebar: View {
                 }
             }
         } label: {
-            HStack(spacing: 14) {
+            HStack(spacing: 12) {
                 Image(systemName: open ? "chevron.down" : "chevron.right")
-                    .font(.system(size: 12, weight: .semibold)).foregroundStyle(Ink.ink3).frame(width: 24)
-                Text(project.name).font(TypeScale.serif(17)).lineLimit(1)
+                    .font(.system(size: 11, weight: .medium)).foregroundStyle(Ink.ink3).frame(width: 24)
+                Text(project.name).font(TypeScale.ui(15.5)).lineLimit(1)
                 Spacer(minLength: 8)
-                if project.isLocked { Image(systemName: "lock").font(.system(size: 12)).foregroundStyle(Ink.ink3) }
+                if project.isLocked { Image(systemName: "lock").font(.system(size: 11.5, weight: .light)).foregroundStyle(Ink.ink3) }
             }
-            .foregroundStyle(Ink.ink).padding(.vertical, 10)
+            .foregroundStyle(Ink.ink).padding(.vertical, 9).padding(.horizontal, 10)
             .frame(maxWidth: .infinity, alignment: .leading).contentShape(Rectangle())
         }
         .buttonStyle(.plain)
@@ -197,13 +241,13 @@ struct HistorySidebar: View {
         if open {
             let members = store.threads(in: project.id)
             if members.isEmpty {
-                Text("还没有对话").font(TypeScale.serif(15)).foregroundStyle(Ink.ink3)
-                    .padding(.leading, 38).padding(.vertical, 6)
+                Text("还没有对话").font(TypeScale.ui(14)).foregroundStyle(Ink.ink3)
+                    .padding(.leading, 46).padding(.vertical, 6)
             }
-            ForEach(members) { row($0, showProject: false).padding(.leading, 24) }
+            ForEach(members) { row($0, showProject: false).padding(.leading, 18) }
             Button { store.createThread(in: project.id); finish() } label: {
-                Label("在此项目新建会话", systemImage: "plus").font(TypeScale.serif(15)).foregroundStyle(Ink.ink2)
-                    .padding(.leading, 38).padding(.vertical, 8)
+                Label("在此项目新建会话", systemImage: "plus").font(TypeScale.ui(14)).foregroundStyle(Ink.ink3)
+                    .padding(.leading, 46).padding(.vertical, 8)
                     .frame(maxWidth: .infinity, alignment: .leading).contentShape(Rectangle())
             }
             .buttonStyle(.plain)
@@ -213,22 +257,24 @@ struct HistorySidebar: View {
     private func row(_ thread: ChatThread, showProject: Bool = true) -> some View {
         let active = thread.id == store.activeThreadID
         let night = InterfaceStyle.isNight
+        let swiss = InterfaceStyle.isSwiss
         return Button { store.select(thread.id); finish() } label: {
-            HStack(spacing: 14) {
+            HStack(spacing: 12) {
                 Group {
                     // 夜江: each talk is a river with its own moon; the longer the talk, the fuller.
                     if night && thread.isPinned != true {
                         MoonPhaseIcon(phase: MoonPhaseIcon.phase(for: thread))
                     } else {
-                        Image(systemName: thread.isPinned == true ? "pin" : (active && !night ? "bubble.left.fill" : "bubble.left"))
-                            .font(.system(size: 16))
-                            .foregroundStyle(active && !night ? Ink.seal : Ink.ink2)
+                        Image(systemName: thread.isPinned == true ? "pin" : (active && !night ? "message.fill" : "message"))
+                            .font(.system(size: 15.5, weight: .light))
+                            .foregroundStyle(active && !night ? Ink.ink : Ink.ink2)
                     }
                 }
                 .frame(width: 24)
                 .accessibilityHidden(true)
-                // The open talk: semibold on a soft grey pill instead of a yellow marker stroke.
-                Text(thread.title).font(TypeScale.serif(17)).fontWeight(active && !night ? .semibold : .regular).lineLimit(1)
+                Text(thread.title)
+                    .font(TypeScale.ui(15.5, weight: active && !night ? .medium : .regular))
+                    .lineLimit(1)
                     .foregroundStyle(night && active ? Ink.seal : Ink.ink)
                 Spacer(minLength: 8)
                 if thread.id == store.generatingThreadID { PulseDot(size: 7) }
@@ -236,11 +282,11 @@ struct HistorySidebar: View {
                     Text(project.name).font(TypeScale.tiny).foregroundStyle(Ink.ink3).lineLimit(1)
                 }
             }
-            .padding(.vertical, 10)
-            .padding(.horizontal, 12)
+            .padding(.vertical, 9)
+            .padding(.horizontal, 10)
             .frame(maxWidth: .infinity, alignment: .leading)
-            .background(active && !night ? Ink.line.opacity(0.65) : Color.clear, in: Capsule())
-            .contentShape(Capsule())
+            .background(active && !night ? Ink.raised : Color.clear, in: RoundedRectangle(cornerRadius: swiss ? 0 : 12, style: .continuous))
+            .contentShape(RoundedRectangle(cornerRadius: swiss ? 0 : 12, style: .continuous))
         }
         .buttonStyle(.plain)
         .accessibilityIdentifier("history-thread-row")
@@ -286,12 +332,12 @@ struct ConversationVersionsSheet: View {
                 .navigationTitle("旧答案与版本")
                 .navigationBarTitleDisplayMode(.inline)
                 .toolbar {
-                    ToolbarItem(placement: .topBarTrailing) { Button("完成") { dismiss() } }
+                    ToolbarItem(placement: .topBarLeading) { ClaudeSheetCloseButton(label: "完成") { dismiss() } }
                 }
         }
-        .tint(Ink.seal)
+        .tint(Ink.ink)
         .preferredColorScheme(InterfaceStyle.isNight ? .dark : nil)
-        .presentationBackground(Ink.paper)
+        .presentationBackground(Ink.groupedBg)
     }
 
     @ViewBuilder private var contents: some View {
@@ -300,7 +346,7 @@ struct ConversationVersionsSheet: View {
                                    description: Text("对话可能已删除或项目已上锁，请返回原对话后再打开。"))
                 .foregroundStyle(Ink.ink)
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
-                .background(AppBackground())
+                .background(Ink.groupedBg.ignoresSafeArea())
         } else {
             versionList
         }
@@ -374,21 +420,18 @@ struct ConversationVersionsSheet: View {
                 if let selectionError {
                     Text(selectionError).font(TypeScale.label).foregroundStyle(.red)
                 }
-            }.listRowBackground(Ink.raised)
+            }.claudeCardRow()
             ForEach(Array(current.enumerated()), id: \.element.id) { index, version in
                 Section {
                     versionRow(version, number: index + 1)
-                }.listRowBackground(Ink.raised)
+                }.claudeCardRow()
             }
             Section {
                 Text("这里保留每个版本的整条对话路径，下面只预览最后一条回答。删除整条对话时，其关联的旧版本也会一并删除。")
                     .font(TypeScale.tiny).foregroundStyle(Ink.ink3)
             }.listRowBackground(Color.clear)
         }
-        .listStyle(.insetGrouped)
-        .scrollContentBackground(.hidden)
-        .foregroundStyle(Ink.ink)
-        .background(AppBackground())
+        .claudeGroupedListStyle()
     }
 
     private func versionRow(_ version: ChatThread, number: Int) -> some View {

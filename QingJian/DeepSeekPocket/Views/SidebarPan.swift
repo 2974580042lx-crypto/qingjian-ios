@@ -110,8 +110,8 @@ struct SidebarDrawerContainer<Sidebar: View, Main: View>: UIViewControllerRepres
 
             frontShadowView.backgroundColor = .clear
             frontShadowView.layer.shadowColor = UIColor.black.cgColor
-            frontShadowView.layer.shadowRadius = 14
-            frontShadowView.layer.shadowOffset = CGSize(width: -6, height: 0)
+            frontShadowView.layer.shadowRadius = 18
+            frontShadowView.layer.shadowOffset = CGSize(width: -4, height: 0)
             frontShadowView.layer.shadowOpacity = 0
             view.addSubview(frontShadowView)
 
@@ -226,7 +226,7 @@ struct SidebarDrawerContainer<Sidebar: View, Main: View>: UIViewControllerRepres
             view.backgroundColor = sheetColor
             backContainerView.backgroundColor = sheetColor
             let borderColor = UIColor(Ink.line).resolvedColor(with: resolvedTraits).cgColor
-            backContainerView.layer.borderColor = borderColor
+            backContainerView.layer.borderColor = nil
             frontClipView.layer.borderColor = borderColor
         }
 
@@ -268,14 +268,13 @@ struct SidebarDrawerContainer<Sidebar: View, Main: View>: UIViewControllerRepres
             frontShadowView.transform = CGAffineTransform(translationX: width * p, y: 0)
             backContainerView.transform = CGAffineTransform(translationX: -width * 0.16 * (1 - p), y: 0)
             backContainerView.alpha = revealed ? min(1, max(0.01, p * 2.5)) : 0
-            frontShadowView.layer.shadowOpacity = revealed ? Float(0.12 * min(1, p * 3)) : 0
+            frontShadowView.layer.shadowOpacity = revealed ? Float(0.08 * min(1, p * 3)) : 0
 
             let frontRadius: CGFloat = (revealed && !isSwiss) ? Radius.pageFront : 0
-            let backRadius: CGFloat = (revealed && !isSwiss) ? Radius.pageBack : 0
             frontClipView.layer.cornerRadius = frontRadius
-            frontClipView.layer.borderWidth = revealed ? 0.6 : 0
-            backContainerView.layer.cornerRadius = backRadius
-            backContainerView.layer.borderWidth = revealed ? 0.5 : 0
+            frontClipView.layer.borderWidth = revealed ? 0.5 : 0
+            backContainerView.layer.cornerRadius = 0
+            backContainerView.layer.borderWidth = 0
             updateShadowPathIfNeeded(cornerRadius: frontRadius)
 
             frontTapOverlay.isHidden = !revealed
