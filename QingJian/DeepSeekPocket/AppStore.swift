@@ -1308,7 +1308,7 @@ final class AppStore: ObservableObject {
         let supported = subscription.availableEfforts(for: slug)
         updateChatModel { selection in
             selection.subscriptionModel = slug
-            if let current = selection.subscriptionEffort, !supported.contains(current) {
+            if !supported.contains(selection.subscriptionEffort) {
                 selection.subscriptionEffort = .automatic
             }
         }
