@@ -14,10 +14,14 @@ final class AppStore: ObservableObject {
     @Published var errorMessage: String?
     @Published var noticeMessage: String?
     @Published var webSearchEnabled = false
+    @Published var imageGenerationEnabled = false
+    @Published private(set) var generatedImages: [UUID: [URL]] = [:]
+    @Published private(set) var webRoutingRevision = 0
     @Published private(set) var searchingThreadID: UUID?
     @Published private(set) var canPersist = true
     private var persistence: AppPersistence?
     private var generationTask: Task<Void, Never>?
+    private var backgroundTaskID: UIBackgroundTaskIdentifier = .invalid
     private var lastSave = Date.distantPast
     private var draftSaveTask: Task<Void, Never>?
     private var translationTask: Task<Void, Never>?
@@ -1191,6 +1195,7 @@ final class AppStore: ObservableObject {
     func setProvider(_ provider: AIProvider) {
         guard !isGenerating else { return }
         cancelReplySuggestions()
+        if provider != .chatGPT { imageGenerationEnabled = false }
         updateChatModel { $0.provider = provider }
         if provider == .colab { refreshColabEndpoint() }
     }
@@ -1213,10 +1218,42 @@ final class AppStore: ObservableObject {
     private func auxiliaryProvider(for thread: ChatThread? = nil) -> AIProvider {
         settings.auxiliaryProviderPolicy == .deepSeek ? .deepSeek : provider(for: thread ?? activeThread)
     }
+    func setWebSearchChannel(_ channel: WebSearchChannel, for provider: AIProvider) {
+        WebSearchRouting.set(channel, for: provider)
+        webRoutingRevision += 1
+        if provider == activeProvider && channel == .directLinksOnly {
+            webSearchEnabled = false
+        }
+    }
+
+    var enrichedUsageLedger: UsageLedger {
+        usage.enrichedWithChatGPT(from: threads)
+    }
+
+    private func beginBackgroundGenerationTask() {
+        endBackgroundGenerationTask()
+        guard !isPreview else { return }
+        backgroundTaskID = UIApplication.shared.beginBackgroundTask(withName: "SermoStreamGeneration") { [weak self] in
+            Task { @MainActor [weak self] in
+                self?.endBackgroundGenerationTask()
+            }
+        }
+    }
+
+    private func endBackgroundGenerationTask() {
+        guard backgroundTaskID != .invalid else { return }
+        let id = backgroundTaskID
+        backgroundTaskID = .invalid
+        UIApplication.shared.endBackgroundTask(id)
+    }
+
     private func streamModel(_ request: ChatRequest, provider: AIProvider,
                              subscriptionModel: String? = nil, effort: SubscriptionEffort = .low,
                              colabOptions: ColabOptions? = nil,
-                             summary: Bool = false, requestTimeout: TimeInterval = 600,
+                             summary: Bool = false,
+                             nativeWebSearch: Bool = false,
+                             nativeImageGeneration: Bool = false,
+                             requestTimeout: TimeInterval = 600,
                              resourceTimeout: TimeInterval = 1800,
                              onProgress: (@MainActor (ChatStreamProgress) -> Void)? = nil,
                              onRestart: @escaping @MainActor () -> Void = {},
@@ -1229,7 +1266,9 @@ final class AppStore: ObservableObject {
             try await compatible.stream(request, onProgress: onProgress, onEvent: onEvent)
         case .chatGPT:
             try await subscription.stream(request: request, model: subscriptionModel ?? settings.subscriptionModel,
-                effort: effort, summary: summary, onProgress: onProgress ?? { _ in }, onEvent: onEvent)
+                effort: effort, summary: summary,
+                nativeWebSearch: nativeWebSearch, nativeImageGeneration: nativeImageGeneration,
+                onProgress: onProgress ?? { _ in }, onEvent: onEvent)
         case .deepSeek:
             try await DeepSeekClient(requestTimeout: requestTimeout, resourceTimeout: resourceTimeout)
                 .stream(request: request, key: apiKey, onProgress: onProgress, onEvent: onEvent)
@@ -1266,7 +1305,13 @@ final class AppStore: ObservableObject {
         updateChatModel { $0.model = model }
     }
     func setSubscriptionModel(_ slug: String) {
-        updateChatModel { $0.subscriptionModel = slug }
+        let supported = subscription.availableEfforts(for: slug)
+        updateChatModel { selection in
+            selection.subscriptionModel = slug
+            if let current = selection.subscriptionEffort, !supported.contains(current) {
+                selection.subscriptionEffort = .automatic
+            }
+        }
     }
     func setSubscriptionEffort(_ effort: SubscriptionEffort) {
         updateChatModel { $0.subscriptionEffort = effort }
@@ -1548,8 +1593,24 @@ final class AppStore: ObservableObject {
         let old = threads
         let provider = providerOverride ?? self.provider(for: threads[ti])
         let settings = self.settings(for: threads[ti])
+        let webChannel = WebSearchRouting.channel(for: provider)
         let searchQuery = threads[ti].messages.last(where: { $0.role == .user })?.content ?? ""
-        let searchRequested = webSearchEnabled && (provider == .deepSeek || hasKey || !WebText.extractURLs(from: searchQuery).isEmpty)
+        let directURLsPresent = !WebText.extractURLs(from: searchQuery).isEmpty
+        let useNativeOpenAIWebSearch = (provider == .chatGPT && webChannel == .nativeChatGPT)
+        let armImageGen = (provider == .chatGPT && imageGenerationEnabled)
+        if armImageGen { imageGenerationEnabled = false }
+        let searchRequested: Bool = {
+            guard webSearchEnabled else { return false }
+            if useNativeOpenAIWebSearch { return false }
+            switch webChannel {
+            case .nativeChatGPT:
+                return subscription.ready || directURLsPresent
+            case .deepSeek:
+                return provider == .deepSeek || hasKey || directURLsPresent
+            case .directLinksOnly:
+                return directURLsPresent
+            }
+        }()
         let searchContextHint: String = {
             let prior = threads[ti].messages.dropLast().suffix(4)
             return prior.map { msg in
@@ -1577,6 +1638,7 @@ final class AppStore: ObservableObject {
         let useDrive = canRunTools && (chatProject?.driveTools ?? drive.connected)
         let useGitHub = canRunTools && (chatProject?.githubTools ?? github.connected)
         let useWeb = canRunTools && (chatProject?.webTools ?? true)
+        let chatGPTBuiltInWebSearch = useNativeOpenAIWebSearch && (webSearchEnabled || useWeb)
         if chatProject?.studySubject != nil {
             do { notes.append(try studyContext(for: threads[ti])) }
             catch { studyIssue = error.localizedDescription; errorMessage = error.localizedDescription; return false }
@@ -1591,7 +1653,19 @@ final class AppStore: ObservableObject {
         }
         if useDrive { specs += DriveTools.specs; notes.append(DriveTools.systemNote) }
         if useGitHub { specs += GitHubTools.specs; notes.append(GitHubTools.systemNote) }
-        if useWeb { specs += WebTools.specs; notes.append(WebTools.systemNote) }
+        if useWeb {
+            if useNativeOpenAIWebSearch {
+                // Use OpenAI's built-in web_search instead of DeepSeek-backed web_search function tool.
+                specs += WebTools.readOnlySpecs
+                notes.append(WebTools.nativeOpenAISystemNote)
+            } else {
+                specs += WebTools.specs
+                notes.append(WebTools.systemNote)
+            }
+        }
+        if armImageGen {
+            notes.append("用户已在本次对话中开启生图功能。请根据用户描述直接调用内置 image_generation 工具绘制高清图片，并用简短中文说明画面亮点。")
+        }
         if canRunTools,
            let manualBundle = OperationManualTools.systemPromptNote(
                book: operationManual,
@@ -1646,8 +1720,10 @@ final class AppStore: ObservableObject {
         lastCommit = Date()
         generatingThreadID = threadID
         generationProgress = ChatStreamProgress(phase: .connecting, elapsedSeconds: 0, receivedBytes: 0, httpStatus: nil)
+        beginBackgroundGenerationTask()
         generationTask = Task { [weak self] in
             guard let self else { return }
+            defer { self.endBackgroundGenerationTask() }
             do {
                 var outgoing = request
                 // Original passages about what was just said, for this request only.
@@ -1667,12 +1743,18 @@ final class AppStore: ObservableObject {
                 }
                 if searchRequested {
                     self.searchingThreadID = threadID
-                    let result = try await WebSearchClient().searchOrReadDirectURLs(
-                        query: searchQuery,
-                        contextHint: searchContextHint,
-                        key: key,
-                        githubToken: ghToken
-                    )
+                    let result: WebSearchResult
+                    if webChannel == .nativeChatGPT && self.subscription.ready && !directURLsPresent {
+                        result = try await self.subscription.quickWebSearch(query: searchQuery, model: subscriptionModel)
+                    } else {
+                        let effectiveKey = (webChannel == .directLinksOnly) ? "" : key
+                        result = try await WebSearchClient().searchOrReadDirectURLs(
+                            query: searchQuery,
+                            contextHint: searchContextHint,
+                            key: effectiveKey,
+                            githubToken: ghToken
+                        )
+                    }
                     self.searchingThreadID = nil
                     if let ti = self.threads.firstIndex(where: { $0.id == threadID }),
                        let mi = self.threads[ti].messages.firstIndex(where: { $0.id == answerID }) {
@@ -1682,7 +1764,9 @@ final class AppStore: ObservableObject {
                             var activities = self.threads[ti].messages[mi].toolActivity ?? []
                             activities.append(ToolActivity(
                                 id: "web-deep-\(answerID.uuidString.prefix(6))",
-                                title: "深度联网探索 · 已核对 \(result.sources.count) 篇网页",
+                                title: webChannel == .nativeChatGPT
+                                    ? "ChatGPT 联网检索 · \(result.sources.count) 篇来源"
+                                    : "深度联网探索 · 已核对 \(result.sources.count) 篇网页",
                                 status: .done,
                                 detail: result.searchLog,
                                 kind: "web"
@@ -1690,7 +1774,7 @@ final class AppStore: ObservableObject {
                             self.threads[ti].messages[mi].toolActivity = activities
                         }
                     }
-                    self.recordUsage(result.usage, model: nil, at: Date())
+                    self.recordUsage(result.usage, model: nil, at: Date(), provider: webChannel == .nativeChatGPT ? .chatGPT : nil)
                     self.persistNow()
                     try Task.checkCancellation()
                     outgoing = outgoing.addingWebContext(result.context)
@@ -1705,11 +1789,14 @@ final class AppStore: ObservableObject {
                 if usesTools {
                     let total = try await self.runToolLoop(outgoing, key: key, threadID: threadID, answerID: answerID,
                         subscriptionModel: subscriptionModel, subscriptionEffort: subscriptionEffort,
+                        nativeWebSearch: chatGPTBuiltInWebSearch, nativeImageGeneration: armImageGen,
                         onProgress: onProgress, onEvent: onEvent)
                     self.storeUsage(total, threadID: threadID, answerID: answerID)
                 } else if provider == .chatGPT {
                     try await self.subscription.stream(request: outgoing, model: subscriptionModel, effort: subscriptionEffort,
-                                                       summary: true, onProgress: onProgress, onEvent: onEvent)
+                                                       summary: true, nativeWebSearch: chatGPTBuiltInWebSearch,
+                                                       nativeImageGeneration: armImageGen,
+                                                       onProgress: onProgress, onEvent: onEvent)
                 } else {
                     try await self.streamModel(outgoing, provider: provider, colabOptions: settings.colabOptions, onProgress: onProgress,
                         onRestart: { self.restartColabOutput(threadID: threadID, messageID: answerID) }, onEvent: onEvent)
@@ -1797,6 +1884,7 @@ final class AppStore: ObservableObject {
     // every round, so stopping or a failure midway still counts the rounds already paid for.
     private func runToolLoop(_ first: ChatRequest, key: String, threadID: UUID, answerID: UUID,
                              subscriptionModel: String? = nil, subscriptionEffort: SubscriptionEffort = .automatic,
+                             nativeWebSearch: Bool = false, nativeImageGeneration: Bool = false,
                              onProgress: @escaping @MainActor (ChatStreamProgress) -> Void,
                              onEvent: @escaping @MainActor (StreamEvent) -> Void) async throws -> TokenUsage? {
         var request = first
@@ -1810,7 +1898,10 @@ final class AppStore: ObservableObject {
             do {
                 let thread = threads.first(where: { $0.id == threadID })
                 try await streamModel(request, provider: provider, subscriptionModel: subscriptionModel, effort: subscriptionEffort,
-                                      colabOptions: settings(for: thread).colabOptions, summary: provider == .chatGPT, onProgress: onProgress, onRestart: {
+                                      colabOptions: settings(for: thread).colabOptions, summary: provider == .chatGPT,
+                                      nativeWebSearch: nativeWebSearch && !last,
+                                      nativeImageGeneration: nativeImageGeneration && round == 0,
+                                      onProgress: onProgress, onRestart: {
                     buffer.reset()
                     self.restartColabOutput(threadID: threadID, messageID: answerID, content: prefixContent, reasoning: prefixReasoning)
                 }) { event in
@@ -1968,15 +2059,25 @@ final class AppStore: ObservableObject {
             let action = try WebAction(call)
             let key = apiKey
             let ghToken = github.savedToken
+            let thread = threads.first(where: { $0.id == threadID })
+            let activeProv = thread?.messages.last?.provider ?? provider(for: thread)
+            let channel = WebSearchRouting.channel(for: activeProv)
+            let subModel = settings(for: thread).subscriptionModel
+            let subReady = subscription.ready
             return PreparedTool(title: action.activityTitle, kind: "web", confirm: nil, perform: { [weak self] in
                 switch action {
                 case .search(let query):
-                    if key.isEmpty && WebText.extractURLs(from: query).isEmpty {
-                        return "当前尚未在「设置」中配置 DeepSeek API Key，暂无法执行全网关键词搜索；若需读取特定网页或 GitHub 链接，请直接调用 web_read(url: \"...\")。"
+                    if channel == .nativeChatGPT, subReady, let self, WebText.extractURLs(from: query).isEmpty {
+                        let result = try await self.subscription.quickWebSearch(query: query, model: subModel)
+                        await self.noteSearch(result, threadID: threadID, answerID: answerID)
+                        return result.context
+                    }
+                    if (channel == .directLinksOnly || key.isEmpty) && WebText.extractURLs(from: query).isEmpty {
+                        return "当前联网通道未开启关键词搜索引擎（可在「设置 → 联网通道」切换为 ChatGPT 原生联网或 DeepSeek 搜索）；若需读取特定网页或 GitHub 链接，请直接调用 web_read(url: \"...\")。"
                     }
                     let result = try await WebSearchClient().searchOrReadDirectURLs(
                         query: query,
-                        key: key,
+                        key: channel == .directLinksOnly ? "" : key,
                         githubToken: ghToken
                     )
                     await self?.noteSearch(result, threadID: threadID, answerID: answerID)
@@ -2142,6 +2243,27 @@ final class AppStore: ObservableObject {
     // Tokens arrive far faster than the screen needs to redraw. Collect them and
     // publish about fifteen times a second, so layout does not run once per token.
     private func receive(_ event: StreamEvent, threadID: UUID, messageID: UUID) {
+        if let act = event.toolActivity {
+            record(act, threadID: threadID, answerID: messageID)
+        }
+        if !event.webSources.isEmpty,
+           let ti = threads.firstIndex(where: { $0.id == threadID }),
+           let mi = threads[ti].messages.firstIndex(where: { $0.id == messageID }) {
+            var sources = threads[ti].messages[mi].webSources ?? []
+            for src in event.webSources where !sources.contains(where: { $0.url == src.url }) {
+                sources.append(src)
+            }
+            threads[ti].messages[mi].webSources = sources
+        }
+        if !event.generatedImageBase64.isEmpty {
+            var urls = generatedImages[messageID] ?? []
+            for b64 in event.generatedImageBase64 {
+                if let fileURL = EphemeralGeneratedImageCache.save(base64: b64) {
+                    urls.append(fileURL)
+                }
+            }
+            if !urls.isEmpty { generatedImages[messageID] = urls }
+        }
         pendingContent += event.content
         pendingReasoning += event.reasoning
         pendingTarget = (threadID, messageID)
@@ -2213,7 +2335,8 @@ final class AppStore: ObservableObject {
         }
         recordUsage(threads[ti].messages[mi].usage, model: threads[ti].messages[mi].model, at: threads[ti].messages[mi].createdAt, provider: threads[ti].messages[mi].provider)
         if let note { threads[ti].messages[mi].note = note }
-        if state == .complete && threads[ti].messages[mi].content.isEmpty {
+        let hasGeneratedImages = !(generatedImages[messageID]?.isEmpty ?? true)
+        if state == .complete && threads[ti].messages[mi].content.isEmpty && !hasGeneratedImages {
             threads[ti].messages[mi].state = .failed
             threads[ti].messages[mi].note = "没有收到最终回答。可提高输出上限或关闭深度思考后重试。"
         }

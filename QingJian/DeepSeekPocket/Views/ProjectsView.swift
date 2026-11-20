@@ -47,37 +47,41 @@ struct ProjectsView: View {
         NavigationStack(path: $path) {
             List {
                 if store.projects.isEmpty {
-                    Section {
-                        Text("项目有自己的指令、资料和默认模型。项目里的对话只在项目中出现，不会进侧栏的「最近」。")
-                            .font(TypeScale.ui(14.5)).foregroundStyle(Ink.ink3)
-                    }
-                    .claudeCardRow()
+                    Text("项目有自己的指令、资料和默认模型。项目里的对话只在项目中出现，不会进侧栏的「最近」。")
+                        .font(TypeScale.ui(14.5)).foregroundStyle(Ink.ink3)
+                        .listRowBackground(Ink.paper)
+                        .listRowSeparator(.hidden)
                 } else {
-                    Section {
-                        ForEach(store.projects) { project in
-                            Button { open(project.id) } label: {
-                                HStack(spacing: 12) {
-                                    ClaudeIconBadge(
-                                        systemName: project.isLocked ? "lock" : (project.studySubject != nil ? "graduationcap" : "folder"),
-                                        color: project.studySubject != nil ? Ink.seal : Ink.ink2
-                                    )
-                                    VStack(alignment: .leading, spacing: 2.5) {
-                                        Text(project.name).font(TypeScale.ui(16, weight: .regular)).foregroundStyle(Ink.ink)
-                                        Text(project.isLocked && store.isLocked(project.id) ? "已上锁" : "\(store.threads(in: project.id).count) 个对话")
-                                            .font(TypeScale.ui(12.5)).foregroundStyle(Ink.ink3)
-                                    }
-                                    Spacer()
-                                    Image(systemName: "chevron.right").font(.system(size: 12, weight: .medium)).foregroundStyle(Ink.ink3.opacity(0.65))
-                                }.padding(.vertical, 3).contentShape(Rectangle())
+                    ForEach(store.projects) { project in
+                        Button { open(project.id) } label: {
+                            HStack(spacing: 14) {
+                                ClaudeIconBadge(
+                                    systemName: project.isLocked ? "lock" : (project.studySubject != nil ? "graduationcap" : "folder"),
+                                    color: project.studySubject != nil ? Ink.seal : Ink.ink2,
+                                    size: 18,
+                                    weight: .regular
+                                )
+                                VStack(alignment: .leading, spacing: 3) {
+                                    Text(project.name).font(TypeScale.ui(16.5, weight: .regular)).foregroundStyle(Ink.ink)
+                                    Text(project.isLocked && store.isLocked(project.id) ? "已上锁" : "\(store.threads(in: project.id).count) 个对话")
+                                        .font(TypeScale.ui(13)).foregroundStyle(Ink.ink3)
+                                }
+                                Spacer()
+                                Image(systemName: "chevron.right").font(.system(size: 12, weight: .medium)).foregroundStyle(Ink.ink3.opacity(0.6))
                             }
-                            .buttonStyle(.plain)
-                            .accessibilityIdentifier("project-row")
+                            .padding(.vertical, 8)
+                            .contentShape(Rectangle())
                         }
+                        .buttonStyle(.plain)
+                        .listRowBackground(Ink.paper)
+                        .listRowSeparatorTint(Ink.line.opacity(0.6))
+                        .accessibilityIdentifier("project-row")
                     }
-                    .claudeCardRow()
                 }
             }
-            .claudeGroupedListStyle()
+            .listStyle(.plain)
+            .scrollContentBackground(.hidden)
+            .background(Ink.paper.ignoresSafeArea())
             .navigationTitle("项目")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
@@ -346,10 +350,11 @@ struct ProjectPageView: View {
                     }
                 }
                 Menu("默认思考", systemImage: "sparkle") {
+                    let targetSlug = project?.subscriptionModel ?? store.activeChatSettings.subscriptionModel
                     Picker("默认思考", selection: Binding(get: { project?.subscriptionEffort?.rawValue ?? "follow" },
                                                       set: { value in editProject(store, projectID) { $0.subscriptionEffort = SubscriptionEffort(rawValue: value) } })) {
                         Text("跟随当前").tag("follow")
-                        ForEach(SubscriptionEffort.allCases) { Text($0.title).tag($0.rawValue) }
+                        ForEach(store.subscription.availableEfforts(for: targetSlug)) { Text($0.menuLabel).tag($0.rawValue) }
                     }
                 }
                 if project?.studySubject == nil {
@@ -1003,21 +1008,51 @@ struct AllChatsView: View {
         }
     }
 
+    private static let relativeDateFormatter: RelativeDateTimeFormatter = {
+        let f = RelativeDateTimeFormatter()
+        f.locale = Locale(identifier: "zh_CN")
+        f.unitsStyle = .short
+        return f
+    }()
+
     var body: some View {
         NavigationStack {
             List(selection: $selection) {
-                Section {
-                    ForEach(shown) { thread in
-                        if editing { rowLabel(thread).tag(thread.id) }
-                        else {
+                ForEach(shown) { thread in
+                    Group {
+                        if editing {
+                            rowLabel(thread).tag(thread.id)
+                        } else {
                             Button { store.select(thread.id); opened() } label: { rowLabel(thread) }
                                 .buttonStyle(.plain).tag(thread.id)
                         }
                     }
+                    .listRowBackground(Ink.paper)
+                    .listRowSeparator(.hidden)
+                    .listRowInsets(EdgeInsets(top: 2, leading: 18, bottom: 2, trailing: 18))
                 }
-                .claudeCardRow()
             }
-            .claudeGroupedListStyle()
+            .listStyle(.plain)
+            .scrollContentBackground(.hidden)
+            .background(Ink.paper.ignoresSafeArea())
+            .contentMargins(.bottom, editing ? 24 : 90, for: .scrollContent)
+            .overlay(alignment: .bottomTrailing) {
+                if !editing {
+                    Button {
+                        store.createNewChat()
+                        opened()
+                    } label: {
+                        HStack(spacing: 6) {
+                            Image(systemName: "plus").font(.system(size: 14, weight: .semibold))
+                            Text("新建会话")
+                        }
+                    }
+                    .buttonStyle(.claudeSecondaryPill)
+                    .padding(.trailing, 20)
+                    .padding(.bottom, 16)
+                    .accessibilityIdentifier("all-chats-new-chat")
+                }
+            }
             .environment(\.editMode, $editMode)
             .searchable(text: $search, prompt: "搜索对话")
             .navigationTitle("全部对话")
@@ -1067,15 +1102,32 @@ struct AllChatsView: View {
     }
 
     private func rowLabel(_ thread: ChatThread) -> some View {
-        VStack(alignment: .leading, spacing: 3) {
-            Text(thread.title).font(TypeScale.serif(17)).foregroundStyle(Ink.ink).lineLimit(1)
-            HStack(spacing: 6) {
-                if let project = store.project(thread.projectID) { Text(project.name) }
-                Text(thread.updatedAt.formatted(date: .abbreviated, time: .omitted))
-            }.font(TypeScale.tiny).foregroundStyle(Ink.ink3)
+        HStack(alignment: .top, spacing: 14) {
+            Image(systemName: thread.isPinned == true ? "pin" : "message")
+                .font(.system(size: 17.5, weight: .regular))
+                .foregroundStyle(Ink.ink2)
+                .frame(width: 24, height: 24, alignment: .center)
+                .padding(.top, 1)
+                .accessibilityHidden(true)
+            VStack(alignment: .leading, spacing: 3.5) {
+                Text(thread.title)
+                    .font(TypeScale.ui(16.5, weight: .regular))
+                    .foregroundStyle(Ink.ink)
+                    .lineLimit(1)
+                HStack(spacing: 6) {
+                    if let project = store.project(thread.projectID) {
+                        Text(project.name)
+                        Text("·")
+                    }
+                    Text(Self.relativeDateFormatter.localizedString(for: thread.updatedAt, relativeTo: Date()))
+                }
+                .font(TypeScale.ui(13))
+                .foregroundStyle(Ink.ink3)
+            }
         }
-        .padding(.vertical, 4)
-        .frame(maxWidth: .infinity, alignment: .leading).contentShape(Rectangle())
+        .padding(.vertical, 9)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .contentShape(Rectangle())
         .accessibilityIdentifier("all-chats-row")
     }
 

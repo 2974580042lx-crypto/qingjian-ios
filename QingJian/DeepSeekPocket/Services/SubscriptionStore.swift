@@ -64,6 +64,9 @@ final class SubscriptionStore: NSObject, ObservableObject, ASWebAuthenticationPr
     // Some models refuse a thinking summary; after one refusal we stop asking for it.
     private var summaryRefused = false
     func title(for slug: String) -> String { models.first(where: { $0.slug == slug })?.displayName ?? slug }
+    func availableEfforts(for slug: String) -> [SubscriptionEffort] {
+        models.first(where: { $0.slug == slug })?.availableEfforts ?? ([.automatic] + SubscriptionEffort.defaultCodexTiers)
+    }
     private let api = SubscriptionHTTP()
     private var webSession: ASWebAuthenticationSession?
     private var listener: SubscriptionLoopback?
@@ -226,6 +229,7 @@ final class SubscriptionStore: NSObject, ObservableObject, ASWebAuthenticationPr
     // summary asks for a readable thinking summary; if the model rejects it before
     // sending anything, the request is repeated once without it.
     func stream(request: ChatRequest, model: String, effort: SubscriptionEffort, summary: Bool = false,
+                nativeWebSearch: Bool = false, nativeImageGeneration: Bool = false,
                 onProgress: @escaping @MainActor (ChatStreamProgress) -> Void,
                 onEvent: @escaping @MainActor (StreamEvent) -> Void) async throws {
         guard connected && !reauthenticationRequired else { throw SubscriptionError.notConnected }
@@ -241,13 +245,70 @@ final class SubscriptionStore: NSObject, ObservableObject, ASWebAuthenticationPr
         let asksSummary = summary && !summaryRefused
         let received = ReceivedFlag()
         do {
-            try await api.stream(SubscriptionRequest(request: request, model: model, effort: effort, summary: asksSummary), accessToken: access,
-                                 onProgress: onProgress) { event in received.value = true; onEvent(event) }
+            try await api.stream(
+                SubscriptionRequest(request: request, model: model, effort: effort, summary: asksSummary,
+                                    nativeWebSearch: nativeWebSearch, nativeImageGeneration: nativeImageGeneration),
+                accessToken: access,
+                onProgress: onProgress
+            ) { event in received.value = true; onEvent(event) }
         } catch SubscriptionError.service(_, 400) where asksSummary && !received.value {
             summaryRefused = true
-            do { try await api.stream(SubscriptionRequest(request: request, model: model, effort: effort), accessToken: access, onProgress: onProgress, onEvent: onEvent) }
-            catch { observe(error); throw error }
-        } catch { observe(error); throw error }
+            do {
+                try await api.stream(
+                    SubscriptionRequest(request: request, model: model, effort: effort, summary: false,
+                                        nativeWebSearch: nativeWebSearch, nativeImageGeneration: nativeImageGeneration),
+                    accessToken: access, onProgress: onProgress, onEvent: onEvent
+                )
+            } catch let retryError {
+                observe(retryError)
+                throw friendlyBuiltInError(retryError, nativeWebSearch: nativeWebSearch, nativeImageGeneration: nativeImageGeneration, effort: effort)
+            }
+        } catch {
+            observe(error)
+            throw friendlyBuiltInError(error, nativeWebSearch: nativeWebSearch, nativeImageGeneration: nativeImageGeneration, effort: effort)
+        }
+    }
+
+    private func friendlyBuiltInError(_ error: Error, nativeWebSearch: Bool, nativeImageGeneration: Bool, effort: SubscriptionEffort) -> Error {
+        if case SubscriptionError.service(let code, let status) = error, (status == 400 || status == 403) {
+            if nativeImageGeneration {
+                return ChatError.server("当前 ChatGPT 订阅账号或所选模型暂不支持通过第三方通道直接生图（\(code)）。你的额外按量付费未受影响。")
+            }
+            if effort != .automatic && (code.contains("reasoning") || code.contains("effort") || code.contains("invalid_request")) {
+                return ChatError.server("当前所选模型暂不支持「\(effort.title)」思考档位，请切换成「Auto」或其他档位重试。")
+            }
+            if nativeWebSearch {
+                return ChatError.server("当前模型或订阅权限暂未放开原生联网搜索（\(code)）。你可以在「设置 → 联网通道」里切换其他搜索方式。")
+            }
+        }
+        return error
+    }
+
+    /// Performs a standalone grounded web search using the user's signed-in ChatGPT subscription,
+    /// allowing DeepSeek, Colab, or Compatible models to share ChatGPT's native web search channel.
+    func quickWebSearch(query: String, model: String) async throws -> WebSearchResult {
+        var settings = AppSettings()
+        settings.systemPrompt = "你是一个精准的联网信息检索助手。请使用内置联网工具搜索用户问题，并用简明中文整理最新核心事实与关键数据，严格忠于网页来源，不要编造。"
+        let request = ChatRequest(settings: settings, messages: [ChatMessage(role: .user, content: query)])
+        let targetModel = models.first(where: { $0.slug == model })?.slug ?? models.first?.slug ?? model
+        var summaryText = ""
+        var collectedSources: [WebSource] = []
+        var collectedUsage: TokenUsage?
+        try await stream(request: request, model: targetModel, effort: .low, summary: false,
+                         nativeWebSearch: true, nativeImageGeneration: false, onProgress: { _ in }) { event in
+            summaryText += event.content
+            for src in event.webSources where !collectedSources.contains(where: { $0.url == src.url }) {
+                collectedSources.append(src)
+            }
+            if let u = event.usage { collectedUsage = u }
+        }
+        return WebSearchResult(
+            sources: collectedSources,
+            usage: collectedUsage,
+            summary: summaryText.trimmingCharacters(in: .whitespacesAndNewlines),
+            pages: [:],
+            searchLog: "已通过 ChatGPT 原生联网检索，获取 \(collectedSources.count) 条网页来源。"
+        )
     }
     func test(model: String) async {
         guard ready, !busy else { return }

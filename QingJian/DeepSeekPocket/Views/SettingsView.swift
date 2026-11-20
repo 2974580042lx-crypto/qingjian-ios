@@ -58,6 +58,29 @@ struct SettingsView: View {
                 .claudeCardRow()
 
                 Section {
+                    HStack(spacing: 12) {
+                        ClaudeIconBadge(systemName: "slider.horizontal.3")
+                        Picker("默认服务", selection: Binding(
+                            get: { store.settings.selectedProvider },
+                            set: { newValue in
+                                if store.saveDefaultProvider(newValue) {
+                                    draftSettings.provider = newValue
+                                }
+                            }
+                        )) {
+                            ForEach(AIProvider.allCases) { Text($0.title).tag($0) }
+                        }
+                    }
+                    NavigationLink { chatGPTPage } label: {
+                        HStack(spacing: 12) {
+                            ClaudeIconBadge(systemName: "waveform")
+                            Text("ChatGPT 订阅与声音")
+                            Spacer()
+                            if store.subscription.connected {
+                                Text(store.subscription.ready ? "已就绪" : "待确认").font(TypeScale.ui(13.5)).foregroundStyle(Ink.ink3)
+                            }
+                        }
+                    }
                     NavigationLink { deepSeekPage } label: {
                         HStack(spacing: 12) {
                             ClaudeIconBadge(systemName: "key")
@@ -72,39 +95,42 @@ struct SettingsView: View {
                     NavigationLink { CompatibleEndpointSettingsView(compatible: store.compatible) } label: {
                         settingsRow("其他模型（兼容端点）", symbol: "server.rack")
                     }
-                    NavigationLink { chatGPTPage } label: {
-                        settingsRow("ChatGPT 订阅与声音", symbol: "waveform")
-                    }
-                    HStack(spacing: 12) {
-                        ClaudeIconBadge(systemName: "slider.horizontal.3")
-                        Picker("默认服务", selection: Binding(
-                            get: { store.settings.selectedProvider },
-                            set: { newValue in
-                                if store.saveDefaultProvider(newValue) {
-                                    draftSettings.provider = newValue
-                                }
-                            }
-                        )) {
-                            ForEach(AIProvider.allCases) { Text($0.title).tag($0) }
-                        }
-                    }
                 } header: { Text("模型与服务") } footer: {
-                    Text("不在项目里的对话用这里选的服务，切换后立即生效。项目各用各的，在项目「⋯ → 服务」里改。")
+                    Text("不在项目里的对话使用「默认服务」，切换立即生效。项目可单独指定服务，在项目「⋯ → 服务」里改。")
                 }
                 .claudeCardRow()
 
                 Section {
+                    NavigationLink { webSearchChannelsPage } label: {
+                        let _ = store.webRoutingRevision
+                        HStack(spacing: 12) {
+                            ClaudeIconBadge(systemName: "globe")
+                            Text("联网通道")
+                            Spacer()
+                            Text(WebSearchRouting.channel(for: store.settings.selectedProvider).title)
+                                .font(TypeScale.ui(13.5)).foregroundStyle(Ink.ink3).lineLimit(1)
+                        }
+                    }
                     NavigationLink { connectionsPage } label: {
                         settingsRow("授权与连接", symbol: "link")
                     }
+                } header: { Text("工具与联网") } footer: {
+                    Text("可为每个模型单独指定上网通道（默认 ChatGPT 用原生联网、DeepSeek 用官方搜索），互不卡余额。")
+                }
+                .claudeCardRow()
+
+                Section {
+                    NavigationLink { UsageDetailsView(ledger: store.enrichedUsageLedger) } label: {
+                        settingsRow("用量明细", symbol: "chart.bar")
+                    }
                     NavigationLink { dataPage } label: {
-                        settingsRow("用量与备份", symbol: "chart.bar")
+                        settingsRow("备份与数据", symbol: "externaldrive")
                     }
                     NavigationLink { FeatureOverviewView() } label: {
                         settingsRow("功能一览", symbol: "book")
                     }
                     .accessibilityIdentifier("feature-overview")
-                } header: { Text("应用与数据") }
+                } header: { Text("数据与说明") }
                 .claudeCardRow()
             }
             .claudeGroupedFormStyle()
@@ -326,6 +352,39 @@ struct SettingsView: View {
         }
     }
 
+    private var webSearchChannelsPage: some View {
+        let _ = store.webRoutingRevision
+        return page("联网通道") {
+            Section {
+                ForEach(AIProvider.allCases) { provider in
+                    Picker(provider.title, selection: Binding(
+                        get: { WebSearchRouting.channel(for: provider) },
+                        set: { store.setWebSearchChannel($0, for: provider) }
+                    )) {
+                        ForEach(WebSearchRouting.availableChannels(for: provider)) { channel in
+                            Text(channel.title).tag(channel)
+                        }
+                    }
+                }
+            } header: { Text("按服务商分别选择") } footer: {
+                Text("每个模型可以独立选择上网方式，修改立即生效：\n• ChatGPT 原生联网：走已登录的 ChatGPT 订阅通道，不消耗 DeepSeek 余额。\n• DeepSeek 搜索：走 DeepSeek 多轮深度检索与正文抓取（需 DeepSeek 余额）。\n• 仅直读链接：不调用搜索引擎，但直接发送具体网页或 GitHub 链接仍免费读正文。")
+            }
+            Section {
+                LabeledContent("ChatGPT 订阅通道", value: store.subscription.ready ? "可用" : "未登录或未确认")
+                LabeledContent("DeepSeek 搜索密钥", value: store.apiKey.isEmpty ? "未填写" : "已填写")
+            } header: { Text("通道状态") }
+            Section {
+                Button("恢复默认分配") {
+                    for provider in AIProvider.allCases {
+                        store.setWebSearchChannel(WebSearchRouting.defaultChannel(for: provider), for: provider)
+                    }
+                }
+            } footer: {
+                Text("默认：ChatGPT 订阅使用原生联网，DeepSeek 使用官方搜索，Colab 与其他模型仅直读链接。")
+            }
+        }
+    }
+
     private var connectionsPage: some View {
         page("授权与连接") {
                     GoogleDriveSection(drive: store.drive)
@@ -334,7 +393,7 @@ struct SettingsView: View {
     }
 
     private var dataPage: some View {
-        page("用量与备份") {
+        page("备份与数据") {
                     Section {
                         NavigationLink {
                             LocalDataStatusView()
@@ -346,9 +405,9 @@ struct SettingsView: View {
                     }
                     StudyCloudBackupSection(cloud: store.studyCloud)
                     Section {
-                        UsageCalendarView(ledger: store.usage)
-                    } header: { Text("用量") } footer: {
-                        Text("按天记录所有请求：回答、猜你回复、思考翻译和项目记忆。删除对话不会改变这里的记录。花费是按 DeepSeek 官方价目的估算，实际扣费以开放平台为准；ChatGPT 订阅只计 token，不算花费。")
+                        UsageCalendarView(ledger: store.enrichedUsageLedger)
+                    } header: { Text("用量概览") } footer: {
+                        Text("点击「查看明细与导出」或从设置首页点「用量明细」，可查看 ChatGPT 订阅的新输入、缓存命中率、实际输出与 DeepSeek 花费统计。")
                     }
                     Section {
                         Button {

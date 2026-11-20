@@ -397,11 +397,14 @@ struct ChatScreen: View {
                         Haptic.tap()
                         withAnimation(.snappy(duration: 0.2)) { suggestionIndex += 1 }
                     } label: {
-                        Label("换一条", systemImage: "shuffle").font(TypeScale.label)
-                            .foregroundStyle(Ink.seal)
-                            .padding(.horizontal, 12).frame(height: 32)
-                            .background(Ink.seal.opacity(0.1), in: Capsule())
-                            .contentShape(Capsule())
+                        HStack(spacing: 4) {
+                            Image(systemName: "arrow.triangle.2.circlepath").font(.system(size: 11.5, weight: .regular))
+                            Text("换一条").font(TypeScale.ui(12.5, weight: .medium))
+                        }
+                        .foregroundStyle(Ink.ink2)
+                        .padding(.horizontal, 6)
+                        .frame(height: 28)
+                        .contentShape(Rectangle())
                     }
                     .buttonStyle(.pressFeedback)
                     .accessibilityLabel("换一条猜你想说")
@@ -966,7 +969,7 @@ struct ChatScreen: View {
                         store.toggleBookmark(threadID: thread.id, messageID: message.id)
                     }, retryColab: {
                         if let threadID { store.retryColabWithDeepSeek(threadID: threadID, messageID: message.id) }
-                    })
+                    }, generatedImages: store.generatedImages[message.id] ?? [])
             .equatable()
     }
 
@@ -1379,6 +1382,13 @@ struct ChatScreen: View {
             }
             trayButton("图片", symbol: "photo", id: "chat-add-photos",
                        disabled: attachmentBusy || !store.canPersist || pendingImages.count >= 4) { choosePhotos() }
+            if store.activeProvider == .chatGPT {
+                trayButton(store.imageGenerationEnabled ? "画图 · 已开" : "画图",
+                           symbol: "wand.and.stars", id: "chat-generate-image",
+                           disabled: store.isGenerating || !store.canPersist) {
+                    store.imageGenerationEnabled.toggle()
+                }
+            }
             trayButton("文件", symbol: "doc.badge.plus", id: "chat-add-document",
                        disabled: attachmentBusy || !store.canPersist) { chooseDocuments() }
             trayButton("粘贴", symbol: "doc.on.clipboard", id: "chat-paste-text", disabled: !store.canPersist) {
@@ -1434,22 +1444,19 @@ struct ChatScreen: View {
             HStack(spacing: 8) {
                 GeometryReader { geo in
                     ZStack(alignment: .leading) {
-                        Capsule().fill(Ink.ink3.opacity(0.18))
-                        Capsule().fill(barColor).frame(width: max(4, geo.size.width * CGFloat(stats.ratio)))
+                        Capsule().fill(Ink.ink3.opacity(0.16))
+                        Capsule().fill(barColor).frame(width: max(3, geo.size.width * CGFloat(stats.ratio)))
                     }
                 }
-                .frame(width: 44, height: 5)
+                .frame(width: 40, height: 3.5)
                 Text("上下文 \(pct)% · 约\(stats.estimatedTokens >= 1000 ? String(format: "%.1fk", Double(stats.estimatedTokens) / 1000.0) : "\(stats.estimatedTokens)")")
                     .font(.system(size: 11, design: .monospaced))
                     .foregroundStyle(Ink.ink3)
                     .lineLimit(1)
                 if let hit = stats.cacheHitRate {
-                    Text("缓存 \(hit)%")
-                        .font(.system(size: 10.5, weight: .medium, design: .monospaced))
-                        .foregroundStyle(Ink.seal)
-                        .padding(.horizontal, 6)
-                        .padding(.vertical, 1.5)
-                        .background(Ink.seal.opacity(0.10), in: Capsule())
+                    Text("· 缓存 \(hit)%")
+                        .font(.system(size: 11, weight: .regular, design: .monospaced))
+                        .foregroundStyle(Ink.ink3)
                 }
                 Spacer(minLength: 4)
                 if store.compactingThreadID == thread.id {
@@ -1532,8 +1539,8 @@ struct ChatScreen: View {
             }
             .padding(.horizontal, 11)
             .padding(.vertical, 6)
-            .background(Ink.raised, in: Capsule())
-            .overlay(Capsule().stroke(Ink.seal.opacity(0.28), lineWidth: 0.8))
+            .background(Ink.card, in: Capsule())
+            .overlay(Capsule().stroke(Ink.line, lineWidth: 0.7))
         }
         .buttonStyle(.pressFeedback)
     }
@@ -1721,10 +1728,13 @@ struct ChatScreen: View {
                     .accessibilityIdentifier("chat-composer")
                 HStack(spacing: 10) {
                     attachmentButton
+                    let _ = store.webRoutingRevision
+                    let currentWebChannel = WebSearchRouting.channel(for: store.activeProvider)
                     // Model and thinking level in one pill, like "Haiku 5.5 中等" in the Claude app.
                     Menu {
-                        Section("当前能力边界") {
+                        Section("当前能力与联网") {
                             Text(ProviderCapabilities.forProvider(store.activeProvider).summaryLabel)
+                            Text("联网通道：\(currentWebChannel.title)")
                         }
                         Section("服务") {
                             Picker("服务", selection: Binding(get: { store.activeProvider }, set: { store.setProvider($0) })) {
@@ -1750,9 +1760,11 @@ struct ChatScreen: View {
                                     ForEach(store.subscription.models) { model in Text(model.displayName).tag(model.slug) }
                                 }
                             }
-                            Section("思考") {
+                            Section("思考档位（对齐 Codex）") {
                                 Picker("思考", selection: Binding(get: { store.activeChatSettings.selectedSubscriptionEffort }, set: { store.setSubscriptionEffort($0) })) {
-                                    ForEach(SubscriptionEffort.allCases) { effort in Text(effort.title).tag(effort) }
+                                    ForEach(store.subscription.availableEfforts(for: store.activeChatSettings.subscriptionModel)) { effort in
+                                        Text(effort.menuLabel).tag(effort)
+                                    }
                                 }
                             }
                         } else {
@@ -1779,7 +1791,7 @@ struct ChatScreen: View {
                     .accessibilityLabel("选择模型和思考档位")
                     .accessibilityValue("\(store.pillModelTitle) \(store.pillEffortTitle)")
                     .accessibilityIdentifier("model-effort-pill")
-                    if store.activeProvider == .deepSeek {
+                    if currentWebChannel != .directLinksOnly {
                         // On, the button itself says so; no hint line over the conversation.
                         Button { store.webSearchEnabled.toggle() } label: {
                             webToggleLabel
@@ -1788,6 +1800,23 @@ struct ChatScreen: View {
                         .accessibilityLabel("联网搜索")
                         .accessibilityValue(store.webSearchEnabled ? "已开启" : "已关闭")
                         .accessibilityIdentifier("web-search-toggle")
+                    }
+                    if store.activeProvider == .chatGPT && store.imageGenerationEnabled {
+                        Button {
+                            Haptic.tap()
+                            store.imageGenerationEnabled = false
+                        } label: {
+                            HStack(spacing: 4) {
+                                Image(systemName: "wand.and.stars").font(.system(size: 13, weight: .medium))
+                                Text("画图").font(.system(size: 12.5, weight: .medium))
+                                Image(systemName: "xmark").font(.system(size: 9.5, weight: .semibold))
+                            }
+                            .foregroundStyle(Ink.seal)
+                            .frame(height: 34)
+                            .contentShape(Rectangle())
+                        }
+                        .buttonStyle(.pressFeedback)
+                        .accessibilityLabel("已开启本轮生图，点击取消")
                     }
 
                     Spacer(minLength: 0)
@@ -2121,14 +2150,32 @@ struct MessageView: View, Equatable {
     var speech: OpenAISpeech? = nil
     var toggleBookmark: (() -> Void)? = nil
     var retryColab: (() -> Void)? = nil
+    var generatedImages: [URL] = []
     @State private var copied = false
     @State private var selecting = false
+    @State private var showSourcesSheet = false
+    @State private var showDocumentArtifact = false
 
     nonisolated static func == (lhs: MessageView, rhs: MessageView) -> Bool {
         lhs.message == rhs.message && lhs.threadID == rhs.threadID && lhs.isLast == rhs.isLast
             && lhs.isGenerating == rhs.isGenerating && lhs.canRegenerate == rhs.canRegenerate
             && lhs.showsSuggestions == rhs.showsSuggestions && lhs.round == rhs.round
             && lhs.style == rhs.style && lhs.layoutMode == rhs.layoutMode
+            && lhs.generatedImages == rhs.generatedImages
+    }
+
+    private var documentArtifactTitle: String {
+        for rawLine in message.content.components(separatedBy: .newlines) {
+            let trimmed = rawLine.trimmingCharacters(in: .whitespacesAndNewlines)
+            guard !trimmed.isEmpty else { continue }
+            let cleaned = trimmed.trimmingCharacters(in: CharacterSet(charactersIn: "#*`> "))
+            if !cleaned.isEmpty { return String(cleaned.prefix(24)) }
+        }
+        return "文稿阅读"
+    }
+
+    private var supportsDocumentArtifact: Bool {
+        message.role == .assistant && message.state == .complete && message.content.count >= 450
     }
 
     private var cleanCopyText: String {
@@ -2190,6 +2237,9 @@ struct MessageView: View, Equatable {
                     Haptic.tap()
                 }
                 Button("选择文字", systemImage: "text.viewfinder") { selecting = true }
+                if message.role == .assistant && message.state == .complete && message.content.count >= 160 {
+                    Button("独立文稿预览", systemImage: "doc.richtext") { showDocumentArtifact = true }
+                }
                 Button("编辑文字", systemImage: "pencil") { edit() }.disabled(isGenerating)
                 if message.role == .assistant && message.state == .complete, let speech {
                     Button(speech.isActive(message.id) ? "停止朗读" : "朗读回答",
@@ -2224,6 +2274,14 @@ struct MessageView: View, Equatable {
             }
         }
         .sheet(isPresented: $selecting) { SelectableTextSheet(text: cleanCopyText) }
+        .sheet(isPresented: $showSourcesSheet) {
+            if let sources = message.webSources, !sources.isEmpty {
+                WebSourcesSheet(sources: sources, searchUsage: message.searchUsage)
+            }
+        }
+        .sheet(isPresented: $showDocumentArtifact) {
+            ArtifactPreviewSheet(artifact: .document(markdown: message.content, title: documentArtifactTitle))
+        }
     }
 
     // 纸笺: adapts seamlessly across 书页 (editorial), 信息气泡 (iMessage), and 智能 (hybrid).
@@ -2289,6 +2347,7 @@ struct MessageView: View, Equatable {
                             .foregroundStyle(Ink.ink2).buttonStyle(.pressFeedback).padding(.top, 2)
                         }
                     } else {
+                        VStack(alignment: .leading, spacing: 6) {
                         HStack(spacing: 14) {
                             Button { copyAnswer() } label: {
                                 ClaudeActionGlyph(kind: copied ? .copied : .copy)
@@ -2330,6 +2389,54 @@ struct MessageView: View, Equatable {
                         .foregroundStyle(Ink.ink2.opacity(0.72))
                         .buttonStyle(.pressFeedback)
                         .padding(.top, 6)
+                        if (message.webSources?.isEmpty == false) || supportsDocumentArtifact {
+                            HStack(spacing: 14) {
+                                if let sources = message.webSources, !sources.isEmpty {
+                                    Button {
+                                        Haptic.tap()
+                                        showSourcesSheet = true
+                                    } label: {
+                                        HStack(spacing: 5) {
+                                            Image(systemName: "globe")
+                                                .font(.system(size: 12.5, weight: .regular))
+                                            Text("\(sources.count) 个来源")
+                                                .font(.system(size: 12.5, weight: .regular))
+                                            Image(systemName: "chevron.right")
+                                                .font(.system(size: 9.5, weight: .medium))
+                                                .foregroundStyle(Ink.ink3.opacity(0.7))
+                                        }
+                                        .foregroundStyle(Ink.ink2)
+                                        .padding(.vertical, 3)
+                                        .contentShape(Rectangle())
+                                    }
+                                    .buttonStyle(.pressFeedback)
+                                    .accessibilityIdentifier("web-search-sources")
+                                }
+                                if supportsDocumentArtifact {
+                                    Button {
+                                        Haptic.tap()
+                                        showDocumentArtifact = true
+                                    } label: {
+                                        HStack(spacing: 4) {
+                                            Image(systemName: "doc.richtext")
+                                                .font(.system(size: 12, weight: .regular))
+                                            Text("独立文稿预览")
+                                                .font(.system(size: 12.5, weight: .regular))
+                                            Image(systemName: "chevron.right")
+                                                .font(.system(size: 9.5, weight: .medium))
+                                                .foregroundStyle(Ink.ink3.opacity(0.7))
+                                        }
+                                        .foregroundStyle(Ink.ink2)
+                                        .padding(.vertical, 3)
+                                        .contentShape(Rectangle())
+                                    }
+                                    .buttonStyle(.pressFeedback)
+                                    .accessibilityLabel("在独立文稿卡片中阅读")
+                                }
+                                Spacer(minLength: 0)
+                            }
+                        }
+                        }
                     }
                 }
             }
@@ -2419,6 +2526,9 @@ struct MessageView: View, Equatable {
         if let tools = message.toolActivity, !tools.isEmpty {
             ToolActivityList(items: tools, signIn: signInDrive)
         }
+        if !generatedImages.isEmpty {
+            GeneratedImagesGalleryView(urls: generatedImages, swiss: style == .swiss)
+        }
         if !message.content.isEmpty {
             let isImessage = (layoutMode == .imessage && style != .swiss)
             let isSmartBubble = (layoutMode == .smart && style != .swiss && ChatBubbleRules.isCasualShortReply(message.content))
@@ -2493,21 +2603,15 @@ struct MessageView: View, Equatable {
                     .font(TypeScale.caption).foregroundStyle(Ink.seal)
             }.padding(.top, 6)
         }
-        if let sources = message.webSources, !sources.isEmpty {
-            DisclosureGroup("联网来源（\(sources.count)）") {
-                VStack(alignment: .leading, spacing: 10) {
-                    ForEach(Array(sources.enumerated()), id: \.element.id) { index, source in
-                        if let url = URL(string: source.url) {
-                            Link("[\(index + 1)] \(source.title)", destination: url)
-                                .font(TypeScale.caption)
-                        }
-                    }
-                    if let usage = message.searchUsage {
-                        Text("搜索 \(usage.totalTokens) Tokens；搜索费用以服务商账单为准，未计入聊天金额估算。")
-                            .font(TypeScale.tiny).foregroundStyle(Ink.ink3)
-                    }
-                }.frame(maxWidth: .infinity, alignment: .leading).padding(.top, 8)
-            }.font(TypeScale.caption).accessibilityIdentifier("web-search-sources")
+        if style == .swiss, let sources = message.webSources, !sources.isEmpty {
+            Button {
+                Haptic.tap()
+                showSourcesSheet = true
+            } label: {
+                MonoLabel(text: "SOURCES · \(sources.count)", color: Ink.seal)
+            }
+            .buttonStyle(.plain)
+            .accessibilityIdentifier("web-search-sources")
         }
         if let note = message.note {
             Text(note).font(TypeScale.tiny).foregroundStyle(Ink.ink3)
@@ -2757,7 +2861,7 @@ struct MarkdownAnswer: View, Equatable {
         HighlightMarks.parseInline(text)
             .applyingTerracottaCodeAndEmphasis(baseSize: baseSize, boldColor: Ink.seal)
     }
-    fileprivate static func highlightedCode(_ body: String, language: String?) -> AttributedString {
+    static func highlightedCode(_ body: String, language: String?) -> AttributedString {
         let tokens = CodeSyntaxTokenizer.tokenize(body, language: language)
         var result = AttributedString()
         for token in tokens {
@@ -2819,7 +2923,7 @@ private struct MarkdownTableBlockView: View, Equatable {
 private struct MarkdownCodeBlockView: View, Equatable {
     let segment: String
     let swiss: Bool
-    @State private var showHTMLPreview = false
+    @State private var showArtifact = false
     @State private var copied = false
 
     nonisolated static func == (lhs: MarkdownCodeBlockView, rhs: MarkdownCodeBlockView) -> Bool {
@@ -2829,57 +2933,66 @@ private struct MarkdownCodeBlockView: View, Equatable {
     var body: some View {
         let parsed = CodeSyntaxTokenizer.parseHeaderAndBody(segment)
         let previewable = HTMLPreviewHelper.isPreviewable(language: parsed.language, body: parsed.body)
-        VStack(alignment: .leading, spacing: 8) {
-            HStack(spacing: 10) {
-                Text(swiss ? (parsed.language.map { "CODE · \($0)" } ?? "CODE") : (parsed.language ?? "代码"))
-                    .font(swiss ? TypeScale.mono(10) : .system(size: 12, weight: .medium))
-                    .foregroundStyle(swiss ? Ink.seal : Ink.ink3)
-                Spacer()
-                if previewable {
-                    Button {
-                        Haptic.tap()
-                        showHTMLPreview = true
-                    } label: {
-                        Label("预览网页", systemImage: "safari")
-                            .font(.system(size: 11.5, weight: .medium))
-                            .foregroundStyle(Ink.ink2)
-                            .padding(.horizontal, 8)
-                            .padding(.vertical, 3.5)
-                            .background(Ink.raised, in: Capsule())
-                    }
-                    .buttonStyle(.pressFeedback)
-                    .accessibilityLabel("预览网页效果")
+        let lineCount = max(1, parsed.body.components(separatedBy: .newlines).count)
+        let collapsesToArtifact = previewable || lineCount >= 18
+        let artifactTitle = HTMLPreviewHelper.extractTitle(code: parsed.body, language: parsed.language)
+        let artifact: ArtifactKind = previewable
+            ? .web(code: parsed.body, language: parsed.language, title: artifactTitle)
+            : .code(code: parsed.body, language: parsed.language, title: artifactTitle)
+
+        Group {
+            if collapsesToArtifact {
+                let langLabel = parsed.language?.uppercased() ?? (previewable ? "HTML" : "代码")
+                let subtitle = previewable
+                    ? "\(langLabel) 网页 · \(lineCount) 行 · 点开直接预览"
+                    : "\(langLabel) · \(lineCount) 行 · 点开查看与复制"
+                ArtifactCardView(
+                    title: artifactTitle,
+                    subtitle: subtitle,
+                    iconName: artifact.iconName,
+                    actionHint: previewable ? "预览" : "查看",
+                    swiss: swiss
+                ) {
+                    showArtifact = true
                 }
-                Button {
-                    UIPasteboard.general.string = parsed.body
-                    Haptic.tap()
-                    copied = true
-                    Task { @MainActor in
-                        try? await Task.sleep(nanoseconds: 1_500_000_000)
-                        copied = false
+            } else {
+                VStack(alignment: .leading, spacing: 8) {
+                    HStack(spacing: 10) {
+                        Text(swiss ? (parsed.language.map { "CODE · \($0)" } ?? "CODE") : (parsed.language ?? "代码"))
+                            .font(swiss ? TypeScale.mono(10) : .system(size: 12, weight: .medium))
+                            .foregroundStyle(swiss ? Ink.seal : Ink.ink3)
+                        Spacer()
+                        Button {
+                            UIPasteboard.general.string = parsed.body
+                            Haptic.tap()
+                            copied = true
+                            Task { @MainActor in
+                                try? await Task.sleep(nanoseconds: 1_500_000_000)
+                                copied = false
+                            }
+                        } label: {
+                            ClaudeActionGlyph(kind: copied ? .copied : .copy, size: 14, lineWidth: 1.32)
+                                .foregroundStyle(swiss ? Ink.seal : Ink.ink3)
+                        }
+                        .accessibilityLabel("复制代码")
                     }
-                } label: {
-                    Image(systemName: copied ? "checkmark" : "doc.on.doc")
-                        .foregroundStyle(swiss ? Ink.seal : Ink.ink3)
+                    if !swiss {
+                        Rectangle().fill(Ink.line).frame(height: 0.5)
+                    }
+                    ScrollView(.horizontal) {
+                        Text(MarkdownAnswer.highlightedCode(parsed.body, language: parsed.language))
+                            .font(.system(size: 13, design: .monospaced))
+                            .textSelection(.enabled)
+                    }
                 }
-                .font(.system(size: 12.5, weight: .light))
-                .accessibilityLabel("复制代码")
-            }
-            if !swiss {
-                Rectangle().fill(Ink.line).frame(height: 0.5)
-            }
-            ScrollView(.horizontal) {
-                Text(MarkdownAnswer.highlightedCode(parsed.body, language: parsed.language))
-                    .font(.system(size: 13, design: .monospaced))
-                    .textSelection(.enabled)
+                .padding(14)
+                .background(swiss ? Ink.raised : Ink.card, in: RoundedRectangle(cornerRadius: swiss ? 0 : 14, style: .continuous))
+                .overlay(RoundedRectangle(cornerRadius: swiss ? 0 : 14, style: .continuous)
+                    .stroke(Ink.line, lineWidth: swiss ? 1 : 0.8).allowsHitTesting(false))
             }
         }
-        .padding(14)
-        .background(swiss ? Ink.raised : Ink.card, in: RoundedRectangle(cornerRadius: swiss ? 0 : 14, style: .continuous))
-        .overlay(RoundedRectangle(cornerRadius: swiss ? 0 : 14, style: .continuous)
-            .stroke(Ink.line, lineWidth: swiss ? 1 : 0.8).allowsHitTesting(false))
-        .sheet(isPresented: $showHTMLPreview) {
-            HTMLPreviewSheet(code: parsed.body, language: parsed.language)
+        .sheet(isPresented: $showArtifact) {
+            ArtifactPreviewSheet(artifact: artifact)
         }
     }
 }
@@ -2909,10 +3022,9 @@ private struct MarkdownMathBlockView: View, Equatable {
                         copied = false
                     }
                 } label: {
-                    Image(systemName: copied ? "checkmark" : "doc.on.doc")
+                    ClaudeActionGlyph(kind: copied ? .copied : .copy, size: 14, lineWidth: 1.32)
                         .foregroundStyle(swiss ? Ink.seal : Ink.ink3)
                 }
-                .font(.system(size: 12.5, weight: .light))
                 .accessibilityLabel("复制公式原文")
             }
             ScrollView(.horizontal, showsIndicators: false) {

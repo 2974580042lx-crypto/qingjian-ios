@@ -224,6 +224,9 @@ struct StreamEvent: Equatable, Sendable {
     var isDone = false
     var toolCalls: [ToolCallDelta] = []
     var subscriptionItems: [JSONValue] = []
+    var webSources: [WebSource] = []
+    var toolActivity: ToolActivity? = nil
+    var generatedImageBase64: [String] = []
 }
 
 // Reads SSE events, including comments, CRLF and multi-line data fields.

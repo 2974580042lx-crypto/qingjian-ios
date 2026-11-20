@@ -145,18 +145,39 @@ struct UsageCalendarView: View {
     }
 }
 
+// Direct top-level Usage screen combining the activity calendar and full DeepSeek + ChatGPT breakdown.
+@MainActor
+struct UsageDashboardView: View {
+    @EnvironmentObject private var store: AppStore
+    var body: some View {
+        let ledger = store.enrichedUsageLedger
+        List {
+            Group {
+                Section {
+                    UsageCalendarView(ledger: ledger)
+                } header: { Text("活跃日历") } footer: {
+                    Text("按天记录所有请求：回答、猜你回复、思考翻译和项目记忆。删除对话不会改变这里的记录。")
+                }
+            }.claudeCardRow()
+        }
+        .claudeGroupedListStyle()
+        .navigationTitle("用量明细")
+        .navigationBarTitleDisplayMode(.inline)
+    }
+}
+
 // A local view of the existing daily ledger; exporting never sends a request.
 @MainActor
-private struct UsageDetailsView: View {
+struct UsageDetailsView: View {
     let ledger: UsageLedger
-    @State private var period = UsagePeriod.month
+    @State private var period = UsagePeriod.week
     @State private var now = Date()
     @State private var exportURL: URL?
     @State private var showingExport = false
     @State private var exportError: String?
 
     private enum UsagePeriod: String, CaseIterable, Identifiable {
-        case month = "本月", recent = "近30天", all = "全部"
+        case week = "近7天", month = "本月", recent = "近30天", all = "全部"
         var id: String { rawValue }
     }
 
@@ -176,6 +197,7 @@ private struct UsageDetailsView: View {
         let today = calendar.startOfDay(for: now)
         let start: Date?
         switch period {
+        case .week: start = calendar.date(byAdding: .day, value: -6, to: today)
         case .month: start = calendar.dateInterval(of: .month, for: today)?.start
         case .recent: start = calendar.date(byAdding: .day, value: -29, to: today)
         case .all: start = nil
@@ -202,37 +224,80 @@ private struct UsageDetailsView: View {
                 .pickerStyle(.segmented)
                 .accessibilityIdentifier("usage-period")
             }
-            Section("\(period.rawValue)合计") {
+
+            Section {
+                let gptReq = total.chatGPTRequests ?? 0
+                let gptFresh = total.chatGPTInputTokens ?? 0
+                let gptCached = total.chatGPTCachedTokens ?? 0
+                let gptOutput = total.chatGPTOutputTokens ?? 0
+                LabeledContent("订阅对话次数", value: "\(gptReq.formatted()) 次")
+                LabeledContent("新输入（未命中缓存）", value: "\(gptFresh.formatted()) tokens")
+                LabeledContent("缓存命中") {
+                    if let rate = total.chatGPTCacheHitRate {
+                        Text("\(gptCached.formatted()) tokens · \(Int(round(rate * 100)))%")
+                            .foregroundStyle(Ink.ink2)
+                    } else {
+                        Text("\(gptCached.formatted()) tokens")
+                            .foregroundStyle(Ink.ink2)
+                    }
+                }
+                LabeledContent("实际输出（含思考）", value: "\(gptOutput.formatted()) tokens")
+                LabeledContent("折算等效输出参考", value: "\(total.chatGPTEquivalentOutputTokens.formatted()) tokens")
+                Link("去 ChatGPT 官网查看实时周额度", destination: URL(string: "https://chatgpt.com/settings/usage")!)
+                    .font(TypeScale.ui(14.5))
+            } header: { Text("ChatGPT 订阅（\(period.rawValue)）") } footer: {
+                Text("缓存命中的算力开销通常只有普通输入的约 1 折，实际最吃额度的是输出与深度思考。「折算等效输出参考」按缓存 0.1×、新输入 0.25×、输出 1× 粗略折算，方便你直观感受聊天在周额度里占多少分量；精确剩余百分比请以官网为准。")
+            }
+            .monospacedDigit()
+
+            Section("\(period.rawValue)全平台合计") {
                 LabeledContent("总用量", value: "\(total.tokens.formatted()) tokens")
-                LabeledContent("请求数", value: "\(total.requests.formatted()) 次")
-                LabeledContent("估算花费", value: Pricing.label(total.cost))
+                LabeledContent("总请求数", value: "\(total.requests.formatted()) 次")
+                LabeledContent("DeepSeek 估算花费", value: Pricing.label(total.cost))
                 LabeledContent("有记录的日期", value: "\(records.count) 天")
             }
             .monospacedDigit()
+
             Section {
-                LabeledContent("Flash", value: "\(total.flashTokens.formatted()) tokens")
-                LabeledContent("Pro", value: "\(total.proTokens.formatted()) tokens")
+                LabeledContent("DeepSeek Flash", value: "\(total.flashTokens.formatted()) tokens")
+                LabeledContent("DeepSeek Pro", value: "\(total.proTokens.formatted()) tokens")
+                if total.chatGPTTotalTokens > 0 {
+                    LabeledContent("ChatGPT 订阅", value: "\(total.chatGPTTotalTokens.formatted()) tokens")
+                }
                 if let tokens = total.colabTokens, tokens > 0 {
                     LabeledContent("Colab · 免费", value: "\(tokens.formatted()) tokens")
                 }
-                LabeledContent("未归类", value: "\(unclassified(total).formatted()) tokens")
-            } header: { Text("模型用量") } footer: {
-                Text("未归类包含 ChatGPT 订阅、独立搜索和未记录模型的旧用量，无法据此分别计费。花费只汇总已有的人民币估算，实际扣费以服务平台为准。")
+                let other = unclassified(total)
+                if other > 0 {
+                    LabeledContent("其他 / 搜索 / 旧记录", value: "\(other.formatted()) tokens")
+                }
+            } header: { Text("按模型分布") } footer: {
+                Text("花费仅统计 DeepSeek 按量付费的估算人民币金额，实际扣费以服务商账单为准。")
             }
             .monospacedDigit()
+
             Section {
                 if records.isEmpty {
                     ContentUnavailableView("这段时间还没有记录", systemImage: "calendar", description: Text("可以切换到「全部」查看更早的用量。"))
                 } else {
                     ForEach(records) { record in
-                        VStack(alignment: .leading, spacing: 6) {
+                        VStack(alignment: .leading, spacing: 5) {
                             HStack {
                                 Text(record.key).fontWeight(.semibold)
                                 Spacer()
-                                Text(Pricing.label(record.usage.cost)).foregroundStyle(Ink.ink2)
+                                if record.usage.cost > 0 {
+                                    Text(Pricing.label(record.usage.cost)).foregroundStyle(Ink.ink2)
+                                } else if (record.usage.chatGPTRequests ?? 0) > 0 {
+                                    Text("订阅额度").font(TypeScale.tiny).foregroundStyle(Ink.ink3)
+                                }
                             }
                             Text("\(record.usage.tokens.formatted()) tokens · \(record.usage.requests.formatted()) 次请求")
                                 .font(TypeScale.caption).foregroundStyle(Ink.ink3)
+                            if (record.usage.chatGPTRequests ?? 0) > 0 {
+                                let hitText = record.usage.chatGPTCacheHitRate.map { " · 缓存 \(Int(round($0 * 100)))%" } ?? ""
+                                Text("GPT：新入 \((record.usage.chatGPTInputTokens ?? 0).formatted()) · 缓存 \((record.usage.chatGPTCachedTokens ?? 0).formatted())\(hitText) · 输出 \((record.usage.chatGPTOutputTokens ?? 0).formatted())")
+                                    .font(TypeScale.tiny).foregroundStyle(Ink.ink3)
+                            }
                         }
                         .monospacedDigit()
                         .padding(.vertical, 3)
@@ -261,14 +326,14 @@ private struct UsageDetailsView: View {
     }
 
     private func unclassified(_ usage: DayUsage) -> Int {
-        max(0, usage.tokens - usage.flashTokens - usage.proTokens - (usage.colabTokens ?? 0))
+        max(0, usage.tokens - usage.flashTokens - usage.proTokens - (usage.colabTokens ?? 0) - usage.chatGPTTotalTokens)
     }
 
     private func exportCSV() {
         let rows = records
         guard !rows.isEmpty else { return }
         let aggregate = rows.map(\.usage).reduce(DayUsage(), +)
-        var lines = ["日期,总 tokens,请求数,估算花费（CNY）,Flash tokens,Pro tokens,未归类 tokens,Colab tokens"]
+        var lines = ["日期,总 tokens,请求数,估算花费（CNY）,Flash tokens,Pro tokens,ChatGPT 新输入,ChatGPT 缓存命中,ChatGPT 输出,其他 tokens,Colab tokens"]
         lines += rows.reversed().map { csvLine($0.key, usage: $0.usage) }
         lines.append(csvLine("合计", usage: aggregate))
         do {
@@ -287,6 +352,6 @@ private struct UsageDetailsView: View {
 
     private func csvLine(_ label: String, usage: DayUsage) -> String {
         let cost = String(format: "%.6f", locale: Locale(identifier: "en_US_POSIX"), usage.cost)
-        return "\(label),\(usage.tokens),\(usage.requests),\(cost),\(usage.flashTokens),\(usage.proTokens),\(unclassified(usage)),\(usage.colabTokens ?? 0)"
+        return "\(label),\(usage.tokens),\(usage.requests),\(cost),\(usage.flashTokens),\(usage.proTokens),\(usage.chatGPTInputTokens ?? 0),\(usage.chatGPTCachedTokens ?? 0),\(usage.chatGPTOutputTokens ?? 0),\(unclassified(usage)),\(usage.colabTokens ?? 0)"
     }
 }

@@ -8,12 +8,49 @@ struct DayUsage: Codable, Equatable, Sendable {
     var proTokens = 0
     var colabTokens: Int?
     var colabRequests: Int?
+    // ChatGPT subscription breakdown (optional so legacy usage ledgers decode cleanly).
+    var chatGPTInputTokens: Int?
+    var chatGPTCachedTokens: Int?
+    var chatGPTOutputTokens: Int?
+    var chatGPTRequests: Int?
+
+    var chatGPTTotalTokens: Int {
+        (chatGPTInputTokens ?? 0) + (chatGPTCachedTokens ?? 0) + (chatGPTOutputTokens ?? 0)
+    }
+
+    var chatGPTCacheHitRate: Double? {
+        let totalPrompt = (chatGPTInputTokens ?? 0) + (chatGPTCachedTokens ?? 0)
+        guard totalPrompt > 0 else { return nil }
+        return Double(chatGPTCachedTokens ?? 0) / Double(totalPrompt)
+    }
+
+    /// Rough compute-weighted output-equivalent estimate (cached ~0.1x, fresh input ~0.25x, output 1.0x)
+    /// to help compare chat usage intuitively against Pro weekly quota pools.
+    var chatGPTEquivalentOutputTokens: Int {
+        let freshIn = Double(chatGPTInputTokens ?? 0) * 0.25
+        let cachedIn = Double(chatGPTCachedTokens ?? 0) * 0.10
+        let out = Double(chatGPTOutputTokens ?? 0)
+        return Int((freshIn + cachedIn + out).rounded())
+    }
 
     static func + (lhs: DayUsage, rhs: DayUsage) -> DayUsage {
-        DayUsage(tokens: lhs.tokens + rhs.tokens, cost: lhs.cost + rhs.cost, requests: lhs.requests + rhs.requests,
-                 flashTokens: lhs.flashTokens + rhs.flashTokens, proTokens: lhs.proTokens + rhs.proTokens,
-                 colabTokens: (lhs.colabTokens ?? 0) + (rhs.colabTokens ?? 0),
-                 colabRequests: (lhs.colabRequests ?? 0) + (rhs.colabRequests ?? 0))
+        func sumOpt(_ a: Int?, _ b: Int?) -> Int? {
+            if a == nil && b == nil { return nil }
+            return (a ?? 0) + (b ?? 0)
+        }
+        return DayUsage(
+            tokens: lhs.tokens + rhs.tokens,
+            cost: lhs.cost + rhs.cost,
+            requests: lhs.requests + rhs.requests,
+            flashTokens: lhs.flashTokens + rhs.flashTokens,
+            proTokens: lhs.proTokens + rhs.proTokens,
+            colabTokens: (lhs.colabTokens ?? 0) + (rhs.colabTokens ?? 0),
+            colabRequests: (lhs.colabRequests ?? 0) + (rhs.colabRequests ?? 0),
+            chatGPTInputTokens: sumOpt(lhs.chatGPTInputTokens, rhs.chatGPTInputTokens),
+            chatGPTCachedTokens: sumOpt(lhs.chatGPTCachedTokens, rhs.chatGPTCachedTokens),
+            chatGPTOutputTokens: sumOpt(lhs.chatGPTOutputTokens, rhs.chatGPTOutputTokens),
+            chatGPTRequests: sumOpt(lhs.chatGPTRequests, rhs.chatGPTRequests)
+        )
     }
 }
 
@@ -36,12 +73,41 @@ struct UsageLedger: Codable, Equatable, Sendable {
         if provider == .colab {
             day.colabTokens = (day.colabTokens ?? 0) + usage.totalTokens
             day.colabRequests = (day.colabRequests ?? 0) + 1
+        } else if provider == .chatGPT {
+            let cached = min(max(0, usage.cachedTokens), max(0, usage.promptTokens))
+            let freshInput = max(0, usage.promptTokens - cached)
+            day.chatGPTInputTokens = (day.chatGPTInputTokens ?? 0) + freshInput
+            day.chatGPTCachedTokens = (day.chatGPTCachedTokens ?? 0) + cached
+            day.chatGPTOutputTokens = (day.chatGPTOutputTokens ?? 0) + max(0, usage.completionTokens)
+            day.chatGPTRequests = (day.chatGPTRequests ?? 0) + 1
         }
-        if let model, provider != .colab {
+        if let model, provider != .colab, provider != .chatGPT {
             day.cost += Pricing.cost(model: model, usage: usage, at: date)
             if model == .flash { day.flashTokens += usage.totalTokens } else { day.proTokens += usage.totalTokens }
         }
         days[key] = day
+    }
+
+    /// Returns a copy enriched with historical ChatGPT subscription input/cached/output breakdowns
+    /// reconstructed from saved threads for any day that predates ChatGPT breakdown tracking.
+    func enrichedWithChatGPT(from threads: [ChatThread], calendar: Calendar = .current) -> UsageLedger {
+        let rebuilt = UsageLedger.rebuilt(from: threads, calendar: calendar)
+        var copy = self
+        for (key, rebuiltDay) in rebuilt.days where (rebuiltDay.chatGPTRequests ?? 0) > 0 {
+            var existing = copy.days[key] ?? DayUsage()
+            if (existing.chatGPTRequests ?? 0) == 0 {
+                existing.chatGPTInputTokens = rebuiltDay.chatGPTInputTokens
+                existing.chatGPTCachedTokens = rebuiltDay.chatGPTCachedTokens
+                existing.chatGPTOutputTokens = rebuiltDay.chatGPTOutputTokens
+                existing.chatGPTRequests = rebuiltDay.chatGPTRequests
+                if existing.tokens < rebuiltDay.chatGPTTotalTokens {
+                    existing.tokens = max(existing.tokens, rebuiltDay.tokens)
+                    existing.requests = max(existing.requests, rebuiltDay.requests)
+                }
+                copy.days[key] = existing
+            }
+        }
+        return copy
     }
 
     // First run of this version: count what the saved conversations already used.

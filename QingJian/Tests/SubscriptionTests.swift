@@ -160,10 +160,47 @@ final class SubscriptionTests: XCTestCase {
         XCTAssertThrowsError(try cut.result())
     }
     func testSubscriptionAnswersCountTokensButNoMoney() {
-        var message = ChatMessage(role: .assistant, content: "答", usage: TokenUsage(promptTokens: 100, completionTokens: 50))
+        var message = ChatMessage(role: .assistant, content: "答", usage: TokenUsage(promptTokens: 100, completionTokens: 50, cachedTokens: 60))
         message.provider = .chatGPT
         var thread = ChatThread(); thread.messages = [message]
         let ledger = UsageLedger.rebuilt(from: [thread])
         XCTAssertEqual(ledger.total.tokens, 150); XCTAssertEqual(ledger.total.cost, 0)
+        XCTAssertEqual(ledger.total.chatGPTInputTokens, 40)
+        XCTAssertEqual(ledger.total.chatGPTCachedTokens, 60)
+        XCTAssertEqual(ledger.total.chatGPTOutputTokens, 50)
+        XCTAssertEqual(ledger.total.chatGPTRequests, 1)
+    }
+    func testCatalogParsesDynamicReasoningLevelsAndBuiltInTools() throws {
+        let data = Data(#"{"models":[{"slug":"gpt-6-astra","display_name":"GPT-6 Astra","visibility":"list","supported_reasoning_levels":["none","minimal","low","medium","high","xhigh"],"default_reasoning_level":"medium"}]}"#.utf8)
+        let models = try SubscriptionModel.catalog(data)
+        XCTAssertEqual(models.count, 1)
+        XCTAssertEqual(models[0].availableEfforts, [.automatic, .none, .minimal, .low, .medium, .high, .xhigh])
+        let settings = AppSettings()
+        let req = ChatRequest(settings: settings, messages: [ChatMessage(role: .user, content: "画一只猫")])
+        let payload = try JSONEncoder().encode(SubscriptionRequest(request: req, model: "gpt-6-astra", effort: .xhigh, summary: true, nativeWebSearch: true, nativeImageGeneration: true))
+        let root = try XCTUnwrap(JSONSerialization.jsonObject(with: payload) as? [String: Any])
+        let tools = try XCTUnwrap(root["tools"] as? [[String: Any]])
+        XCTAssertEqual(tools.compactMap { $0["type"] as? String }, ["web_search", "image_generation"])
+        let reasoning = try XCTUnwrap(root["reasoning"] as? [String: Any])
+        XCTAssertEqual(reasoning["effort"] as? String, "xhigh")
+    }
+    func testResponsesStreamParsesWebCitationsAndGeneratedImage() throws {
+        var parser = ResponsesStreamDecoder()
+        let stream = "data: {\"type\":\"response.web_search_call.searching\",\"item_id\":\"ws_1\"}\n\n"
+            + "data: {\"type\":\"response.output_text.annotation.added\",\"annotation\":{\"type\":\"url_citation\",\"url\":\"https://example.com/a\",\"title\":\"示例页面\"}}\n\n"
+            + "data: {\"type\":\"response.output_item.done\",\"item\":{\"type\":\"image_generation_call\",\"id\":\"img_1\",\"result\":\"QUFB\"}}\n\n"
+            + "data: {\"type\":\"response.completed\",\"response\":{\"status\":\"completed\"}}\n\n"
+        var sources: [WebSource] = [], imgs: [String] = [], activities: [ToolActivity] = []
+        for b in stream.utf8 {
+            if let ev = try parser.consume(b) {
+                sources += ev.webSources
+                imgs += ev.generatedImageBase64
+                if let a = ev.toolActivity { activities.append(a) }
+            }
+        }
+        XCTAssertEqual(sources.map(\.url), ["https://example.com/a"])
+        XCTAssertEqual(imgs, ["QUFB"])
+        XCTAssertTrue(activities.contains(where: { $0.kind == "web" }))
+        XCTAssertTrue(activities.contains(where: { $0.kind == "image" && $0.status == .done }))
     }
 }

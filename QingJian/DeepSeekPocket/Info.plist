@@ -121,6 +121,8 @@
 	<true/>
 	<key>NSFaceIDUsageDescription</key>
 	<string>打开上锁的项目前，用面容 ID 确认是你本人。</string>
+	<key>NSPhotoLibraryAddUsageDescription</key>
+	<string>将对话中生成的图片保存到你的系统相册。</string>
 	<key>UIAppFonts</key>
 	<array>
 		<string>NotoSerifSC-Regular.otf</string>

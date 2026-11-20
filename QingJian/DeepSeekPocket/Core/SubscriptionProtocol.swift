@@ -18,26 +18,99 @@ enum AIProvider: String, Codable, CaseIterable, Identifiable, Sendable {
 }
 
 enum SubscriptionEffort: String, Codable, CaseIterable, Identifiable, Sendable {
-    case automatic, low, medium, high
+    case automatic, none, minimal, low, medium, high, xhigh, max
     var id: String { rawValue }
+    /// Compact label for the composer pill beside the model name.
     var title: String {
-        switch self { case .automatic: return "Auto"; case .low: return "Low"; case .medium: return "Medium"; case .high: return "High" }
+        switch self {
+        case .automatic: return "Auto"
+        case .none: return "None"
+        case .minimal: return "Min"
+        case .low: return "Low"
+        case .medium: return "Medium"
+        case .high: return "High"
+        case .xhigh: return "XHigh"
+        case .max: return "Max"
+        }
     }
+    /// Clear bilingual description matching Codex reasoning tiers.
+    var menuLabel: String {
+        switch self {
+        case .automatic: return "自动 · 模型默认 (Auto)"
+        case .none: return "不思考 · 最快 (None)"
+        case .minimal: return "极轻 · Minimal"
+        case .low: return "低 · 轻快 (Low)"
+        case .medium: return "中 · 均衡 (Medium)"
+        case .high: return "高 · 深入 (High)"
+        case .xhigh: return "超高 · 深度推理 (XHigh)"
+        case .max: return "极限 · Max"
+        }
+    }
+    static let defaultCodexTiers: [SubscriptionEffort] = [.none, .minimal, .low, .medium, .high, .xhigh]
 }
 
 struct SubscriptionModel: Codable, Equatable, Identifiable, Sendable {
     static let fallbackSlug = "gpt-5.6-sol"
     let slug: String
     let displayName: String
+    let supportedReasoningLevels: [SubscriptionEffort]?
+    let defaultReasoningLevel: SubscriptionEffort?
     var id: String { slug }
+
+    init(slug: String, displayName: String, supportedReasoningLevels: [SubscriptionEffort]? = nil, defaultReasoningLevel: SubscriptionEffort? = nil) {
+        self.slug = slug
+        self.displayName = displayName
+        self.supportedReasoningLevels = supportedReasoningLevels
+        self.defaultReasoningLevel = defaultReasoningLevel
+    }
+
+    /// Ordered reasoning tiers available for this model, always beginning with `.automatic`.
+    var availableEfforts: [SubscriptionEffort] {
+        if let levels = supportedReasoningLevels, !levels.isEmpty {
+            let ordered = SubscriptionEffort.allCases.filter { $0 != .automatic && levels.contains($0) }
+            return [.automatic] + ordered
+        }
+        return [.automatic] + SubscriptionEffort.defaultCodexTiers
+    }
+
     static func catalog(_ data: Data) throws -> [Self] {
-        struct Entry: Decodable { let slug: String; let display_name: String; let visibility: String? }
+        struct LevelEntry: Decodable {
+            let value: String
+            init(from decoder: Decoder) throws {
+                if let single = try? decoder.singleValueContainer(), let s = try? single.decode(String.self) {
+                    value = s
+                    return
+                }
+                let container = try decoder.container(keyedBy: CodingKeys.self)
+                value = (try? container.decode(String.self, forKey: .effort))
+                    ?? (try? container.decode(String.self, forKey: .level))
+                    ?? (try? container.decode(String.self, forKey: .id))
+                    ?? ""
+            }
+            private enum CodingKeys: String, CodingKey { case effort, level, id }
+        }
+        struct Entry: Decodable {
+            let slug: String
+            let display_name: String
+            let visibility: String?
+            let supported_reasoning_levels: [LevelEntry]?
+            let reasoning_levels: [LevelEntry]?
+            let default_reasoning_level: String?
+        }
         struct Catalog: Decodable { let models: [Entry] }
         let entries = try JSONDecoder().decode(Catalog.self, from: data).models
         var seen = Set<String>()
         return entries.filter { $0.visibility == "list" && seen.insert($0.slug).inserted }
             .filter { !$0.slug.isEmpty && $0.slug.count <= 200 && !$0.display_name.isEmpty }
-            .map { Self(slug: $0.slug, displayName: $0.display_name) }
+            .map { entry in
+                let rawLevels = entry.supported_reasoning_levels ?? entry.reasoning_levels
+                let parsedLevels: [SubscriptionEffort]? = rawLevels.flatMap { list in
+                    let mapped = list.compactMap { SubscriptionEffort(rawValue: $0.value.lowercased()) }
+                    return mapped.isEmpty ? nil : mapped
+                }
+                let defaultLevel = entry.default_reasoning_level.flatMap { SubscriptionEffort(rawValue: $0.lowercased()) }
+                return Self(slug: entry.slug, displayName: entry.display_name, supportedReasoningLevels: parsedLevels, defaultReasoningLevel: defaultLevel)
+            }
     }
 }
 
@@ -225,8 +298,22 @@ struct SubscriptionRequest: Encodable, Sendable {
     let store = false
     let stream = true
     let reasoning: Reasoning?
-    let tools: [Namespace]?
+    let tools: [ToolEntry]?
     let tool_choice: String?
+    enum ToolEntry: Encodable, Sendable {
+        case namespace(Namespace)
+        case builtIn(String)
+        func encode(to encoder: Encoder) throws {
+            switch self {
+            case .namespace(let ns):
+                try ns.encode(to: encoder)
+            case .builtIn(let typeName):
+                var container = encoder.container(keyedBy: CodingKeys.self)
+                try container.encode(typeName, forKey: .type)
+            }
+        }
+        private enum CodingKeys: String, CodingKey { case type }
+    }
     struct Namespace: Encodable, Sendable {
         let type = "namespace"
         let name = "study"
@@ -245,11 +332,22 @@ struct SubscriptionRequest: Encodable, Sendable {
         // "auto" asks for a readable summary of the thinking, shown in the thinking panel.
         let summary: String?
     }
-    init(request: ChatRequest, model: String, effort: SubscriptionEffort = .automatic, summary: Bool = false) {
+    init(request: ChatRequest, model: String, effort: SubscriptionEffort = .automatic, summary: Bool = false,
+         nativeWebSearch: Bool = false, nativeImageGeneration: Bool = false) {
         self.model = model
         instructions = request.messages.filter { $0.role == "system" }.map(\.content).joined(separator: "\n\n")
         input = request.messages.filter { $0.role == "user" || $0.role == "assistant" || $0.role == "tool" }.flatMap(ResponsesInput.items)
-        tools = request.tools.map { [Namespace(tools: $0.map { Function(name: $0.name, description: $0.description, parameters: $0.parameters) })] }
+        var entries: [ToolEntry] = []
+        if let specs = request.tools, !specs.isEmpty {
+            entries.append(.namespace(Namespace(tools: specs.map { Function(name: $0.name, description: $0.description, parameters: $0.parameters) })))
+        }
+        if nativeWebSearch {
+            entries.append(.builtIn("web_search"))
+        }
+        if nativeImageGeneration {
+            entries.append(.builtIn("image_generation"))
+        }
+        tools = entries.isEmpty ? nil : entries
         tool_choice = request.toolChoice
         let level = effort == .automatic ? nil : effort.rawValue
         reasoning = level == nil && !summary ? nil : Reasoning(effort: level, summary: summary ? "auto" : nil)
@@ -264,6 +362,9 @@ struct ResponsesStreamDecoder {
     private var firstLine = true
     private(set) var completed = false
     private var functionIndices: Set<Int> = []
+    // Allow large base64 image_generation_call payloads (up to 24 MiB) without triggering malformed-stream errors.
+    private static let maxEventBytes = 24 * 1024 * 1024
+
     mutating func consume(_ byte: UInt8) throws -> StreamEvent? {
         if afterCR { afterCR = false; if byte == 10 { return nil } }
         if byte == 13 || byte == 10 {
@@ -275,12 +376,12 @@ struct ResponsesStreamDecoder {
             if line.hasPrefix("data:") {
                 var value = String(line.dropFirst(5)); if value.hasPrefix(" ") { value.removeFirst() }
                 eventBytes += value.utf8.count
-                guard eventBytes <= 4 * 1024 * 1024 else { throw SubscriptionError.malformed }
+                guard eventBytes <= Self.maxEventBytes else { throw SubscriptionError.malformed }
                 dataLines.append(value)
             }
         } else {
             lineBytes.append(byte)
-            guard lineBytes.count <= 4 * 1024 * 1024 else { throw SubscriptionError.malformed }
+            guard lineBytes.count <= Self.maxEventBytes else { throw SubscriptionError.malformed }
         }
         return nil
     }
@@ -296,19 +397,83 @@ struct ResponsesStreamDecoder {
         guard let object = try JSONSerialization.jsonObject(with: data) as? [String: Any], let type = object["type"] as? String else { throw SubscriptionError.malformed }
         switch type {
         case "response.output_item.added":
-            guard let item = object["item"] as? [String: Any], item["type"] as? String == "function_call" else { return nil }
-            guard let index = object["output_index"] as? Int, let id = item["call_id"] as? String,
-                  let name = item["name"] as? String, item["namespace"] as? String == "study",
-                  !functionIndices.contains(index) else { throw SubscriptionError.malformed }
-            functionIndices.insert(index)
-            return StreamEvent(toolCalls: [.init(index: index, id: id, name: name, arguments: item["arguments"] as? String ?? "")])
+            guard let item = object["item"] as? [String: Any], let itemType = item["type"] as? String else { return nil }
+            if itemType == "function_call" {
+                guard let index = object["output_index"] as? Int, let id = item["call_id"] as? String,
+                      let name = item["name"] as? String, item["namespace"] as? String == "study",
+                      !functionIndices.contains(index) else { throw SubscriptionError.malformed }
+                functionIndices.insert(index)
+                return StreamEvent(toolCalls: [.init(index: index, id: id, name: name, arguments: item["arguments"] as? String ?? "")])
+            }
+            if itemType == "web_search_call" {
+                let id = (item["id"] as? String) ?? "openai-web-\(object["output_index"] as? Int ?? 0)"
+                return StreamEvent(toolActivity: ToolActivity(id: id, title: "正在通过 ChatGPT 原生联网搜索…", status: .running, detail: nil, kind: "web"))
+            }
+            if itemType == "image_generation_call" {
+                let id = (item["id"] as? String) ?? "openai-img-\(object["output_index"] as? Int ?? 0)"
+                return StreamEvent(toolActivity: ToolActivity(id: id, title: "正在通过 ChatGPT 生成图片…", status: .running, detail: nil, kind: "image"))
+            }
+            return nil
+        case "response.web_search_call.in_progress", "response.web_search_call.searching":
+            let id = (object["item_id"] as? String) ?? "openai-web-\(object["output_index"] as? Int ?? 0)"
+            return StreamEvent(toolActivity: ToolActivity(id: id, title: "正在通过 ChatGPT 原生联网搜索…", status: .running, detail: nil, kind: "web"))
+        case "response.web_search_call.completed":
+            let id = (object["item_id"] as? String) ?? "openai-web-\(object["output_index"] as? Int ?? 0)"
+            return StreamEvent(toolActivity: ToolActivity(id: id, title: "ChatGPT 原生联网搜索完成", status: .done, detail: nil, kind: "web"))
+        case "response.image_generation_call.in_progress", "response.image_generation_call.generating":
+            let id = (object["item_id"] as? String) ?? "openai-img-\(object["output_index"] as? Int ?? 0)"
+            return StreamEvent(toolActivity: ToolActivity(id: id, title: "正在绘制图片…", status: .running, detail: nil, kind: "image"))
+        case "response.image_generation_call.completed":
+            let id = (object["item_id"] as? String) ?? "openai-img-\(object["output_index"] as? Int ?? 0)"
+            return StreamEvent(toolActivity: ToolActivity(id: id, title: "图片已生成（临时预览，可点击存相册）", status: .done, detail: nil, kind: "image"))
+        case "response.output_text.annotation.added":
+            guard let ann = object["annotation"] as? [String: Any],
+                  let source = Self.parseCitation(ann) else { return nil }
+            return StreamEvent(webSources: [source])
         case "response.function_call_arguments.delta":
             guard let index = object["output_index"] as? Int, functionIndices.contains(index), let delta = object["delta"] as? String else { throw SubscriptionError.malformed }
             return StreamEvent(toolCalls: [.init(index: index, arguments: delta)])
         case "response.output_item.done":
-            guard let item = object["item"] as? [String: Any], item["type"] as? String == "reasoning" else { return nil }
-            let value = try JSONDecoder().decode(JSONValue.self, from: JSONSerialization.data(withJSONObject: item))
-            return StreamEvent(subscriptionItems: [value])
+            guard let item = object["item"] as? [String: Any], let itemType = item["type"] as? String else { return nil }
+            if itemType == "reasoning" {
+                let value = try JSONDecoder().decode(JSONValue.self, from: JSONSerialization.data(withJSONObject: item))
+                return StreamEvent(subscriptionItems: [value])
+            }
+            if itemType == "web_search_call" {
+                let id = (item["id"] as? String) ?? "openai-web-\(object["output_index"] as? Int ?? 0)"
+                let action = item["action"] as? [String: Any]
+                let query = (action?["query"] as? String)?.trimmingCharacters(in: .whitespacesAndNewlines)
+                let title = (query.map { !$0.isEmpty } == true) ? "ChatGPT 联网搜索：\(query!)" : "ChatGPT 原生联网搜索完成"
+                var sources: [WebSource] = []
+                if let rawSources = action?["sources"] as? [[String: Any]] {
+                    for entry in rawSources {
+                        if let src = Self.parseCitation(entry) { sources.append(src) }
+                    }
+                }
+                return StreamEvent(webSources: sources, toolActivity: ToolActivity(id: id, title: title, status: .done, detail: nil, kind: "web"))
+            }
+            if itemType == "image_generation_call" {
+                let id = (item["id"] as? String) ?? "openai-img-\(object["output_index"] as? Int ?? 0)"
+                let b64 = (item["result"] as? String)?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+                let images = b64.isEmpty ? [] : [b64]
+                let status: ToolActivity.Status = images.isEmpty ? .failed : .done
+                let title = images.isEmpty ? "未能获取生成的图片" : "图片已生成（临时预览，可点击存相册）"
+                return StreamEvent(toolActivity: ToolActivity(id: id, title: title, status: status, detail: nil, kind: "image"), generatedImageBase64: images)
+            }
+            if itemType == "message" {
+                var sources: [WebSource] = []
+                if let parts = item["content"] as? [[String: Any]] {
+                    for part in parts {
+                        if let anns = part["annotations"] as? [[String: Any]] {
+                            for ann in anns {
+                                if let src = Self.parseCitation(ann) { sources.append(src) }
+                            }
+                        }
+                    }
+                }
+                return sources.isEmpty ? nil : StreamEvent(webSources: sources)
+            }
+            return nil
         case "response.output_text.delta": return StreamEvent(content: object["delta"] as? String ?? "")
         case "response.reasoning_summary_text.delta": return StreamEvent(reasoning: object["delta"] as? String ?? "")
         // Each summary part is its own paragraph in the thinking panel.
@@ -331,5 +496,15 @@ struct ResponsesStreamDecoder {
             return StreamEvent(usage: usage, finishReason: "stop", isDone: true)
         default: return nil
         }
+    }
+
+    private static func parseCitation(_ object: [String: Any]) -> WebSource? {
+        if let type = object["type"] as? String, type != "url_citation", type != "url" { return nil }
+        guard let rawURL = object["url"] as? String, rawURL.count <= 4096,
+              let url = URL(string: rawURL), let host = url.host, !host.isEmpty,
+              ["http", "https"].contains(url.scheme?.lowercased() ?? "") else { return nil }
+        let title = ((object["title"] as? String)?.trimmingCharacters(in: .whitespacesAndNewlines)).flatMap { $0.isEmpty ? nil : $0 } ?? host
+        let snippet = ((object["snippet"] as? String) ?? (object["description"] as? String) ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
+        return WebSource(title: String(title.prefix(200)), url: rawURL, snippet: String(snippet.prefix(500)))
     }
 }

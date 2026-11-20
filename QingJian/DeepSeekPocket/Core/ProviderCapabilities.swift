@@ -25,7 +25,7 @@ struct ProviderCapabilities: Equatable, Sendable {
                 provider: .deepSeek,
                 supportsVision: true,
                 visionNote: "经 Flash 识图桥接",
-                supportsWebSearch: true,
+                supportsWebSearch: WebSearchRouting.channel(for: .deepSeek) != .directLinksOnly,
                 supportsThinking: true,
                 supportsTools: true
             )
@@ -34,16 +34,16 @@ struct ProviderCapabilities: Equatable, Sendable {
                 provider: .chatGPT,
                 supportsVision: true,
                 visionNote: "原生支持",
-                supportsWebSearch: false,
+                supportsWebSearch: WebSearchRouting.channel(for: .chatGPT) != .directLinksOnly,
                 supportsThinking: true,
-                supportsTools: false
+                supportsTools: true
             )
         case .colab:
             return ProviderCapabilities(
                 provider: .colab,
                 supportsVision: false,
                 visionNote: "取决于部署模型",
-                supportsWebSearch: false,
+                supportsWebSearch: WebSearchRouting.channel(for: .colab) != .directLinksOnly,
                 supportsThinking: true,
                 supportsTools: false
             )
@@ -52,7 +52,7 @@ struct ProviderCapabilities: Equatable, Sendable {
                 provider: .compatible,
                 supportsVision: false,
                 visionNote: "取决于所选模型",
-                supportsWebSearch: false,
+                supportsWebSearch: WebSearchRouting.channel(for: .compatible) != .directLinksOnly,
                 supportsThinking: true,
                 supportsTools: false
             )

@@ -1,5 +1,66 @@
 import Foundation
 
+/// Per-provider web search transport selection so ChatGPT Subscription uses OpenAI's
+/// native web_search without depending on DeepSeek balance, while every provider remains configurable.
+enum WebSearchChannel: String, Codable, CaseIterable, Identifiable, Sendable {
+    case nativeChatGPT
+    case deepSeek
+    case directLinksOnly
+
+    var id: String { rawValue }
+    var title: String {
+        switch self {
+        case .nativeChatGPT: return "ChatGPT 原生联网"
+        case .deepSeek: return "DeepSeek 搜索"
+        case .directLinksOnly: return "仅直读链接"
+        }
+    }
+    var detail: String {
+        switch self {
+        case .nativeChatGPT: return "直接通过已登录的 ChatGPT 订阅联网查资料，不消耗 DeepSeek 余额"
+        case .deepSeek: return "走 DeepSeek 官方多轮深度搜索与网页抓取（消耗 DeepSeek 余额）"
+        case .directLinksOnly: return "不调用搜索引擎；你发送具体网页或 GitHub 链接时仍免费直读正文"
+        }
+    }
+}
+
+enum WebSearchRouting {
+    private static func key(for provider: AIProvider) -> String {
+        "sermo.web.channel.\(provider.rawValue)"
+    }
+
+    static func defaultChannel(for provider: AIProvider) -> WebSearchChannel {
+        switch provider {
+        case .chatGPT: return .nativeChatGPT
+        case .deepSeek: return .deepSeek
+        case .colab, .compatible: return .directLinksOnly
+        }
+    }
+
+    static func availableChannels(for provider: AIProvider) -> [WebSearchChannel] {
+        switch provider {
+        case .chatGPT:
+            return [.nativeChatGPT, .deepSeek, .directLinksOnly]
+        case .deepSeek:
+            return [.deepSeek, .nativeChatGPT, .directLinksOnly]
+        case .colab, .compatible:
+            return [.directLinksOnly, .nativeChatGPT, .deepSeek]
+        }
+    }
+
+    static func channel(for provider: AIProvider) -> WebSearchChannel {
+        if let raw = UserDefaults.standard.string(forKey: key(for: provider)),
+           let parsed = WebSearchChannel(rawValue: raw) {
+            return parsed
+        }
+        return defaultChannel(for: provider)
+    }
+
+    static func set(_ channel: WebSearchChannel, for provider: AIProvider) {
+        UserDefaults.standard.set(channel.rawValue, forKey: key(for: provider))
+    }
+}
+
 struct WebSource: Codable, Equatable, Identifiable, Sendable {
     let title: String
     let url: String
