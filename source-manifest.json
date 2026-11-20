@@ -92,7 +92,7 @@
   "QingJian/DeepSeekPocket/Services/ColabStore.swift": "8a9e5334b11a8340c35108d60b475bf1bd56fa54242c60a90f3771720f1cbc6c",
   "QingJian/DeepSeekPocket/Services/CompatibleEndpointStore.swift": "1bfef6d9814876d0c6e181d709b8fb5844291dd894994fe5ac38b7b57fc64ea7",
   "QingJian/DeepSeekPocket/Services/DeepSeekClient.swift": "f60ac6ce78d613a8fd6d741e6d3c1319dc6c60b769953f841456b52da7851df9",
-  "QingJian/DeepSeekPocket/Services/DriveFullBackupController.swift": "b3ac349e750e056d697192118f4e0074e51478d02e5233ff362dc68728a9cf01",
+  "QingJian/DeepSeekPocket/Services/DriveFullBackupController.swift": "94504c1b984ae985d375caf8d3bac79820f8f1214ee2d47a0abf04d0f4e50410",
   "QingJian/DeepSeekPocket/Services/FontLibrary.swift": "0ae3beb7e53c2bf0d0f23ea5b6746fd69553cb84ccb2878896390d854d7806b5",
   "QingJian/DeepSeekPocket/Services/GitHubClient.swift": "9827b46815dbf5c8e0338c59bcc882edf7ae1bd39e10401775d864ccf55a7f55",
   "QingJian/DeepSeekPocket/Services/GoogleDrive.swift": "eb082919a6f9c10bf6fbf89cf80245c806c8e2c22bb1497a7e1ec3d024c8bf11",

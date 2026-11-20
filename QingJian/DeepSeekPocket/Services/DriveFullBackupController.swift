@@ -159,7 +159,7 @@ final class DriveFullBackupController: ObservableObject {
                decoded.backupID.uuidString == state.pendingUpload?.backupID {
                 data = existingBytes
                 payload = decoded
-                fingerprint = state.pendingFingerprint ?? (try UnifiedBackupCodec.contentFingerprint(of: decoded))
+                fingerprint = try state.pendingFingerprint ?? UnifiedBackupCodec.contentFingerprint(of: decoded)
             } else {
                 let captured = try await app.captureUnifiedBackupData(imageBudgetBytes: UnifiedBackupCodec.maximumImageBudgetBytes)
                 try Task.checkCancellation()
