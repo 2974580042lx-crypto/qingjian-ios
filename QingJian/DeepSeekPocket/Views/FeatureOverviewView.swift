@@ -61,9 +61,7 @@ struct FeatureOverviewView: View {
                 }
             }
         }
-        .scrollContentBackground(.hidden)
-        .background(AppBackground())
-        .listRowBackground(Color.clear)
+        .claudeGroupedListStyle()
         .navigationTitle("功能一览")
         .navigationBarTitleDisplayMode(.inline)
         .searchable(text: $search, placement: .navigationBarDrawer(displayMode: .always), prompt: "搜索功能、入口或用法")

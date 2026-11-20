@@ -44,11 +44,7 @@ struct OperationManualView: View {
                 }
             }
         }
-        .font(TypeScale.body)
-        .scrollContentBackground(.hidden)
-        .background(AppBackground())
-        .foregroundStyle(Ink.ink)
-        .tint(Ink.seal)
+        .claudeGroupedListStyle()
         .navigationTitle("内置文档规范")
         .navigationBarTitleDisplayMode(.inline)
         .toolbar {
@@ -118,6 +114,7 @@ struct OperationManualView: View {
                 set: { store.setManualChapterEnabled($0, id: chapter.id) }
             ))
             .labelsHidden()
+            .tint(Ink.seal)
         }
         .padding(.vertical, 3)
     }
@@ -188,7 +185,7 @@ struct OperationManualChapterEditor: View {
                         Text(item.title).tag(item)
                     }
                 }
-                Toggle("启用此章节", isOn: $isEnabled)
+                Toggle("启用此章节", isOn: $isEnabled).tint(Ink.seal)
             } header: {
                 Text("基本信息")
             } footer: {
@@ -284,23 +281,20 @@ struct OperationManualChapterEditor: View {
                 }
             }
         }
-        .font(TypeScale.body)
-        .scrollContentBackground(.hidden)
-        .background(AppBackground())
-        .foregroundStyle(Ink.ink)
-        .tint(Ink.seal)
+        .claudeGroupedFormStyle()
         .navigationTitle(isNew ? "新建规范章节" : "编辑规范章节")
         .navigationBarTitleDisplayMode(.inline)
         .toolbar {
             if isNew {
-                ToolbarItem(placement: .cancellationAction) {
-                    Button("取消") { dismiss() }
+                ToolbarItem(placement: .topBarLeading) {
+                    ClaudeSheetCloseButton(label: "取消") { dismiss() }
                 }
             }
             ToolbarItem(placement: .confirmationAction) {
                 Button("保存") {
                     save()
                 }
+                .fontWeight(.semibold)
                 .disabled(!hasChanges && !isNew)
             }
         }

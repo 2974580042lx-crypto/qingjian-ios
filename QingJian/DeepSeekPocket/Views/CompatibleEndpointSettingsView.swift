@@ -72,6 +72,7 @@ struct CompatibleEndpointSettingsView: View {
                 }
             }
         }
+        .claudeGroupedFormStyle()
         .navigationTitle("其他模型（兼容端点）")
         .navigationBarTitleDisplayMode(.inline)
         .toolbar {
@@ -84,6 +85,7 @@ struct CompatibleEndpointSettingsView: View {
                         compatible.issue = error.localizedDescription
                     }
                 }
+                .fontWeight(.semibold)
             }
         }
         .onAppear {

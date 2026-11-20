@@ -52,20 +52,19 @@ struct ColabSettingsView: View {
                 } else { Text("尚未从 Drive 更新").foregroundStyle(Ink.ink3) }
             } footer: { Text("自动读取 Google Drive 中的 /EasyColab/endpoint.json。API Key 只保存在本机钥匙串，聊天备份不包含密钥。") }
             Section {
-                Toggle("思考", isOn: $options.thinking)
+                Toggle("思考", isOn: $options.thinking).tint(Ink.seal)
                 Picker("最大上下文", selection: $options.context) {
                     ForEach([4096, 8192, 16384, 32768, 65536, 131072, 262144], id: \.self) { value in
                         Text("\(value) Tokens").tag(value)
                     }
                 }
-                Toggle("工具调用（实验性）", isOn: $options.tools)
+                Toggle("工具调用（实验性）", isOn: $options.tools).tint(Ink.seal)
             } header: { Text("回答方式") } footer: { Text("上下文应与 llama-server 的配置一致。开启工具后，还需要启用项目里的相应 GitHub、Drive 工具。") }
             if let issue = colab.issue {
                 Section { Text(issue).font(TypeScale.caption).foregroundStyle(Ink.ink3) }
             }
         }
-        .font(TypeScale.body).scrollContentBackground(.hidden).background(AppBackground())
-        .listRowSeparatorTint(Ink.line).foregroundStyle(Ink.ink).tint(Ink.ink)
+        .claudeGroupedFormStyle()
         .navigationTitle("Colab").navigationBarTitleDisplayMode(.inline)
         .alert("从 Drive 刷新失败", isPresented: $showRefreshError) {
             Button("好", role: .cancel) { }

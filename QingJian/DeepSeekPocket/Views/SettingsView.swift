@@ -23,76 +23,105 @@ struct SettingsView: View {
     @State private var saved = false
     @State private var loadedSettings = false
     @State private var showProfile = ProcessInfo.processInfo.arguments.contains("--preview-profile")
+    @State private var showAbout = false
     var body: some View {
         NavigationStack {
             Form {
                 Section {
                     Button { showProfile = true } label: {
-                    HStack(spacing: 14) {
-                        ProfileAvatar(image: profile.avatar)
-                        VStack(alignment: .leading, spacing: 3) {
-                            Text(profile.name).font(TypeScale.serif(20).weight(.semibold))
-                            Text(profile.handle.isEmpty ? "编辑个人资料" : "ID：\(profile.handle)").font(TypeScale.caption).foregroundStyle(Ink.ink3)
+                        HStack(spacing: 14) {
+                            ProfileAvatar(image: profile.avatar, size: 46, initial: profile.name.first.map(String.init))
+                            VStack(alignment: .leading, spacing: 2) {
+                                Text(profile.name).font(TypeScale.ui(16.5, weight: .semibold)).foregroundStyle(Ink.ink)
+                                Text(profile.handle.isEmpty ? "编辑个人资料" : "ID：\(profile.handle)")
+                                    .font(TypeScale.ui(13)).foregroundStyle(Ink.ink3)
+                            }
+                            Spacer()
+                            Image(systemName: "chevron.right").font(.system(size: 12, weight: .medium)).foregroundStyle(Ink.ink3.opacity(0.65))
                         }
-                        Spacer()
-                        Image(systemName: "chevron.right").font(.system(size: 12)).foregroundStyle(Ink.ink3)
-                    }.padding(.vertical, 6)
-                    }.buttonStyle(.plain)
-                }.listRowBackground(Color.clear)
-                Section {
-                    NavigationLink { PersonalizationView() } label: { Label("个性化", systemImage: "paintpalette") }
-                        .accessibilityIdentifier("settings-personalization")
-                    NavigationLink { chatPage } label: { Label("聊天与指令", systemImage: "text.bubble") }
+                        .padding(.vertical, 4)
+                        .contentShape(Rectangle())
+                    }
+                    .buttonStyle(.plain)
                 }
+                .claudeCardRow()
+
+                Section {
+                    NavigationLink { PersonalizationView() } label: {
+                        settingsRow("个性化", symbol: "paintpalette")
+                    }
+                    .accessibilityIdentifier("settings-personalization")
+                    NavigationLink { chatPage } label: {
+                        settingsRow("聊天与指令", symbol: "bubble.left.and.text.bubble.right")
+                    }
+                } header: { Text("外观与对话") }
+                .claudeCardRow()
+
                 Section {
                     NavigationLink { deepSeekPage } label: {
-                        HStack {
-                            Label("DeepSeek", systemImage: "key")
+                        HStack(spacing: 12) {
+                            ClaudeIconBadge(systemName: "key")
+                            Text("DeepSeek")
                             Spacer()
-                            Text(draftKey.isEmpty ? "未填写" : "已填写 Key").font(TypeScale.caption).foregroundStyle(Ink.ink3)
+                            Text(draftKey.isEmpty ? "未填写" : "已填写 Key").font(TypeScale.ui(13.5)).foregroundStyle(Ink.ink3)
                         }
                     }
-                    NavigationLink { ColabSettingsView(colab: store.colab) } label: { Label("Colab", systemImage: "cloud") }
-                    NavigationLink { CompatibleEndpointSettingsView(compatible: store.compatible) } label: { Label("其他模型（兼容端点）", systemImage: "server.rack") }
-                    NavigationLink { chatGPTPage } label: { Label("ChatGPT 订阅与声音", systemImage: "person.crop.circle.badge.checkmark") }
-                    Picker("默认服务", selection: Binding(get: { draftSettings.selectedProvider }, set: { draftSettings.provider = $0 })) {
-                        ForEach(AIProvider.allCases) { Text($0.title).tag($0) }
+                    NavigationLink { ColabSettingsView(colab: store.colab) } label: {
+                        settingsRow("Colab", symbol: "cloud")
+                    }
+                    NavigationLink { CompatibleEndpointSettingsView(compatible: store.compatible) } label: {
+                        settingsRow("其他模型（兼容端点）", symbol: "server.rack")
+                    }
+                    NavigationLink { chatGPTPage } label: {
+                        settingsRow("ChatGPT 订阅与声音", symbol: "waveform")
+                    }
+                    HStack(spacing: 12) {
+                        ClaudeIconBadge(systemName: "slider.horizontal.3")
+                        Picker("默认服务", selection: Binding(
+                            get: { store.settings.selectedProvider },
+                            set: { newValue in
+                                draftSettings.provider = newValue
+                                _ = store.saveDefaultProvider(newValue)
+                            }
+                        )) {
+                            ForEach(AIProvider.allCases) { Text($0.title).tag($0) }
+                        }
                     }
                 } header: { Text("模型与服务") } footer: {
-                    Text("不在项目里的对话用这里选的服务。项目各用各的，在项目「⋯ → 服务」里改。")
+                    Text("不在项目里的对话用这里选的服务，切换后立即生效。项目各用各的，在项目「⋯ → 服务」里改。")
                 }
-                Section {
-                    NavigationLink { connectionsPage } label: { Label("授权与连接", systemImage: "link") }
-                    NavigationLink { dataPage } label: { Label("用量与备份", systemImage: "chart.bar") }
-                }
-                Section {
-                    NavigationLink { FeatureOverviewView() } label: { Label("功能一览", systemImage: "list.bullet.rectangle") }
-                        .accessibilityIdentifier("feature-overview")
-                    NavigationLink { aboutPage } label: {
-                        HStack { Label("关于 Sermo", systemImage: "info.circle"); Spacer(); Text(installedVersion).font(TypeScale.caption).foregroundStyle(Ink.ink3) }
-                    }
-                }
-            }
-            .font(TypeScale.body)
-            .scrollContentBackground(.hidden)
-            .background(AppBackground())
-            .listRowBackground(Color.clear)
-            .listRowSeparatorTint(Ink.line)
-            .foregroundStyle(Ink.ink)
-            .tint(Ink.ink)
-            .navigationTitle("设置")
-            .navigationBarTitleDisplayMode(.large)
+                .claudeCardRow()
 
+                Section {
+                    NavigationLink { connectionsPage } label: {
+                        settingsRow("授权与连接", symbol: "link")
+                    }
+                    NavigationLink { dataPage } label: {
+                        settingsRow("用量与备份", symbol: "chart.bar")
+                    }
+                    NavigationLink { FeatureOverviewView() } label: {
+                        settingsRow("功能一览", symbol: "book")
+                    }
+                    .accessibilityIdentifier("feature-overview")
+                } header: { Text("应用与数据") }
+                .claudeCardRow()
+            }
+            .claudeGroupedFormStyle()
+            .navigationTitle("设置")
+            .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 if !embedded {
-                    ToolbarItem(placement: .topBarLeading) { Button("取消") { dismiss() } }
+                    ToolbarItem(placement: .topBarLeading) {
+                        ClaudeSheetCloseButton(label: "关闭") { dismiss() }
+                    }
                 }
                 ToolbarItem(placement: .topBarTrailing) {
-                    Button(saved ? "已保存" : "保存") {
-                        if store.saveSettings(draftSettings, key: draftKey) {
-                            if embedded { saved = true } else { dismiss() }
-                        }
-                    }.fontWeight(.semibold)
+                    Button { showAbout = true } label: {
+                        Image(systemName: "info")
+                            .font(.system(size: 14, weight: .medium))
+                            .foregroundStyle(Ink.ink)
+                    }
+                    .accessibilityLabel("关于 Sermo")
                 }
             }
             .onAppear {
@@ -105,6 +134,17 @@ struct SettingsView: View {
             .onChange(of: draftSettings) { _, _ in saved = false }
             .onDisappear { resetConnectionCheck() }
             .sheet(isPresented: $showProfile) { ProfileEditor() }
+            .sheet(isPresented: $showAbout) {
+                NavigationStack {
+                    aboutPage
+                        .toolbar {
+                            ToolbarItem(placement: .topBarLeading) {
+                                ClaudeSheetCloseButton(label: "关闭") { showAbout = false }
+                            }
+                        }
+                }
+                .tint(Ink.ink)
+            }
             .alert("暂时没有完成", isPresented: Binding(get: { store.errorMessage != nil }, set: { if !$0 { store.errorMessage = nil } })) {
                 Button("知道了") { store.errorMessage = nil }
             } message: { Text(store.errorMessage ?? "") }
@@ -112,18 +152,21 @@ struct SettingsView: View {
                 Button("完成") { store.noticeMessage = nil }
             } message: { Text(store.noticeMessage ?? "") }
         }
+        .tint(Ink.ink)
+    }
+
+    private func settingsRow(_ title: String, symbol: String) -> some View {
+        HStack(spacing: 12) {
+            ClaudeIconBadge(systemName: symbol)
+            Text(title)
+        }
     }
 
     // MARK: Sub-pages. Each keeps the same look; pages with edits to save carry 保存.
 
     private func page<Content: View>(_ title: String, saves: Bool = false, @ViewBuilder _ content: () -> Content) -> some View {
         Form { content() }
-            .font(TypeScale.body)
-            .scrollContentBackground(.hidden)
-            .background(AppBackground())
-            .listRowSeparatorTint(Ink.line)
-            .foregroundStyle(Ink.ink)
-            .tint(Ink.ink)
+            .claudeGroupedFormStyle()
             .navigationTitle(title)
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
@@ -184,7 +227,7 @@ struct SettingsView: View {
                         Picker("模型", selection: $draftSettings.model) {
                             ForEach(DeepSeekModel.allCases) { model in Text(model.title).tag(model) }
                         }
-                        Toggle("深度思考", isOn: $draftSettings.thinkingEnabled)
+                        Toggle("深度思考", isOn: $draftSettings.thinkingEnabled).tint(Ink.seal)
                         if draftSettings.thinkingEnabled {
                             Picker("思考程度", selection: $draftSettings.effort) {
                                 ForEach(ThinkingEffort.allCases) { effort in Text(effort.title).tag(effort) }
@@ -227,7 +270,7 @@ struct SettingsView: View {
                             ForEach(AuxiliaryProviderPolicy.allCases) { Text($0.title).tag($0) }
                         }
                         Toggle("猜你回复", isOn: Binding(get: { draftSettings.shouldSuggestReplies },
-                            set: { draftSettings.replySuggestionsEnabled = $0 }))
+                            set: { draftSettings.replySuggestionsEnabled = $0 })).tint(Ink.seal)
                     } header: { Text("回复建议") } footer: {
                         Text("回答完成后，生成 1～3 条回复草稿。点选后可在输入框修改，再自己发送。使用 V4 Pro 关闭思考的额外短请求，已保存建议的用量计入花费；只参考当前对话。")
                     }
@@ -428,6 +471,7 @@ struct OpenAISpeechSettings: View {
                 catch { issue = error.localizedDescription }
             }
             Toggle("DeepSeek 回复后自动朗读", isOn: $autoPlay)
+                .tint(Ink.seal)
                 .disabled(!speech.hasKey)
             Picker("声音", selection: $voice) {
                 ForEach(OpenAISpeech.voices, id: \.self) { Text($0.capitalized).tag($0) }
@@ -469,8 +513,8 @@ struct SpeechPlaybackControl: View {
             if speech.isActive(messageID) { speech.stop() }
             else { speech.speak(text, messageID: messageID) }
         } label: {
-            Image(systemName: speech.isActive(messageID) ? "stop.circle" : "speaker.wave.2")
-                .frame(minWidth: 24, minHeight: 32)
+            Image(systemName: speech.isActive(messageID) ? "stop" : "play")
+                .frame(minWidth: 22, minHeight: 28)
         }
         .buttonStyle(.plain)
         .accessibilityLabel(speech.isActive(messageID) ? "停止朗读" : "用 GPT 声音朗读")
@@ -540,8 +584,7 @@ struct SystemPromptLibraryView: View {
                 Text(issue).font(TypeScale.label).foregroundStyle(.red)
             }
         }
-        .font(TypeScale.body).scrollContentBackground(.hidden).background(AppBackground())
-        .foregroundStyle(Ink.ink).tint(Ink.seal)
+        .claudeGroupedListStyle()
         .navigationTitle("系统指令库").navigationBarTitleDisplayMode(.inline)
         .sheet(item: $editing) { preset in
             SystemPromptPresetEditor(preset: preset).environmentObject(store)
@@ -598,11 +641,11 @@ private struct SystemPromptPresetEditor: View {
                 if let validation { Text(validation).font(TypeScale.label).foregroundStyle(Ink.ink3) }
                 if let issue { Text(issue).font(TypeScale.label).foregroundStyle(.red) }
             }
-            .font(TypeScale.body).scrollContentBackground(.hidden).background(AppBackground())
+            .claudeGroupedFormStyle()
             .navigationTitle(preset.name.isEmpty ? "新建系统指令" : "编辑系统指令")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
-                ToolbarItem(placement: .cancellationAction) { Button("取消") { dismiss() } }
+                ToolbarItem(placement: .topBarLeading) { ClaudeSheetCloseButton(label: "取消") { dismiss() } }
                 ToolbarItem(placement: .confirmationAction) {
                     Button("保存") {
                         guard validation == nil else { return }
@@ -610,11 +653,11 @@ private struct SystemPromptPresetEditor: View {
                         next.name = cleanName; next.content = content; next.updatedAt = Date()
                         if store.upsertSystemPromptPreset(next) { dismiss() }
                         else { issue = store.errorMessage ?? "指令没有保存成功，请稍后重试。" }
-                    }.disabled(validation != nil || (!changed && store.systemPromptPresets.contains(where: { $0.id == preset.id })))
+                    }.fontWeight(.semibold).disabled(validation != nil || (!changed && store.systemPromptPresets.contains(where: { $0.id == preset.id })))
                 }
             }
         }
-        .tint(Ink.seal).interactiveDismissDisabled(changed)
+        .tint(Ink.ink).interactiveDismissDisabled(changed)
     }
 }
 
@@ -681,11 +724,11 @@ struct SystemPromptPickerSheet: View {
                 }
                 if let issue { Text(issue).font(TypeScale.label).foregroundStyle(.red) }
             }
-            .font(TypeScale.body).scrollContentBackground(.hidden).background(AppBackground())
-            .foregroundStyle(Ink.ink).tint(Ink.seal)
+            .claudeGroupedListStyle()
             .navigationTitle("选择系统指令").navigationBarTitleDisplayMode(.inline)
-            .toolbar { ToolbarItem(placement: .topBarTrailing) { Button("完成") { dismiss() } } }
+            .toolbar { ToolbarItem(placement: .topBarLeading) { ClaudeSheetCloseButton(label: "完成") { dismiss() } } }
         }
+        .tint(Ink.ink)
     }
     private func currentSection(_ thread: ChatThread) -> some View {
         Section {
@@ -813,11 +856,7 @@ struct LocalDataStatusView: View {
                 }
             } header: { Text("Documents/自动备份（最近 \(autoBackups.count) 份）") }
         }
-        .font(TypeScale.body)
-        .scrollContentBackground(.hidden)
-        .background(AppBackground())
-        .foregroundStyle(Ink.ink)
-        .tint(Ink.seal)
+        .claudeGroupedListStyle()
         .navigationTitle("本机数据状态")
         .navigationBarTitleDisplayMode(.inline)
         .onAppear(perform: reloadLists)
@@ -908,16 +947,12 @@ struct UnifiedRestorePreviewSheet: View {
                     Text("无论选择哪种方式，恢复开始前都会先把本机当前记录另存一份到「Safety 保护快照」，确保不会丢失现有数据。")
                 }
             }
-            .font(TypeScale.body)
-            .scrollContentBackground(.hidden)
-            .background(AppBackground())
-            .foregroundStyle(Ink.ink)
-            .tint(Ink.seal)
+            .claudeGroupedFormStyle()
             .navigationTitle("核对备份内容")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
-                ToolbarItem(placement: .cancellationAction) {
-                    Button("取消") {
+                ToolbarItem(placement: .topBarLeading) {
+                    ClaudeSheetCloseButton(label: "取消") {
                         store.unifiedRestorePreview = nil
                         dismiss()
                     }

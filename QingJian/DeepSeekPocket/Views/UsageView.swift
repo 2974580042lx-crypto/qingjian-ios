@@ -246,12 +246,7 @@ private struct UsageDetailsView: View {
                     .accessibilityIdentifier("usage-export-csv")
             }
         }
-        .font(TypeScale.body)
-        .scrollContentBackground(.hidden)
-        .background(AppBackground())
-        .listRowBackground(Color.clear)
-        .foregroundStyle(Ink.ink)
-        .tint(Ink.ink)
+        .claudeGroupedListStyle()
         .navigationTitle("用量明细")
         .navigationBarTitleDisplayMode(.inline)
         .onAppear { now = Date() }

@@ -35,6 +35,7 @@ struct SubscriptionSettingsSection: View {
                         .disabled(connection.busy || requestInProgress)
                 }
                 Toggle("我已关闭额外 credits 使用", isOn: Binding(get: { connection.includedUsageConfirmed }, set: { connection.confirmIncludedUsage($0) }))
+                    .tint(Ink.seal)
                     .accessibilityIdentifier("subscription-included-usage")
                     .disabled(connection.busy || requestInProgress)
                 Text("请在 ChatGPT「设置 → 用量」关闭额度用完后允许其他应用使用 credits，再在这里确认。这是你的确认记录，不会替你更改 ChatGPT 的开关。")

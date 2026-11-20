@@ -124,19 +124,19 @@ struct ProfileEditor: View {
                     TextField("名字", text: $name)
                     TextField("ID", text: $handle).textInputAutocapitalization(.never).autocorrectionDisabled()
                 }
+                .claudeCardRow()
                 Section {
                     Text("头像、名字和 ID 只保存在这台手机，不会发送给模型。")
                         .font(TypeScale.caption).foregroundStyle(Ink.ink3)
                 }.listRowBackground(Color.clear)
             }
-            .scrollContentBackground(.hidden).background(AppBackground())
-            .listRowBackground(Color.clear).listRowSeparatorTint(Ink.line)
-            .foregroundStyle(Ink.ink).tint(Ink.ink)
+            .claudeGroupedFormStyle()
             .navigationTitle("个人资料").navigationBarTitleDisplayMode(.inline)
             .toolbar {
-                ToolbarItem(placement: .topBarLeading) { Button("取消") { dismiss() } }
+                ToolbarItem(placement: .topBarLeading) { ClaudeSheetCloseButton(label: "取消") { dismiss() } }
                 ToolbarItem(placement: .topBarTrailing) {
                     Button("保存") { if profile.save(name: name, handle: handle, avatar: avatar) { dismiss() } }
+                        .fontWeight(.semibold)
                         .disabled(loading || name.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
                 }
             }
