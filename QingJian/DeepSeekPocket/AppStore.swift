@@ -2395,7 +2395,7 @@ final class AppStore: ObservableObject {
         } else if Date().timeIntervalSince(lastSave) >= 5 {
             // Save streaming progress off the main thread without mutating `@Published threads`
             // so `ChatScreen.body` and `HistorySidebar` never re-evaluate mid-stream.
-            persistStreamingCheckpointInBackground()
+            persistInBackground()
         }
     }
     // Copies the live text into the stored conversation when finishing, pausing, or saving synchronously.
@@ -2409,9 +2409,7 @@ final class AppStore: ObservableObject {
         threads[ti].messages[mi].reasoning = live.reasoning
         if let seconds = live.thinkingSeconds { threads[ti].messages[mi].thinkingSeconds = seconds }
     }
-    private func persistStreamingCheckpointInBackground() {
-        guard !isPreview, canPersist, let persistence else { return }
-        lastSave = Date()
+    private var snapshotWithLiveOverlay: AppSnapshot {
         var overlaidThreads = threads
         if let id = live.messageID,
            let ti = overlaidThreads.firstIndex(where: { $0.messages.contains(where: { $0.id == id }) }),
@@ -2420,7 +2418,7 @@ final class AppStore: ObservableObject {
             overlaidThreads[ti].messages[mi].reasoning = live.reasoning
             if let seconds = live.thinkingSeconds { overlaidThreads[ti].messages[mi].thinkingSeconds = seconds }
         }
-        let checkpoint = AppSnapshot(
+        return AppSnapshot(
             settings: settings,
             threads: overlaidThreads,
             activeThreadID: activeThreadID,
@@ -2429,12 +2427,11 @@ final class AppStore: ObservableObject {
             systemPromptPresets: systemPromptPresets,
             installedStudySubjects: installedStudySubjects
         )
-        persistence.saveInBackground(checkpoint)
     }
     private func persistInBackground() {
         guard !isPreview, canPersist, let persistence else { return }
         lastSave = Date()
-        persistence.saveInBackground(snapshot)
+        persistence.saveInBackground(snapshotWithLiveOverlay)
     }
     private func finish(threadID: UUID, messageID: UUID, state: MessageState, note: String? = nil) {
         flushPending(force: true)

@@ -90,7 +90,7 @@ final class Module2PerformanceAndUITests: XCTestCase {
 
     func testEstimateContextUsageUsesRealPromptTokensAndProviderCeiling() {
         var assistant = ChatMessage(role: .assistant, content: "一段简短回答")
-        assistant.usage = TokenUsage(promptTokens: 12_000, completionTokens: 200, reasoningTokens: 0, cachedTokens: 8_000)
+        assistant.usage = TokenUsage(promptTokens: 12_000, completionTokens: 200, cachedTokens: 8_000)
         let messages = [
             ChatMessage(role: .user, content: "第一问"),
             assistant
