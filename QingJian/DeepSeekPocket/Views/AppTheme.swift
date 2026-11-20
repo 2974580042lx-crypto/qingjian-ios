@@ -121,7 +121,7 @@ enum TypeScale {
         if InterfaceStyle.isSwiss {
             return .system(size: scaled(size, style), weight: weight == .regular ? .semibold : weight)
         }
-        let isBold = (weight == .bold || weight == .heavy)
+        let isBold = (weight == .medium || weight == .semibold || weight == .bold || weight == .heavy)
         return Font(FontLibrary.editorialUIFont(size: scaled(size, style), bold: isBold, italic: false))
     }
     static func serif(_ size: CGFloat, relativeTo style: Font.TextStyle = .body) -> Font {
@@ -260,7 +260,7 @@ enum ReadingFont {
     static func resolve(baseSize: CGFloat, bold: Bool = false, italic: Bool = false) -> Font {
         let scaled = TypeScale.scaled(baseSize, .body)
         if FontLibrary.usesSystemFace {
-            let weight: Font.Weight = bold ? .bold : (Personal.mediumBody ? .medium : .regular)
+            let weight: Font.Weight = bold ? .semibold : (Personal.mediumBody ? .medium : .regular)
             let base = Font.system(size: scaled, weight: weight)
             return italic ? base.italic() : base
         }
@@ -282,7 +282,7 @@ struct ReadingStyle: ViewModifier {
     // Observed so text redraws as soon as the font is changed in Settings.
     @AppStorage(FontLibrary.choiceKey) private var choice = ""
     @AppStorage(FontLibrary.revisionKey) private var revision = 0
-    @AppStorage("qingjian.reading.size") private var size = 17.0
+    @AppStorage("qingjian.reading.size") private var size = 16.0
     var adjustment: Double = 0
     var heavy = false
     func body(content: Content) -> some View {
@@ -299,14 +299,14 @@ struct ReadingStyle: ViewModifier {
 struct UserMessageStyle: ViewModifier {
     @AppStorage(FontLibrary.choiceKey) private var choice = ""
     @AppStorage(FontLibrary.revisionKey) private var revision = 0
-    @AppStorage("qingjian.reading.size") private var size = 17.0
+    @AppStorage("qingjian.reading.size") private var size = 16.0
     func body(content: Content) -> some View {
         let _ = (choice, revision, StyleAppearance.shared.revision, FontAppearance.shared.revision)
         if FontLibrary.choice == .custom && !InterfaceStyle.isSwiss {
             content.modifier(ReadingStyle(adjustment: -0.5))
         } else {
             let weight: Font.Weight = (FontLibrary.usesSystemFace && Personal.mediumBody) ? .medium : .regular
-            content.font(.system(size: TypeScale.scaled(max(15.5, size - 0.5), .body), weight: weight))
+            content.font(.system(size: TypeScale.scaled(max(15.5, size), .body), weight: weight))
         }
     }
 }
@@ -456,26 +456,157 @@ struct ClaudeIconBadge: View {
     let systemName: String
     var color: Color = Ink.ink2
     var size: CGFloat = 17
+    var weight: Font.Weight = .light
     var body: some View {
         Image(systemName: systemName)
-            .font(.system(size: size, weight: .light))
+            .font(.system(size: size, weight: weight))
             .foregroundStyle(color)
             .frame(width: 24, alignment: .center)
             .accessibilityHidden(true)
     }
 }
 
-/// Airy Claude-style secondary pill for "+ 新建会话" in Sidebar and Project Detail.
+/// Custom uniform geometric line icons for the assistant message action bar,
+/// calibrated to match Claude iOS's rounded-stroke icon family on a 16x16 grid.
+struct ClaudeActionGlyph: View {
+    enum Kind: Sendable { case copy, copied, selectText, edit, play, stop, retry }
+    let kind: Kind
+    var size: CGFloat = 16.5
+    var lineWidth: CGFloat = 1.38
+
+    var body: some View {
+        ClaudeActionShape(kind: kind)
+            .stroke(style: StrokeStyle(lineWidth: lineWidth, lineCap: .round, lineJoin: .round))
+            .frame(width: size, height: size)
+            .accessibilityHidden(true)
+    }
+}
+
+private struct ClaudeActionShape: Shape {
+    let kind: ClaudeActionGlyph.Kind
+
+    func path(in rect: CGRect) -> Path {
+        let sx = rect.width / 16.0
+        let sy = rect.height / 16.0
+        func p(_ x: CGFloat, _ y: CGFloat) -> CGPoint {
+            CGPoint(x: rect.minX + x * sx, y: rect.minY + y * sy)
+        }
+        var path = Path()
+        switch kind {
+        case .copy:
+            // Front rounded square at top-left (1.8..10.8) + open back wrap at bottom-right (5.2..14.2).
+            let front = CGRect(x: rect.minX + 1.8 * sx, y: rect.minY + 1.8 * sy, width: 9.0 * sx, height: 9.0 * sy)
+            path.addRoundedRect(in: front, cornerSize: CGSize(width: 1.9 * sx, height: 1.9 * sy))
+            path.move(to: p(10.8, 5.2))
+            path.addLine(to: p(12.3, 5.2))
+            path.addQuadCurve(to: p(14.2, 7.1), control: p(14.2, 5.2))
+            path.addLine(to: p(14.2, 12.3))
+            path.addQuadCurve(to: p(12.3, 14.2), control: p(14.2, 14.2))
+            path.addLine(to: p(7.1, 14.2))
+            path.addQuadCurve(to: p(5.2, 12.3), control: p(5.2, 14.2))
+            path.addLine(to: p(5.2, 10.8))
+        case .copied:
+            path.move(to: p(3.0, 8.4))
+            path.addLine(to: p(6.5, 11.9))
+            path.addLine(to: p(13.2, 4.4))
+        case .selectText:
+            // Four rounded selection brackets + two centered text strokes.
+            path.move(to: p(2.0, 5.4))
+            path.addLine(to: p(2.0, 4.0))
+            path.addQuadCurve(to: p(4.0, 2.0), control: p(2.0, 2.0))
+            path.addLine(to: p(5.4, 2.0))
+
+            path.move(to: p(10.6, 2.0))
+            path.addLine(to: p(12.0, 2.0))
+            path.addQuadCurve(to: p(14.0, 4.0), control: p(14.0, 2.0))
+            path.addLine(to: p(14.0, 5.4))
+
+            path.move(to: p(14.0, 10.6))
+            path.addLine(to: p(14.0, 12.0))
+            path.addQuadCurve(to: p(12.0, 14.0), control: p(14.0, 14.0))
+            path.addLine(to: p(10.6, 14.0))
+
+            path.move(to: p(5.4, 14.0))
+            path.addLine(to: p(4.0, 14.0))
+            path.addQuadCurve(to: p(2.0, 12.0), control: p(2.0, 14.0))
+            path.addLine(to: p(2.0, 10.6))
+
+            path.move(to: p(5.2, 6.4))
+            path.addLine(to: p(10.8, 6.4))
+            path.move(to: p(5.2, 9.6))
+            path.addLine(to: p(9.3, 9.6))
+        case .edit:
+            // Open rounded square (top-right open) + clean angled pen stroke.
+            path.move(to: p(8.2, 3.0))
+            path.addLine(to: p(4.1, 3.0))
+            path.addQuadCurve(to: p(2.0, 5.1), control: p(2.0, 3.0))
+            path.addLine(to: p(2.0, 11.9))
+            path.addQuadCurve(to: p(4.1, 14.0), control: p(2.0, 14.0))
+            path.addLine(to: p(10.9, 14.0))
+            path.addQuadCurve(to: p(13.0, 11.9), control: p(13.0, 14.0))
+            path.addLine(to: p(13.0, 7.8))
+            path.move(to: p(14.0, 2.0))
+            path.addLine(to: p(7.6, 8.4))
+        case .play:
+            // Rounded hollow play triangle matching Claude iOS.
+            let v0 = CGPoint(x: 3.8, y: 2.3)
+            let v1 = CGPoint(x: 13.4, y: 8.0)
+            let v2 = CGPoint(x: 3.8, y: 13.7)
+            let verts = [v0, v1, v2]
+            let corner: CGFloat = 1.5
+            func unitVec(_ a: CGPoint, _ b: CGPoint) -> CGPoint {
+                let dx = b.x - a.x, dy = b.y - a.y
+                let len = sqrt(dx * dx + dy * dy)
+                return CGPoint(x: dx / len, y: dy / len)
+            }
+            for i in 0..<3 {
+                let prev = verts[(i + 2) % 3]
+                let curr = verts[i]
+                let next = verts[(i + 1) % 3]
+                let u1 = unitVec(curr, prev)
+                let u2 = unitVec(curr, next)
+                let aPt = p(curr.x + u1.x * corner, curr.y + u1.y * corner)
+                let bPt = p(curr.x + u2.x * corner, curr.y + u2.y * corner)
+                if i == 0 { path.move(to: aPt) } else { path.addLine(to: aPt) }
+                path.addQuadCurve(to: bPt, control: p(curr.x, curr.y))
+            }
+            path.closeSubpath()
+        case .stop:
+            let box = CGRect(x: rect.minX + 3.4 * sx, y: rect.minY + 3.4 * sy, width: 9.2 * sx, height: 9.2 * sy)
+            path.addRoundedRect(in: box, cornerSize: CGSize(width: 2.0 * sx, height: 2.0 * sy))
+        case .retry:
+            // Explicit clockwise circular arc from 38° around bottom/left/top to 328° (-32°),
+            // immune to coordinate-system arc inversion, with chevron at upper-right tip.
+            let cx: CGFloat = 8.0, cy: CGFloat = 8.0, r: CGFloat = 5.5
+            let steps = 28
+            for i in 0...steps {
+                let deg = 38.0 + (328.0 - 38.0) * Double(i) / Double(steps)
+                let rad = deg * .pi / 180.0
+                let pt = p(cx + r * CGFloat(cos(rad)), cy + r * CGFloat(sin(rad)))
+                if i == 0 { path.move(to: pt) } else { path.addLine(to: pt) }
+            }
+            let tipRad = -32.0 * Double.pi / 180.0
+            let ax = cx + r * CGFloat(cos(tipRad))
+            let ay = cy + r * CGFloat(sin(tipRad))
+            path.move(to: p(ax - 3.2, ay + 0.3))
+            path.addLine(to: p(ax + 0.1, ay + 0.1))
+            path.addLine(to: p(ax - 0.1, ay - 3.2))
+        }
+        return path
+    }
+}
+
+/// Solid dark charcoal Claude-style pill for "+ 新建会话" in Sidebar and Project Detail.
 /// Preserves Night-River gold and Swiss square black pills.
 struct ClaudeSecondaryPillStyle: ButtonStyle {
-    var height: CGFloat = 40
-    var horizontalPadding: CGFloat = 15
+    var height: CGFloat = 42
+    var horizontalPadding: CGFloat = 16
     func makeBody(configuration: Configuration) -> some View {
         let swiss = InterfaceStyle.isSwiss
         let night = InterfaceStyle.isNight
         configuration.label
-            .font(.system(size: 14.5, weight: .medium))
-            .foregroundStyle(night ? Ink.onSeal : (swiss ? Ink.onSolid : Ink.ink))
+            .font(.system(size: 15, weight: .medium))
+            .foregroundStyle(night ? Ink.onSeal : (swiss ? Ink.onSolid : Color.adaptive(light: 0xFFFFFF, dark: 0x1A1A18)))
             .padding(.horizontal, horizontalPadding)
             .frame(height: height)
             .background {
@@ -485,13 +616,12 @@ struct ClaudeSecondaryPillStyle: ButtonStyle {
                     Rectangle().fill(Ink.solid)
                 } else {
                     Capsule(style: .continuous)
-                        .fill(Color.adaptive(light: 0xE5E4E0, dark: 0x2E2E2B))
-                        .overlay(Capsule(style: .continuous).stroke(Ink.line, lineWidth: 0.6))
+                        .fill(Color.adaptive(light: 0x222220, dark: 0xECEBE7))
                 }
             }
             .contentShape(InkCapsule())
             .scaleEffect(configuration.isPressed ? 0.96 : 1)
-            .opacity(configuration.isPressed ? 0.8 : 1)
+            .opacity(configuration.isPressed ? 0.84 : 1)
             .animation(.snappy(duration: 0.16), value: configuration.isPressed)
     }
 }
@@ -708,16 +838,16 @@ enum Personal {
     }
     /// Crisp near-black bold by default (Claude iOS); toggleable to accent bold in Personalization.
     static var boldUsesAccent: Bool { stored(boldAccentKey) == "1" }
-    /// Line spacing inside a paragraph and the gap between paragraphs.
+    /// Line spacing inside a paragraph and the gap between paragraphs (calibrated to Claude iOS).
     static var lineSpacing: CGFloat {
-        switch stored(spacingKey) { case "compact": return 4.5; case "loose": return 10.0; default: return 7.0 }
+        switch stored(spacingKey) { case "compact": return 4.5; case "loose": return 9.5; default: return 6.5 }
     }
     static var paragraphGap: CGFloat {
-        switch stored(spacingKey) { case "compact": return 12; case "loose": return 22; default: return 16 }
+        switch stored(spacingKey) { case "compact": return 16; case "loose": return 28; default: return 22 }
     }
-    /// Left and right margin of the chat text.
+    /// Left and right margin of the chat text (standard 16pt aligns flush with Claude iOS chrome).
     static var margin: CGFloat {
-        switch stored(marginKey) { case "narrow": return 12; case "wide": return 26; default: return 18 }
+        switch stored(marginKey) { case "narrow": return 12; case "wide": return 20; default: return 16 }
     }
     /// "#RRGGBB" for a colour, read in light mode.
     static func hexString(_ color: Color) -> String {

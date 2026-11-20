@@ -514,8 +514,9 @@ struct SpeechPlaybackControl: View {
             if speech.isActive(messageID) { speech.stop() }
             else { speech.speak(text, messageID: messageID) }
         } label: {
-            Image(systemName: speech.isActive(messageID) ? "stop" : "play")
-                .frame(minWidth: 22, minHeight: 28)
+            ClaudeActionGlyph(kind: speech.isActive(messageID) ? .stop : .play)
+                .frame(width: 24, height: 28)
+                .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
         .accessibilityLabel(speech.isActive(messageID) ? "停止朗读" : "用 GPT 声音朗读")

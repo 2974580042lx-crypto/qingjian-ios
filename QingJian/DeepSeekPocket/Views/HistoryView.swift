@@ -37,9 +37,9 @@ struct HistorySidebar: View {
         VStack(alignment: .leading, spacing: 0) {
             HStack(alignment: night ? .top : .center) {
                 VStack(alignment: .leading, spacing: 4) {
-                    // Refined serif wordmark matching Claude's restrained sidebar header.
+                    // Crisp bold serif wordmark matching Claude iOS's compact sidebar title.
                     Text("Sermo")
-                        .font(TypeScale.editorialDisplay(25, weight: .medium, relativeTo: .title))
+                        .font(TypeScale.editorialDisplay(23, weight: .semibold, relativeTo: .title))
                         .foregroundStyle(Ink.ink)
                         .accessibilityAddTraits(.isHeader).accessibilityIdentifier("history-title")
                     if night {
@@ -71,9 +71,9 @@ struct HistorySidebar: View {
                 .accessibilityIdentifier(searching ? "关闭搜索" : "搜索对话")
             }
             .padding(.horizontal, 10)
-            .padding(.bottom, 14)
+            .padding(.bottom, 16)
             if searching {
-                TextField("搜索对话", text: $search).font(TypeScale.ui(15.5)).autocorrectionDisabled()
+                TextField("搜索对话", text: $search).font(TypeScale.ui(16)).autocorrectionDisabled()
                     .focused($searchFocused)
                     .padding(.horizontal, 14).frame(height: 40)
                     .background(Ink.card, in: InkRounded(radius: 20))
@@ -82,7 +82,7 @@ struct HistorySidebar: View {
                     .padding(.bottom, 10)
             }
             ScrollView {
-                LazyVStack(alignment: .leading, spacing: 1) {
+                LazyVStack(alignment: .leading, spacing: 2) {
                     if searching && !search.isEmpty {
                         groupLabel(results.isEmpty ? "没有找到相关对话" : "搜索结果")
                         ForEach(results) { row($0) }
@@ -93,7 +93,7 @@ struct HistorySidebar: View {
                         groupLabel("最近")
                         let recent = store.recentThreads
                         if recent.isEmpty {
-                            Text("还没有对话").font(TypeScale.ui(14.5)).foregroundStyle(Ink.ink3)
+                            Text("还没有对话").font(TypeScale.ui(15)).foregroundStyle(Ink.ink3)
                                 .padding(.vertical, 10).padding(.horizontal, 10)
                         }
                         ForEach(recent.prefix(Self.recentLimit)) { row($0) }
@@ -111,10 +111,10 @@ struct HistorySidebar: View {
                         Button { openAllChats() } label: {
                             HStack(spacing: 5) {
                                 Text("查看全部")
-                                Image(systemName: "chevron.right").font(.system(size: 11, weight: .medium))
+                                Image(systemName: "chevron.right").font(.system(size: 11.5, weight: .medium))
                             }
-                            .font(TypeScale.ui(14.5, weight: .medium)).foregroundStyle(Ink.ink3)
-                            .padding(.vertical, 12).padding(.horizontal, 10).contentShape(Rectangle())
+                            .font(TypeScale.ui(15, weight: .medium)).foregroundStyle(Ink.ink3)
+                            .padding(.vertical, 13).padding(.horizontal, 10).contentShape(Rectangle())
                         }
                         .buttonStyle(.plain).accessibilityIdentifier("sidebar-all-chats")
                     }
@@ -172,7 +172,7 @@ struct HistorySidebar: View {
             Spacer(minLength: 6)
             Button { store.createNewChat(); finish() } label: {
                 HStack(spacing: 6) {
-                    Image(systemName: "plus").font(.system(size: 13.5, weight: .medium))
+                    Image(systemName: "plus").font(.system(size: 14, weight: .semibold))
                     Text("新建会话")
                 }
                 .fixedSize(horizontal: true, vertical: false)
@@ -200,17 +200,17 @@ struct HistorySidebar: View {
     }
 
     private func groupLabel(_ title: String) -> some View {
-        Text(title).font(TypeScale.ui(13, weight: .medium)).foregroundStyle(Ink.ink3)
-            .padding(.top, 18).padding(.bottom, 6).padding(.horizontal, 10)
+        Text(title).font(TypeScale.ui(14, weight: .medium)).foregroundStyle(Ink.ink3)
+            .padding(.top, 20).padding(.bottom, 8).padding(.horizontal, 10)
     }
 
     private func navRow(_ title: String, symbol: String, identifier: String, action: @escaping () -> Void) -> some View {
         Button(action: action) {
-            HStack(spacing: 12) {
-                ClaudeIconBadge(systemName: symbol, color: Ink.ink2, size: 17)
-                Text(title).font(TypeScale.ui(15.5, weight: .regular))
+            HStack(spacing: 13) {
+                ClaudeIconBadge(systemName: symbol, color: Ink.ink, size: 18.5, weight: .regular)
+                Text(title).font(TypeScale.ui(16.5, weight: .medium))
             }
-            .foregroundStyle(Ink.ink).padding(.vertical, 10).padding(.horizontal, 10)
+            .foregroundStyle(Ink.ink).padding(.vertical, 11.5).padding(.horizontal, 10)
             .frame(maxWidth: .infinity, alignment: .leading).contentShape(Rectangle())
         }
         .buttonStyle(.plain).accessibilityIdentifier(identifier)
@@ -227,14 +227,14 @@ struct HistorySidebar: View {
                 }
             }
         } label: {
-            HStack(spacing: 12) {
+            HStack(spacing: 13) {
                 Image(systemName: open ? "chevron.down" : "chevron.right")
-                    .font(.system(size: 11, weight: .medium)).foregroundStyle(Ink.ink3).frame(width: 24)
-                Text(project.name).font(TypeScale.ui(15.5)).lineLimit(1)
+                    .font(.system(size: 12, weight: .medium)).foregroundStyle(Ink.ink3).frame(width: 24)
+                Text(project.name).font(TypeScale.ui(16.5, weight: .medium)).lineLimit(1)
                 Spacer(minLength: 8)
-                if project.isLocked { Image(systemName: "lock").font(.system(size: 11.5, weight: .light)).foregroundStyle(Ink.ink3) }
+                if project.isLocked { Image(systemName: "lock").font(.system(size: 12, weight: .regular)).foregroundStyle(Ink.ink3) }
             }
-            .foregroundStyle(Ink.ink).padding(.vertical, 9).padding(.horizontal, 10)
+            .foregroundStyle(Ink.ink).padding(.vertical, 11.5).padding(.horizontal, 10)
             .frame(maxWidth: .infinity, alignment: .leading).contentShape(Rectangle())
         }
         .buttonStyle(.plain)
@@ -243,13 +243,13 @@ struct HistorySidebar: View {
         if open {
             let members = store.threads(in: project.id)
             if members.isEmpty {
-                Text("还没有对话").font(TypeScale.ui(14)).foregroundStyle(Ink.ink3)
-                    .padding(.leading, 46).padding(.vertical, 6)
+                Text("还没有对话").font(TypeScale.ui(14.5)).foregroundStyle(Ink.ink3)
+                    .padding(.leading, 47).padding(.vertical, 8)
             }
             ForEach(members) { row($0, showProject: false).padding(.leading, 18) }
             Button { store.createThread(in: project.id); finish() } label: {
-                Label("在此项目新建会话", systemImage: "plus").font(TypeScale.ui(14)).foregroundStyle(Ink.ink3)
-                    .padding(.leading, 46).padding(.vertical, 8)
+                Label("在此项目新建会话", systemImage: "plus").font(TypeScale.ui(14.5)).foregroundStyle(Ink.ink3)
+                    .padding(.leading, 47).padding(.vertical, 10)
                     .frame(maxWidth: .infinity, alignment: .leading).contentShape(Rectangle())
             }
             .buttonStyle(.plain)
@@ -261,21 +261,21 @@ struct HistorySidebar: View {
         let night = InterfaceStyle.isNight
         let swiss = InterfaceStyle.isSwiss
         return Button { store.select(thread.id); finish() } label: {
-            HStack(spacing: 12) {
+            HStack(spacing: 13) {
                 Group {
                     // 夜江: each talk is a river with its own moon; the longer the talk, the fuller.
                     if night && thread.isPinned != true {
                         MoonPhaseIcon(phase: MoonPhaseIcon.phase(for: thread))
                     } else {
                         Image(systemName: thread.isPinned == true ? "pin" : (active && !night ? "message.fill" : "message"))
-                            .font(.system(size: 15.5, weight: .light))
+                            .font(.system(size: 17.5, weight: .regular))
                             .foregroundStyle(active && !night ? Ink.ink : Ink.ink2)
                     }
                 }
                 .frame(width: 24)
                 .accessibilityHidden(true)
                 Text(thread.title)
-                    .font(TypeScale.ui(15.5, weight: active && !night ? .medium : .regular))
+                    .font(TypeScale.ui(16.5, weight: active && !night ? .semibold : .regular))
                     .lineLimit(1)
                     .foregroundStyle(night && active ? Ink.seal : Ink.ink)
                 Spacer(minLength: 8)
@@ -284,7 +284,7 @@ struct HistorySidebar: View {
                     Text(project.name).font(TypeScale.tiny).foregroundStyle(Ink.ink3).lineLimit(1)
                 }
             }
-            .padding(.vertical, 9)
+            .padding(.vertical, 11.5)
             .padding(.horizontal, 10)
             .frame(maxWidth: .infinity, alignment: .leading)
             .background(active && !night ? Ink.raised : Color.clear, in: RoundedRectangle(cornerRadius: swiss ? 0 : 12, style: .continuous))

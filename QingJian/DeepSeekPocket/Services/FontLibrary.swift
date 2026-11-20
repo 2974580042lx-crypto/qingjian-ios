@@ -152,6 +152,19 @@ enum FontLibrary {
             UserDefaults.standard.set(true, forKey: claudeUIKey)
             bumpRevision()
         }
+        let claudeCalibratedKey = "sermo.typography.defaults.v139_1.claude"
+        if !UserDefaults.standard.bool(forKey: claudeCalibratedKey) {
+            let existingSize = UserDefaults.standard.object(forKey: "qingjian.reading.size") as? Double
+            if existingSize == nil || existingSize == 17.0 {
+                UserDefaults.standard.set(16.0, forKey: "qingjian.reading.size")
+            }
+            let existingMargin = UserDefaults.standard.string(forKey: "sermo.personal.margin")
+            if existingMargin == "wide" {
+                UserDefaults.standard.set("standard", forKey: "sermo.personal.margin")
+            }
+            UserDefaults.standard.set(true, forKey: claudeCalibratedKey)
+            bumpRevision()
+        }
     }
 
     /// True when text should use the real system font (SF for Latin and digits,

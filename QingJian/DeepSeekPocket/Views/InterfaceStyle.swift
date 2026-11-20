@@ -311,7 +311,7 @@ struct FlowRows: Layout {
 /// Everything about how Sermo looks, in one page, with a live sample on top.
 @MainActor
 struct PersonalizationView: View {
-    @AppStorage("qingjian.reading.size") private var readingSize = 17.0
+    @AppStorage("qingjian.reading.size") private var readingSize = 16.0
     @AppStorage("qingjian.haptics") private var hapticsEnabled = true
     @State private var confirmReset = false
     private let layoutPrefs = ChatLayoutPreferences.shared
@@ -329,7 +329,7 @@ struct PersonalizationView: View {
                 FontSettingsRows()
                 VStack(alignment: .leading, spacing: 8) {
                     HStack { Text("正文字号"); Spacer(); Text("\(Int(readingSize))").foregroundStyle(Ink.ink3).monospacedDigit() }
-                    Slider(value: $readingSize, in: 15...23, step: 1).tint(Ink.seal)
+                    Slider(value: $readingSize, in: 14...22, step: 1).tint(Ink.seal)
                 }
                 Toggle("正文稍粗", isOn: Binding(get: { Personal.mediumBody }, set: { Personal.setMediumBody($0) })).tint(Ink.seal)
                 Toggle("加粗使用强调色", isOn: Binding(get: { Personal.boldUsesAccent }, set: { Personal.setBoldUsesAccent($0) })).tint(Ink.seal)
@@ -369,7 +369,7 @@ struct PersonalizationView: View {
             Section {
                 Button("恢复默认", role: .destructive) { confirmReset = true }
             } footer: {
-                Text("恢复本页的颜色、字重、行距和留白，字号回到 17；字体、界面风格和白天夜晚设置不变。")
+                Text("恢复本页的颜色、字重、行距和留白，字号回到 16；字体、界面风格和白天夜晚设置不变。")
             }
             .claudeCardRow()
         }
@@ -377,7 +377,7 @@ struct PersonalizationView: View {
         .navigationTitle("个性化")
         .navigationBarTitleDisplayMode(.inline)
         .confirmationDialog("恢复个性化默认设置？", isPresented: $confirmReset, titleVisibility: .visible) {
-            Button("恢复默认", role: .destructive) { Personal.resetAll(); readingSize = 17 }
+            Button("恢复默认", role: .destructive) { Personal.resetAll(); readingSize = 16 }
         }
     }
 
@@ -476,7 +476,7 @@ private struct Swatch: View {
 /// thinking mark and a send key, so every change shows at once.
 @MainActor
 private struct PersonalPreview: View {
-    @AppStorage("qingjian.reading.size") private var readingSize = 17.0
+    @AppStorage("qingjian.reading.size") private var readingSize = 16.0
     var body: some View {
         let mode = ChatLayoutPreferences.shared.defaultMode
         let isImessage = mode == .imessage

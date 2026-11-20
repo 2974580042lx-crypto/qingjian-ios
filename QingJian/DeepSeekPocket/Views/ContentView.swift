@@ -529,16 +529,31 @@ struct ChatScreen: View {
                 .scrollEdgeEffectStyle(.soft, for: .bottom)
                 .background(TranscriptLeftSwipePan(enabled: !sidebarOpen, model: timeReveal))
                 .overlay(alignment: .top) {
-                    LinearGradient(
-                        stops: [
-                            .init(color: Ink.paper.opacity(0.86), location: 0),
-                            .init(color: Ink.paper.opacity(0.48), location: 0.55),
-                            .init(color: Ink.paper.opacity(0), location: 1)
-                        ],
-                        startPoint: .top,
-                        endPoint: .bottom
+                    ZStack {
+                        Rectangle()
+                            .fill(.ultraThinMaterial)
+                        LinearGradient(
+                            stops: [
+                                .init(color: Ink.paper.opacity(0.72), location: 0),
+                                .init(color: Ink.paper.opacity(0.32), location: 0.55),
+                                .init(color: Ink.paper.opacity(0), location: 1)
+                            ],
+                            startPoint: .top,
+                            endPoint: .bottom
+                        )
+                    }
+                    .mask(
+                        LinearGradient(
+                            stops: [
+                                .init(color: .black, location: 0),
+                                .init(color: .black.opacity(0.82), location: 0.48),
+                                .init(color: .clear, location: 1)
+                            ],
+                            startPoint: .top,
+                            endPoint: .bottom
+                        )
                     )
-                    .frame(height: topInset + 16).allowsHitTesting(false).accessibilityHidden(true)
+                    .frame(height: topInset + 22).allowsHitTesting(false).accessibilityHidden(true)
                 }
                 .scrollPosition($scrollPosition)
                 .contentMargins(.top, topChrome, for: .scrollContent)
@@ -2174,7 +2189,7 @@ struct MessageView: View, Equatable {
                     UIPasteboard.general.string = cleanCopyText
                     Haptic.tap()
                 }
-                Button("选择文字", systemImage: "character.cursor.ibeam") { selecting = true }
+                Button("选择文字", systemImage: "text.viewfinder") { selecting = true }
                 Button("编辑文字", systemImage: "pencil") { edit() }.disabled(isGenerating)
                 if message.role == .assistant && message.state == .complete, let speech {
                     Button(speech.isActive(message.id) ? "停止朗读" : "朗读回答",
@@ -2274,28 +2289,47 @@ struct MessageView: View, Equatable {
                             .foregroundStyle(Ink.ink2).buttonStyle(.pressFeedback).padding(.top, 2)
                         }
                     } else {
-                        HStack(spacing: 16) {
-                            Button { copyAnswer() } label: { Image(systemName: copied ? "checkmark" : "doc.on.doc") }
-                                .accessibilityLabel("复制回答")
-                            Button { selecting = true } label: { Image(systemName: "character.cursor.ibeam") }
-                                .accessibilityLabel("选择部分文字")
-                            Button { edit() } label: { Image(systemName: "pencil") }
-                                .disabled(isGenerating).accessibilityLabel("编辑回答")
+                        HStack(spacing: 14) {
+                            Button { copyAnswer() } label: {
+                                ClaudeActionGlyph(kind: copied ? .copied : .copy)
+                                    .frame(width: 24, height: 28)
+                                    .contentShape(Rectangle())
+                            }
+                            .accessibilityLabel("复制回答")
+                            Button { selecting = true } label: {
+                                ClaudeActionGlyph(kind: .selectText)
+                                    .frame(width: 24, height: 28)
+                                    .contentShape(Rectangle())
+                            }
+                            .accessibilityLabel("选择部分文字")
+                            Button { edit() } label: {
+                                ClaudeActionGlyph(kind: .edit)
+                                    .frame(width: 24, height: 28)
+                                    .contentShape(Rectangle())
+                            }
+                            .disabled(isGenerating).accessibilityLabel("编辑回答")
                             if message.state == .complete, let speech {
                                 SpeechPlaybackControl(speech: speech, text: message.content, messageID: message.id)
                             }
                             if isLast {
-                                Button { regenerate() } label: { Image(systemName: "arrow.clockwise") }
-                                    .disabled(isGenerating || !canRegenerate).accessibilityLabel("重新生成")
+                                Button { regenerate() } label: {
+                                    ClaudeActionGlyph(kind: .retry)
+                                        .frame(width: 24, height: 28)
+                                        .contentShape(Rectangle())
+                                }
+                                .disabled(isGenerating || !canRegenerate).accessibilityLabel("重新生成")
                             }
                             Spacer(minLength: 4)
                             // Cost only; the time is in the long-press menu.
                             if let usage = message.usage {
                                 Text(usageLabel(usage)).font(.system(size: 11)).monospacedDigit().lineLimit(1)
-                                    .foregroundStyle(Ink.ink3.opacity(0.78))
+                                    .foregroundStyle(Ink.ink3.opacity(0.72))
                                     .accessibilityLabel("本次请求共 \(usage.totalTokens) 个 Token")
                             }
-                        }.font(.system(size: 14.5, weight: .light)).foregroundStyle(Ink.ink3.opacity(0.88)).buttonStyle(.pressFeedback).padding(.top, 2)
+                        }
+                        .foregroundStyle(Ink.ink2.opacity(0.72))
+                        .buttonStyle(.pressFeedback)
+                        .padding(.top, 6)
                     }
                 }
             }
@@ -2697,11 +2731,10 @@ struct MarkdownAnswer: View, Equatable {
                     }
                 case .quote(let text, let marks):
                     MarkdownParagraph(text: text, marks: marks, style: style).equatable()
-                        .opacity(0.85)
                         .padding(.leading, 14)
                         .overlay(alignment: .leading) {
-                            RoundedRectangle(cornerRadius: swiss ? 0 : 1.25, style: .continuous)
-                                .fill(swiss ? Ink.ink : Ink.ink3.opacity(0.35)).frame(width: swiss ? 3 : 2.5)
+                            RoundedRectangle(cornerRadius: swiss ? 0 : 1.0, style: .continuous)
+                                .fill(swiss ? Ink.ink : Ink.ink3.opacity(0.32)).frame(width: swiss ? 3 : 2.0)
                         }
                 case .table(let header, let rows, let alignments):
                     MarkdownTableBlockView(header: header, rows: rows, alignments: alignments, swiss: swiss).equatable()
@@ -2906,7 +2939,7 @@ struct TableCell: View {
     let alignment: TableAlignment
     @AppStorage(FontLibrary.choiceKey) private var fontChoice = ""
     @AppStorage(FontLibrary.revisionKey) private var fontRevision = 0
-    @AppStorage("qingjian.reading.size") private var readingSize = 17.0
+    @AppStorage("qingjian.reading.size") private var readingSize = 16.0
     private var frameAlignment: Alignment {
         switch alignment {
         case .leading: return .leading
@@ -2938,7 +2971,7 @@ private struct EditorialHeadingRow: View {
     let style: InterfaceStyle
     @AppStorage(FontLibrary.choiceKey) private var fontChoice = ""
     @AppStorage(FontLibrary.revisionKey) private var fontRevision = 0
-    @AppStorage("qingjian.reading.size") private var readingSize = 17.0
+    @AppStorage("qingjian.reading.size") private var readingSize = 16.0
     var body: some View {
         let _ = (fontChoice, fontRevision, StyleAppearance.shared.revision, FontAppearance.shared.revision)
         let delta: CGFloat = level == 1 ? 5 : (level == 2 ? 3.5 : 2)
@@ -2958,7 +2991,7 @@ private struct EditorialListMarker: View {
     let marker: String
     @AppStorage(FontLibrary.choiceKey) private var fontChoice = ""
     @AppStorage(FontLibrary.revisionKey) private var fontRevision = 0
-    @AppStorage("qingjian.reading.size") private var readingSize = 17.0
+    @AppStorage("qingjian.reading.size") private var readingSize = 16.0
     var body: some View {
         let _ = (fontChoice, fontRevision, StyleAppearance.shared.revision, FontAppearance.shared.revision)
         let isNumbered = marker != "•" && marker != "◦"
@@ -3001,7 +3034,7 @@ private struct EditorialParagraphBody: View {
     let parsed: AttributedString
     @AppStorage(FontLibrary.choiceKey) private var fontChoice = ""
     @AppStorage(FontLibrary.revisionKey) private var fontRevision = 0
-    @AppStorage("qingjian.reading.size") private var readingSize = 17.0
+    @AppStorage("qingjian.reading.size") private var readingSize = 16.0
     var body: some View {
         let _ = (fontChoice, fontRevision, StyleAppearance.shared.revision, FontAppearance.shared.revision)
         Text(parsed.applyingEditorialStyle(baseSize: CGFloat(readingSize)))

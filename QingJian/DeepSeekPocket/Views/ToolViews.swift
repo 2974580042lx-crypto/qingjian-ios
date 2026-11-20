@@ -266,7 +266,7 @@ struct ToolApprovalSheet: View {
 struct SelectableTextSheet: View {
     let text: String
     @Environment(\.dismiss) private var dismiss
-    @AppStorage("qingjian.reading.size") private var size = 17.0
+    @AppStorage("qingjian.reading.size") private var size = 16.0
     // Markdown marks (**, #) are dropped so what you copy is the words themselves.
     private var plain: String {
         let rendered = (try? AttributedString(markdown: text, options: .init(interpretedSyntax: .inlineOnlyPreservingWhitespace))) ?? AttributedString(text)
