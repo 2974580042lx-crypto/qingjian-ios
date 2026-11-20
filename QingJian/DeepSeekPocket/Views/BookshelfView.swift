@@ -86,8 +86,9 @@ struct BookshelfView: View {
                 }
             }
             .navigationTitle("书架")
+            .navigationBarTitleDisplayMode(.inline)
             .toolbar {
-                ToolbarItem(placement: .topBarLeading) { Button("完成") { dismiss() } }
+                ToolbarItem(placement: .topBarLeading) { ClaudeSheetCloseButton(label: "完成") { dismiss() } }
                 ToolbarItem(placement: .topBarTrailing) {
                     Menu {
                         Button("导出完整书架", systemImage: "square.and.arrow.up") {
@@ -314,9 +315,10 @@ struct BookDetailView: View {
                 if let profile = book.profile, book.isReady { readySections(book, profile) }
             }
         }
-        .font(TypeScale.body)
-        .tint(Ink.seal)
         .scrollContentBackground(.hidden)
+        .listRowSeparatorTint(Ink.line)
+        .foregroundStyle(Ink.ink)
+        .tint(Ink.ink)
         .background { ShelfAtmosphere(book: book) }
         .navigationTitle(book?.title ?? "书")
         .navigationBarTitleDisplayMode(.inline)
@@ -517,16 +519,14 @@ struct CharacterEditView: View {
                 }
             }
         }
-        .font(TypeScale.body)
-        .tint(Ink.seal)
-        .scrollContentBackground(.hidden)
-        .background(AppBackground())
+        .claudeGroupedFormStyle()
         .disabled(reading)
         .navigationTitle(originalName)
         .navigationBarTitleDisplayMode(.inline)
         .toolbar {
             ToolbarItem(placement: .topBarTrailing) {
                 Button("保存") { books.updateCharacter(draft, originalName: originalName, in: bookID); dismiss() }
+                    .fontWeight(.semibold)
                     .disabled(draft.name.trimmingCharacters(in: .whitespaces).isEmpty || reading)
             }
         }
@@ -578,15 +578,13 @@ struct StyleEditView: View {
                 Section("原著不会这样写") { ForEach(avoid, id: \.self) { Text($0).font(TypeScale.label).foregroundStyle(Ink.ink2) } }
             }
         }
-        .font(TypeScale.body)
-        .scrollContentBackground(.hidden)
-        .background(AppBackground())
+        .claudeGroupedFormStyle()
         .disabled(reading)
         .navigationTitle("作者笔触")
         .navigationBarTitleDisplayMode(.inline)
         .toolbar {
             ToolbarItem(placement: .topBarTrailing) {
-                Button("保存") { books.updateStyle(text, in: bookID); dismiss() }.disabled(reading)
+                Button("保存") { books.updateStyle(text, in: bookID); dismiss() }.fontWeight(.semibold).disabled(reading)
             }
         }
     }
@@ -728,10 +726,7 @@ struct StartStoryView: View {
                         .lineLimit(3...10)
                 } header: { Text("本局玩法（可选）") } footer: { Text("写给模型的规矩，这一局一直有效，优先于其他设定。聊天时可以在标题旁的「⋯ → 本局设定」里修改。") }
             }
-            .font(TypeScale.body)
-            .tint(Ink.seal)
-            .scrollContentBackground(.hidden)
-            .background(AppBackground())
+            .claudeGroupedFormStyle()
             .disabled(starting)
             .overlay {
                 if starting {
@@ -740,15 +735,17 @@ struct StartStoryView: View {
                         Text(locatingScene ? "正在定位名场面发生前的段落…" : (chapter == nil && !followsBook ? "正在开局…" : "正在写前情提要…")).font(TypeScale.label).foregroundStyle(Ink.ink2)
                     }
                     .padding(24)
-                    .background(Ink.raised, in: RoundedRectangle(cornerRadius: 16, style: .continuous))
+                    .background(Ink.card, in: RoundedRectangle(cornerRadius: 16, style: .continuous))
+                    .overlay(RoundedRectangle(cornerRadius: 16, style: .continuous).stroke(Ink.line, lineWidth: 0.8))
                 }
             }
             .navigationTitle("《\(book.title)》")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
-                ToolbarItem(placement: .topBarLeading) { Button("取消") { dismiss() }.disabled(starting) }
+                ToolbarItem(placement: .topBarLeading) { ClaudeSheetCloseButton(label: "取消") { dismiss() }.disabled(starting) }
                 ToolbarItem(placement: .topBarTrailing) {
                     Button("开聊") { start() }
+                        .fontWeight(.semibold)
                         .disabled(character.isEmpty || store.isGenerating || starting)
                 }
             }
@@ -835,13 +832,11 @@ struct PersonaListView: View {
                 }
                 .onDelete { books.deletePersonas(at: $0) }
             }
-            .listStyle(.plain)
-            .scrollContentBackground(.hidden)
-            .background(AppBackground())
+            .claudeGroupedListStyle()
             .navigationTitle("我的人物卡")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
-                ToolbarItem(placement: .topBarLeading) { Button("完成") { dismiss() } }
+                ToolbarItem(placement: .topBarLeading) { ClaudeSheetCloseButton(label: "完成") { dismiss() } }
                 ToolbarItem(placement: .topBarTrailing) {
                     NavigationLink { PersonaEditView(card: PersonaCard(name: "", detail: "")) } label: { Image(systemName: "plus") }
                         .accessibilityLabel("新建人物卡")
@@ -867,15 +862,13 @@ struct PersonaEditView: View {
                 TextField("外貌、身份、性格、说话方式，和这个世界有什么关系…", text: $draft.detail, axis: .vertical).lineLimit(5...16)
             } header: { Text("人物卡") } footer: { Text("开局时会作为「你扮演的人物」一起发给模型。") }
         }
-        .font(TypeScale.body)
-        .tint(Ink.seal)
-        .scrollContentBackground(.hidden)
-        .background(AppBackground())
+        .claudeGroupedFormStyle()
         .navigationTitle(draft.name.isEmpty ? "新人物卡" : draft.name)
         .navigationBarTitleDisplayMode(.inline)
         .toolbar {
             ToolbarItem(placement: .topBarTrailing) {
                 Button("保存") { books.savePersona(draft); dismiss() }
+                    .fontWeight(.semibold)
                     .disabled(draft.name.trimmingCharacters(in: .whitespaces).isEmpty)
             }
         }
@@ -983,18 +976,16 @@ struct StoryCorrectionSheet: View {
                     Text("会记进这个人物的人物卡，之后每一局都会带上；在书页的人物卡里可以查看和删除。想让这一条也改过来，可以接着点重新生成。")
                 }
             }
-            .font(TypeScale.body)
-            .tint(Ink.seal)
-            .scrollContentBackground(.hidden)
-            .background(AppBackground())
+            .claudeGroupedFormStyle()
             .navigationTitle("这里不像")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
-                ToolbarItem(placement: .topBarLeading) { Button("取消") { dismiss() } }
+                ToolbarItem(placement: .topBarLeading) { ClaudeSheetCloseButton(label: "取消") { dismiss() } }
                 ToolbarItem(placement: .topBarTrailing) {
                     Button("记下") {
                         if store.correctStory(threadID: threadID, character: character, note: note, answer: answer) { dismiss() }
                     }
+                    .fontWeight(.semibold)
                     .disabled(note.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || character.isEmpty)
                 }
             }
@@ -1054,19 +1045,17 @@ struct StorySettingsSheet: View {
                     }
                 }
             }
-            .font(TypeScale.body)
-            .tint(Ink.seal)
-            .scrollContentBackground(.hidden)
-            .background(AppBackground())
+            .claudeGroupedFormStyle()
             .navigationTitle("本局设定")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
-                ToolbarItem(placement: .topBarLeading) { Button("取消") { dismiss() } }
+                ToolbarItem(placement: .topBarLeading) { ClaudeSheetCloseButton(label: "取消") { dismiss() } }
                 ToolbarItem(placement: .topBarTrailing) {
                     Button("保存") {
                         store.updateStory(threadID: threadID, instruction: instruction, briefing: session?.briefing == nil ? nil : briefing)
                         dismiss()
                     }
+                    .fontWeight(.semibold)
                 }
             }
         }
@@ -1329,7 +1318,7 @@ private struct Spine: View {
                 .overlay(alignment: .trailing) { Rectangle().fill(Color.black.opacity(0.18)).frame(width: 3) }
             VStack(spacing: 2) {
                 ForEach(Array(letters.enumerated()), id: \.offset) { _, letter in
-                    Text(letter).font(TypeScale.serif(15).weight(.semibold))
+                    Text(letter).font(TypeScale.editorialDisplay(15, weight: .bold))
                 }
             }
             .foregroundStyle(Color(red: 0.02, green: 0.07, blue: 0.09))

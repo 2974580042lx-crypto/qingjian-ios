@@ -85,11 +85,11 @@ struct StoryPlaySheet: View {
                     }
                 }
             }
-            .font(TypeScale.body).scrollContentBackground(.hidden).background(AppBackground())
+            .claudeGroupedFormStyle()
             .navigationTitle("剧情控制").navigationBarTitleDisplayMode(.inline)
             .toolbar {
-                ToolbarItem(placement: .topBarLeading) { Button("取消") { dismiss() } }
-                ToolbarItem(placement: .topBarTrailing) { Button("保存") { save(); dismiss() }.disabled(store.isGenerating) }
+                ToolbarItem(placement: .topBarLeading) { ClaudeSheetCloseButton(label: "取消") { dismiss() } }
+                ToolbarItem(placement: .topBarTrailing) { Button("保存") { save(); dismiss() }.fontWeight(.semibold).disabled(store.isGenerating) }
             }
             .onAppear {
                 guard !loaded, let story else { return }
@@ -98,7 +98,7 @@ struct StoryPlaySheet: View {
                 speaker = story.nextSpeaker ?? ""; autoMemory = story.automaticMemory != false; loaded = true
             }
             .disabled(store.isGenerating)
-        }.tint(Ink.seal)
+        }.tint(Ink.ink)
     }
     private func save() { store.setStoryScene(threadID, scene: scene, cast: cast, speaker: speaker.isEmpty ? nil : speaker, fixedEvents: anchors, automaticMemory: autoMemory) }
     private func director(_ title: String, text: String) -> some View {
@@ -141,7 +141,7 @@ struct StoryMemoryView: View {
                 .swipeActions { Button("删除", role: .destructive) { store.deleteStoryFact(fact.id, threadID: threadID) } }
             }
         }
-        .scrollContentBackground(.hidden).background(AppBackground()).navigationTitle("本局记忆")
+        .claudeGroupedListStyle().navigationTitle("本局记忆").navigationBarTitleDisplayMode(.inline)
         .toolbar { Button { editing = StoryFact(kind: .event, text: "", locked: true) } label: { Image(systemName: "plus") }.disabled(store.isGenerating) }
         .sheet(item: $editing) { StoryFactEditor(threadID: threadID, fact: $0) }
         .sheet(item: $sourceFact) { fact in
@@ -151,8 +151,11 @@ struct StoryMemoryView: View {
                     ForEach((thread?.messages ?? []).filter { fact.sources.contains($0.id) }) { message in
                         Section(message.role == .user ? "你说的" : "人物的回应") { Text(message.content).textSelection(.enabled) }
                     }
-                }.navigationTitle("记忆来源").toolbar { Button("完成") { sourceFact = nil } }
-            }.tint(Ink.seal)
+                }
+                .claudeGroupedListStyle()
+                .navigationTitle("记忆来源").navigationBarTitleDisplayMode(.inline)
+                .toolbar { ToolbarItem(placement: .topBarLeading) { ClaudeSheetCloseButton(label: "完成") { sourceFact = nil } } }
+            }.tint(Ink.ink)
         }
     }
 }
@@ -168,18 +171,19 @@ struct StoryFactEditor: View {
             Form {
                 Picker("类型", selection: $fact.kind) { ForEach(StoryFactKind.allCases) { Text($0.title).tag($0) } }
                 TextField("已经发生的事实", text: $fact.text, axis: .vertical).lineLimit(4...14)
-                Toggle("锁定，自动整理时保留", isOn: $fact.locked)
+                Toggle("锁定，自动整理时保留", isOn: $fact.locked).tint(Ink.seal)
             }
-            .font(TypeScale.body).scrollContentBackground(.hidden).background(AppBackground())
+            .claudeGroupedFormStyle()
             .navigationTitle("编辑记忆").navigationBarTitleDisplayMode(.inline)
             .toolbar {
-                ToolbarItem(placement: .topBarLeading) { Button("取消") { dismiss() } }
+                ToolbarItem(placement: .topBarLeading) { ClaudeSheetCloseButton(label: "取消") { dismiss() } }
                 ToolbarItem(placement: .topBarTrailing) {
                     Button("保存") { if store.saveStoryFact(fact, threadID: threadID) { dismiss() } }
+                        .fontWeight(.semibold)
                         .disabled(store.isGenerating || fact.text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
                 }
             }
-        }.tint(Ink.seal)
+        }.tint(Ink.ink)
     }
 }
 
@@ -213,7 +217,7 @@ struct StoryCheckpointsView: View {
                 .swipeActions { Button("删除存档", role: .destructive) { store.deleteStoryCheckpoint(checkpoint.id, in: threadID) } }
             }
         }
-        .scrollContentBackground(.hidden).background(AppBackground()).navigationTitle("存档与分线")
+        .claudeGroupedListStyle().navigationTitle("存档与分线").navigationBarTitleDisplayMode(.inline)
         .disabled(store.isGenerating)
         .alert("存档名称", isPresented: Binding(get: { renaming != nil }, set: { if !$0 { renaming = nil } })) {
             TextField("名称", text: $renameText)
@@ -258,7 +262,7 @@ struct StoryArchiveView: View {
             if stories.isEmpty { Text("这本书还没有开始的故事。选一个人物或名场面开局。").foregroundStyle(Ink.ink3) }
         }
         .searchable(text: $search, prompt: "找故事、人物或内容")
-        .scrollContentBackground(.hidden).background(AppBackground()).navigationTitle("故事档案")
+        .claudeGroupedListStyle().navigationTitle("故事档案").navigationBarTitleDisplayMode(.inline)
         .toolbar { Button("对比分线") { compare = true }.disabled(stories.count < 2) }
         .sheet(isPresented: $compare) { StoryCompareView(bookID: bookID) }
     }
@@ -284,11 +288,11 @@ struct StoryCompareView: View {
                     comparison(b, other: a)
                 }
             }
-            .font(TypeScale.body).scrollContentBackground(.hidden).background(AppBackground())
+            .claudeGroupedFormStyle()
             .navigationTitle("分线对比").navigationBarTitleDisplayMode(.inline)
-            .toolbar { Button("完成") { dismiss() } }
+            .toolbar { ToolbarItem(placement: .topBarLeading) { ClaudeSheetCloseButton(label: "完成") { dismiss() } } }
             .onAppear { left = stories.first?.id; right = stories.dropFirst().first?.id }
-        }.tint(Ink.seal)
+        }.tint(Ink.ink)
     }
     private func comparison(_ thread: ChatThread, other: ChatThread) -> some View {
         let otherFacts = Set((other.story?.memory?.facts ?? []).map(\.text))
@@ -326,9 +330,9 @@ struct ScenePickerSheet: View {
                 }
             }
             .searchable(text: $search, prompt: "搜场景、人物或事件")
-            .scrollContentBackground(.hidden).background(AppBackground()).navigationTitle("从名场面之前开始")
-            .toolbar { Button("取消") { dismiss() } }
-        }.tint(Ink.seal)
+            .claudeGroupedListStyle().navigationTitle("从名场面之前开始").navigationBarTitleDisplayMode(.inline)
+            .toolbar { ToolbarItem(placement: .topBarLeading) { ClaudeSheetCloseButton(label: "取消") { dismiss() } } }
+        }.tint(Ink.ink)
     }
 }
 
@@ -369,7 +373,7 @@ struct SceneCatalogueView: View {
             }
         }
         .searchable(text: $search, prompt: "搜名场面、人物或事件")
-        .scrollContentBackground(.hidden).background(AppBackground()).navigationTitle("名场面 · \(scenes.count)")
+        .claudeGroupedListStyle().navigationTitle("名场面 · \(scenes.count)").navigationBarTitleDisplayMode(.inline)
         .sheet(item: $selected) { scene in
             if let book, let profile = book.profile { StartStoryView(book: book, profile: profile, initialScene: scene, opened: opened).environmentObject(store).environmentObject(books) }
         }

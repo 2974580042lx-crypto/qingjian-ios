@@ -47,36 +47,41 @@ struct ProjectsView: View {
         NavigationStack(path: $path) {
             List {
                 if store.projects.isEmpty {
-                    Text("项目有自己的指令、资料和默认模型。项目里的对话只在项目中出现，不会进侧栏的「最近」。")
-                        .font(TypeScale.serif(15)).foregroundStyle(Ink.ink3).listRowBackground(Color.clear)
-                }
-                ForEach(store.projects) { project in
-                    Button { open(project.id) } label: {
-                        HStack(spacing: 14) {
-                            Image(systemName: project.isLocked ? "lock" : (project.studySubject != nil ? "graduationcap.fill" : "folder"))
-                                .font(.system(size: 17))
-                                .foregroundStyle(project.studySubject != nil ? Ink.seal : Ink.ink2)
-                                .frame(width: 24)
-                            VStack(alignment: .leading, spacing: 3) {
-                                Text(project.name).font(TypeScale.serif(17)).foregroundStyle(Ink.ink)
-                                Text(project.isLocked && store.isLocked(project.id) ? "已上锁" : "\(store.threads(in: project.id).count) 个对话")
-                                    .font(TypeScale.tiny).foregroundStyle(Ink.ink3)
-                            }
-                            Spacer()
-                            Image(systemName: "chevron.right").font(.system(size: 12)).foregroundStyle(Ink.ink3)
-                        }.padding(.vertical, 6).contentShape(Rectangle())
+                    Section {
+                        Text("项目有自己的指令、资料和默认模型。项目里的对话只在项目中出现，不会进侧栏的「最近」。")
+                            .font(TypeScale.ui(14.5)).foregroundStyle(Ink.ink3)
                     }
-                    .buttonStyle(.plain)
-                    .listRowBackground(Color.clear)
-                    .accessibilityIdentifier("project-row")
+                    .claudeCardRow()
+                } else {
+                    Section {
+                        ForEach(store.projects) { project in
+                            Button { open(project.id) } label: {
+                                HStack(spacing: 12) {
+                                    ClaudeIconBadge(
+                                        systemName: project.isLocked ? "lock" : (project.studySubject != nil ? "graduationcap" : "folder"),
+                                        color: project.studySubject != nil ? Ink.seal : Ink.ink2
+                                    )
+                                    VStack(alignment: .leading, spacing: 2.5) {
+                                        Text(project.name).font(TypeScale.ui(16, weight: .regular)).foregroundStyle(Ink.ink)
+                                        Text(project.isLocked && store.isLocked(project.id) ? "已上锁" : "\(store.threads(in: project.id).count) 个对话")
+                                            .font(TypeScale.ui(12.5)).foregroundStyle(Ink.ink3)
+                                    }
+                                    Spacer()
+                                    Image(systemName: "chevron.right").font(.system(size: 12, weight: .medium)).foregroundStyle(Ink.ink3.opacity(0.65))
+                                }.padding(.vertical, 3).contentShape(Rectangle())
+                            }
+                            .buttonStyle(.plain)
+                            .accessibilityIdentifier("project-row")
+                        }
+                    }
+                    .claudeCardRow()
                 }
             }
-            .listStyle(.plain)
-            .scrollContentBackground(.hidden)
-            .background(AppBackground())
+            .claudeGroupedListStyle()
             .navigationTitle("项目")
+            .navigationBarTitleDisplayMode(.inline)
             .toolbar {
-                ToolbarItem(placement: .topBarLeading) { Button("完成") { dismiss() } }
+                ToolbarItem(placement: .topBarLeading) { ClaudeSheetCloseButton(label: "完成") { dismiss() } }
                 ToolbarItem(placement: .topBarTrailing) {
                     Menu {
                         Button("让 AI 帮我建", systemImage: "sparkles") { designing = true }
@@ -84,7 +89,7 @@ struct ProjectsView: View {
                         Button("恢复学习项目", systemImage: "arrow.uturn.backward") {
                             archivedStudy = store.archivedStudyProjects(); restoringStudy = true
                         }
-                    } label: { Image(systemName: "plus") }
+                    } label: { Image(systemName: "plus").font(.system(size: 15, weight: .regular)) }
                     .accessibilityLabel("新建项目")
                 }
             }
@@ -101,20 +106,25 @@ struct ProjectsView: View {
             .sheet(isPresented: $restoringStudy) {
                 NavigationStack {
                     List {
-                        if archivedStudy.isEmpty { Text("没有可恢复的学习项目") }
-                        ForEach(archivedStudy) { item in
-                            Button { if store.restoreStudyProject(item) { restoringStudy = false } } label: {
-                                VStack(alignment: .leading, spacing: 6) {
-                                    Text(item.project.name)
-                                    Text("恢复项目指令、学习记录和仍保留的对话归属").font(TypeScale.caption).foregroundStyle(Ink.ink3)
+                        Section {
+                            if archivedStudy.isEmpty { Text("没有可恢复的学习项目").foregroundStyle(Ink.ink3) }
+                            ForEach(archivedStudy) { item in
+                                Button { if store.restoreStudyProject(item) { restoringStudy = false } } label: {
+                                    VStack(alignment: .leading, spacing: 4) {
+                                        Text(item.project.name).foregroundStyle(Ink.ink)
+                                        Text("恢复项目指令、学习记录和仍保留的对话归属").font(TypeScale.caption).foregroundStyle(Ink.ink3)
+                                    }
                                 }
                             }
                         }
+                        .claudeCardRow()
                     }
-                    .font(TypeScale.body).scrollContentBackground(.hidden).background(AppBackground()).tint(Ink.ink)
+                    .claudeGroupedListStyle()
                     .navigationTitle("恢复学习项目")
-                    .toolbar { ToolbarItem(placement: .cancellationAction) { Button("完成") { restoringStudy = false } } }
+                    .navigationBarTitleDisplayMode(.inline)
+                    .toolbar { ToolbarItem(placement: .topBarLeading) { ClaudeSheetCloseButton(label: "完成") { restoringStudy = false } } }
                 }
+                .tint(Ink.ink)
             }
         }
         .tint(Ink.ink)
@@ -152,109 +162,115 @@ struct ProjectPageView: View {
 
     var body: some View {
         let threads = store.threads(in: projectID)
-        VStack(spacing: 0) {
-            HStack(spacing: 12) {
-                NavigationLink { ProjectFilesView(projectID: projectID) } label: {
-                    pill((project?.documents.isEmpty ?? true) ? "添加文件" : "文件 · \(project?.documents.count ?? 0)")
-                }
-                .accessibilityIdentifier("project-files")
-                Button { editingInstructions = true } label: {
-                    pill((project?.instructions.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ?? true) ? "添加指令" : "编辑指令")
-                }
-                .accessibilityIdentifier("project-instructions-button")
-            }
-            .buttonStyle(.plain)
-            .padding(.horizontal, 16).padding(.top, 8).padding(.bottom, 12)
-            // Every service can use manually written project memory.
-            if project != nil {
-                NavigationLink {
-                    if project?.studySubject != nil { StudyMemoryView(projectID: projectID) }
-                    else { ProjectMemoryView(projectID: projectID) }
-                } label: {
-                    HStack(spacing: 10) {
-                        Image(systemName: project?.studySubject != nil ? "graduationcap.fill" : "brain")
-                            .font(.system(size: 15))
-                            .foregroundStyle(project?.studySubject != nil ? Ink.seal : Ink.ink2)
-                            .frame(width: 24)
-                        Text(project?.studySubject != nil ? "学习档案与进度" : "项目备忘（跨对话）")
-                            .font(TypeScale.serif(17))
-                            .foregroundStyle(Ink.ink)
-                        Spacer()
-                        Text(memorySummary)
-                            .font(TypeScale.tiny.weight(project?.studySubject != nil ? .medium : .regular))
-                            .foregroundStyle(project?.studySubject != nil ? Ink.seal : Ink.ink3)
-                        Image(systemName: "chevron.right").font(.system(size: 12)).foregroundStyle(Ink.ink3)
+        List {
+            Section {
+                HStack(spacing: 10) {
+                    NavigationLink { ProjectFilesView(projectID: projectID) } label: {
+                        pill((project?.documents.isEmpty ?? true) ? "添加文件" : "文件 · \(project?.documents.count ?? 0)", symbol: "doc.text")
                     }
-                    .padding(.horizontal, 20).frame(height: 44).contentShape(Rectangle())
+                    .accessibilityIdentifier("project-files")
+                    Button { editingInstructions = true } label: {
+                        pill((project?.instructions.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ?? true) ? "添加指令" : "编辑指令", symbol: "text.alignleft")
+                    }
+                    .accessibilityIdentifier("project-instructions-button")
                 }
                 .buttonStyle(.plain)
-                .accessibilityIdentifier("project-memory")
-                if project?.studySubject == .english,
-                   let todayList = (try? store.studyWordSummary(projectID: projectID))?.todayWordsList,
-                   !todayList.isEmpty {
-                    ScrollView(.horizontal, showsIndicators: false) {
-                        HStack(spacing: 6) {
-                            Text("今日各窗口已聊")
-                                .font(TypeScale.tiny.weight(.medium))
-                                .foregroundStyle(Ink.ink3)
-                            ForEach(todayList.prefix(16), id: \.word.id) { item in
-                                Text(item.word.word)
-                                    .font(.system(size: 12.5, weight: .medium, design: .monospaced))
-                                    .foregroundStyle(Ink.seal)
-                                    .padding(.horizontal, 8).padding(.vertical, 3)
-                                    .background(Ink.seal.opacity(0.12), in: Capsule())
-                            }
-                        }
-                        .padding(.horizontal, 20).padding(.bottom, 6)
-                    }
-                }
             }
-            if threads.isEmpty {
-                Spacer()
-                VStack(spacing: 12) {
-                    Image(systemName: "bubble.left.and.bubble.right").font(.system(size: 21)).foregroundStyle(Ink.ink2)
-                        .frame(width: 56, height: 56).background(Ink.raised, in: Circle())
-                    Text("向 Sermo 提出任何问题").font(TypeScale.serif(17)).foregroundStyle(Ink.ink2)
-                    Text("此项目中的会话将显示在这里。").font(TypeScale.serif(15)).foregroundStyle(Ink.ink3)
-                }
-                Spacer(); Spacer()
-            } else {
-                List {
-                    ForEach(threads) { thread in
-                        Button { store.select(thread.id); opened() } label: {
-                            HStack(spacing: 14) {
-                                Image(systemName: "bubble.left").font(.system(size: 16)).foregroundStyle(Ink.ink2).frame(width: 24)
-                                VStack(alignment: .leading, spacing: 3) {
-                                    Text(thread.title).font(TypeScale.serif(17)).foregroundStyle(Ink.ink).lineLimit(1)
-                                    Text(thread.updatedAt.formatted(date: .abbreviated, time: .omitted)).font(TypeScale.tiny).foregroundStyle(Ink.ink3)
+            .listRowBackground(Color.clear)
+            .listRowInsets(EdgeInsets(top: 4, leading: 0, bottom: 4, trailing: 0))
+
+            // Every service can use manually written project memory.
+            if project != nil {
+                Section {
+                    NavigationLink {
+                        if project?.studySubject != nil { StudyMemoryView(projectID: projectID) }
+                        else { ProjectMemoryView(projectID: projectID) }
+                    } label: {
+                        HStack(spacing: 12) {
+                            ClaudeIconBadge(
+                                systemName: project?.studySubject != nil ? "graduationcap" : "brain",
+                                color: project?.studySubject != nil ? Ink.seal : Ink.ink2
+                            )
+                            Text(project?.studySubject != nil ? "学习档案与进度" : "项目备忘（跨对话）")
+                                .font(TypeScale.ui(15.5))
+                                .foregroundStyle(Ink.ink)
+                            Spacer(minLength: 8)
+                            Text(memorySummary)
+                                .font(TypeScale.ui(12.5))
+                                .foregroundStyle(Ink.ink3)
+                                .lineLimit(1)
+                        }
+                    }
+                    .accessibilityIdentifier("project-memory")
+
+                    if project?.studySubject == .english,
+                       let todayList = (try? store.studyWordSummary(projectID: projectID))?.todayWordsList,
+                       !todayList.isEmpty {
+                        ScrollView(.horizontal, showsIndicators: false) {
+                            HStack(spacing: 6) {
+                                Text("今日已聊")
+                                    .font(TypeScale.tiny.weight(.medium))
+                                    .foregroundStyle(Ink.ink3)
+                                ForEach(todayList.prefix(16), id: \.word.id) { item in
+                                    Text(item.word.word)
+                                        .font(.system(size: 12, weight: .medium, design: .monospaced))
+                                        .foregroundStyle(Ink.ink2)
+                                        .padding(.horizontal, 8).padding(.vertical, 3)
+                                        .background(Ink.raised, in: Capsule())
                                 }
                             }
-                            .padding(.vertical, 4).frame(maxWidth: .infinity, alignment: .leading).contentShape(Rectangle())
+                            .padding(.vertical, 2)
+                        }
+                    }
+                }
+                .claudeCardRow()
+            }
+
+            if threads.isEmpty {
+                Section {
+                    VStack(spacing: 10) {
+                        Image(systemName: "message").font(.system(size: 20, weight: .light)).foregroundStyle(Ink.ink2)
+                            .frame(width: 48, height: 48).background(Ink.raised, in: Circle())
+                        Text("向 Sermo 提出任何问题").font(TypeScale.ui(15.5, weight: .medium)).foregroundStyle(Ink.ink)
+                        Text("此项目中的会话将显示在这里。").font(TypeScale.ui(13.5)).foregroundStyle(Ink.ink3)
+                    }
+                    .frame(maxWidth: .infinity)
+                    .padding(.vertical, 28)
+                }
+                .listRowBackground(Color.clear)
+            } else {
+                Section("项目对话") {
+                    ForEach(threads) { thread in
+                        Button { store.select(thread.id); opened() } label: {
+                            HStack(spacing: 12) {
+                                ClaudeIconBadge(systemName: "message", color: Ink.ink2, size: 15.5)
+                                VStack(alignment: .leading, spacing: 2.5) {
+                                    Text(thread.title).font(TypeScale.ui(15.5)).foregroundStyle(Ink.ink).lineLimit(1)
+                                    Text(thread.updatedAt.formatted(date: .abbreviated, time: .omitted)).font(TypeScale.tiny).foregroundStyle(Ink.ink3)
+                                }
+                                Spacer(minLength: 0)
+                            }
+                            .padding(.vertical, 2).frame(maxWidth: .infinity, alignment: .leading).contentShape(Rectangle())
                         }
                         .buttonStyle(.plain)
-                        .listRowBackground(Color.clear)
                         .swipeActions { Button("移出") { store.moveThreads([thread.id], to: nil) }.tint(Ink.ink3) }
                         .accessibilityIdentifier("project-thread-row")
                     }
                 }
-                .listStyle(.plain)
-                .scrollContentBackground(.hidden)
-                .contentMargins(.bottom, 90, for: .scrollContent)
+                .claudeCardRow()
             }
         }
-        .frame(maxWidth: .infinity, maxHeight: .infinity)
-        .background(AppBackground())
+        .claudeGroupedListStyle()
+        .contentMargins(.bottom, 92, for: .scrollContent)
         .overlay(alignment: .bottomTrailing) {
             Button { store.createThread(in: projectID); opened() } label: {
-                HStack(spacing: 8) {
-                    Image(systemName: "plus").font(.system(size: 15, weight: .medium))
-                    Text("新建会话").font(TypeScale.serif(17).weight(.semibold))
+                HStack(spacing: 6) {
+                    Image(systemName: "plus").font(.system(size: 13.5, weight: .medium))
+                    Text("新建会话")
                 }
-                .foregroundStyle(Ink.onSolid).padding(.horizontal, 20).frame(height: 48)
-                .background(Ink.solid, in: InkCapsule()).contentShape(Capsule())
             }
-            .buttonStyle(.plain)
-            .padding(.trailing, 20).padding(.bottom, 12)
+            .buttonStyle(.claudeSecondaryPill)
+            .padding(.trailing, 20).padding(.bottom, 14)
             .accessibilityIdentifier("project-new-chat")
         }
         .navigationTitle(project?.name ?? "项目")
@@ -449,11 +465,15 @@ struct ProjectPageView: View {
         return "\(count) 条"
     }
 
-    private func pill(_ title: String) -> some View {
-        Text(title).font(TypeScale.serif(17).weight(.semibold)).foregroundStyle(Ink.ink)
-            .frame(maxWidth: .infinity).frame(height: 50)
-            .overlay(InkCapsule().stroke(Ink.line, lineWidth: 1))
-            .contentShape(Capsule())
+    private func pill(_ title: String, symbol: String) -> some View {
+        HStack(spacing: 7) {
+            Image(systemName: symbol).font(.system(size: 14.5, weight: .light)).foregroundStyle(Ink.ink2)
+            Text(title).font(TypeScale.ui(15, weight: .medium)).foregroundStyle(Ink.ink)
+        }
+        .frame(maxWidth: .infinity).frame(height: 46)
+        .background(Ink.card, in: InkRounded(radius: 14))
+        .overlay(InkRounded(radius: 14).stroke(Ink.line, lineWidth: 0.6))
+        .contentShape(InkRounded(radius: 14))
     }
 }
 
@@ -492,18 +512,15 @@ struct ProjectMemoryView: View {
             }
             }
         }
-        .font(TypeScale.body)
-        .scrollContentBackground(.hidden)
-        .background(AppBackground())
+        .claudeGroupedFormStyle()
         .navigationTitle("项目备忘（跨对话）")
         .navigationBarTitleDisplayMode(.inline)
         .toolbar {
-            ToolbarItem(placement: .cancellationAction) { Button("取消") { dismiss() } }
             ToolbarItem(placement: .topBarTrailing) {
                 Button("保存") {
                     guard project != nil, store.canPersist, !overLimit else { return }
                     if store.setMemory(draft, for: projectID) { dismiss() }
-                }.disabled(!changed || overLimit || project == nil || !store.canPersist)
+                }.fontWeight(.semibold).disabled(!changed || overLimit || project == nil || !store.canPersist)
             }
         }
         .confirmationDialog("清空这个项目的记忆？", isPresented: $confirmClear, titleVisibility: .visible) {
@@ -599,7 +616,7 @@ struct ProjectFilesView: View {
                                 if let i = documents.firstIndex(where: { $0.id == document.id }) { documents[i].isIncluded = value }
                             }
                         }))
-                        .labelsHidden().fixedSize()
+                        .labelsHidden().fixedSize().tint(Ink.seal)
                         .accessibilityLabel("提问时引用《\(document.name)》")
                         .disabled(!store.canPersist)
                     }
@@ -638,11 +655,8 @@ struct ProjectFilesView: View {
             }
             }
         }
-        .font(TypeScale.body)
-        .tint(Ink.seal)
+        .claudeGroupedFormStyle()
         .searchable(text: $search, prompt: "搜索资料名称或正文")
-        .scrollContentBackground(.hidden)
-        .background(AppBackground())
         .navigationTitle("项目资料")
         .navigationBarTitleDisplayMode(.inline)
         .sheet(item: $editingDocument) { document in
@@ -860,7 +874,7 @@ private struct ProjectDocumentEditor: View {
                             .accessibilityIdentifier("project-document-text")
                     } header: { Text("正文 · \(text.count.formatted()) / \(ChatProject.documentCharacterLimit.formatted()) 字") }
                     Section {
-                        Toggle("提问时引用这份资料", isOn: $isIncluded)
+                        Toggle("提问时引用这份资料", isOn: $isIncluded).tint(Ink.seal)
                     } footer: {
                         Text("保存后启用资料合计：\(includedCharacters.formatted()) / \(ChatProject.documentCharacterLimit.formatted()) 字。关闭引用仍会保留资料。")
                     }
@@ -872,21 +886,21 @@ private struct ProjectDocumentEditor: View {
                     }
                 }
             }
-            .font(TypeScale.body).scrollContentBackground(.hidden).background(AppBackground())
+            .claudeGroupedFormStyle()
             .navigationTitle("查看与编辑资料").navigationBarTitleDisplayMode(.inline)
             .toolbar {
-                ToolbarItem(placement: .cancellationAction) { Button("取消") { dismiss() } }
+                ToolbarItem(placement: .topBarLeading) { ClaudeSheetCloseButton(label: "取消") { dismiss() } }
                 ToolbarItemGroup(placement: .topBarTrailing) {
                     Menu {
                         Button("复制正文", systemImage: "doc.on.doc") { UIPasteboard.general.string = text }
                         Button("分享文字文件", systemImage: "square.and.arrow.up") { shareDocument() }
                     } label: { Image(systemName: "ellipsis") }
                         .accessibilityLabel("资料操作").disabled(project == nil)
-                    Button("保存") { save() }.disabled(!changed || validationMessage != nil)
+                    Button("保存") { save() }.fontWeight(.semibold).disabled(!changed || validationMessage != nil)
                 }
             }
         }
-        .tint(Ink.seal)
+        .tint(Ink.ink)
         .interactiveDismissDisabled(changed)
         .sheet(isPresented: Binding(get: { shareURL != nil }, set: { if !$0 { shareURL = nil } })) {
             if let url = shareURL { ShareSheet(items: [url]) }
@@ -936,14 +950,15 @@ struct ProjectInstructionsView: View {
             VStack(alignment: .leading, spacing: 12) {
                 Text("这个项目里的对话只用这段指令，不叠加设置里的系统提示词。可以写身份、语气和规矩，比如「你是一位研究明史的老教授……」。")
                     .font(TypeScale.caption).foregroundStyle(Ink.ink3)
-                TextEditor(text: $text).font(TypeScale.serif(17)).scrollContentBackground(.hidden)
-                    .padding(12).background(Ink.raised, in: InkRounded(radius: 20))
+                TextEditor(text: $text).font(TypeScale.ui(15.5)).scrollContentBackground(.hidden)
+                    .padding(12).background(Ink.card, in: InkRounded(radius: 16))
+                    .overlay(InkRounded(radius: 16).stroke(Ink.line, lineWidth: 0.7))
                     .accessibilityIdentifier("project-instructions")
             }
-            .padding(20).background(Ink.paper)
+            .padding(20).background(Ink.groupedBg.ignoresSafeArea())
             .navigationTitle("指令").navigationBarTitleDisplayMode(.inline)
             .toolbar {
-                ToolbarItem(placement: .topBarLeading) { Button("取消") { dismiss() } }
+                ToolbarItem(placement: .topBarLeading) { ClaudeSheetCloseButton(label: "取消") { dismiss() } }
                 ToolbarItem(placement: .topBarTrailing) {
                     Button("保存") {
                         guard var project = store.project(projectID) else { dismiss(); return }
@@ -981,24 +996,24 @@ struct AllChatsView: View {
     var body: some View {
         NavigationStack {
             List(selection: $selection) {
-                ForEach(shown) { thread in
-                    if editing { rowLabel(thread).tag(thread.id) }
-                    else {
-                        Button { store.select(thread.id); opened() } label: { rowLabel(thread) }
-                            .buttonStyle(.plain).tag(thread.id)
+                Section {
+                    ForEach(shown) { thread in
+                        if editing { rowLabel(thread).tag(thread.id) }
+                        else {
+                            Button { store.select(thread.id); opened() } label: { rowLabel(thread) }
+                                .buttonStyle(.plain).tag(thread.id)
+                        }
                     }
                 }
-                .listRowBackground(Color.clear)
+                .claudeCardRow()
             }
-            .listStyle(.plain)
-            .scrollContentBackground(.hidden)
-            .background(AppBackground())
+            .claudeGroupedListStyle()
             .environment(\.editMode, $editMode)
             .searchable(text: $search, prompt: "搜索对话")
             .navigationTitle("全部对话")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
-                ToolbarItem(placement: .topBarLeading) { Button("完成") { dismiss() } }
+                ToolbarItem(placement: .topBarLeading) { ClaudeSheetCloseButton(label: "完成") { dismiss() } }
                 ToolbarItem(placement: .topBarTrailing) {
                     Button(editing ? "取消" : "选择") {
                         withAnimation { editMode = editing ? .inactive : .active }
@@ -1092,11 +1107,11 @@ struct ProjectDesignerView: View {
                 .padding(20)
             }
             .scrollDismissesKeyboard(.interactively)
-            .background(Ink.paper)
+            .background(Ink.groupedBg.ignoresSafeArea())
             .navigationTitle(adjusting ? "让 AI 调整项目" : "让 AI 帮我建项目")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
-                ToolbarItem(placement: .topBarLeading) { Button("取消") { task?.cancel(); dismiss() } }
+                ToolbarItem(placement: .topBarLeading) { ClaudeSheetCloseButton(label: "取消") { task?.cancel(); dismiss() } }
                 ToolbarItem(placement: .topBarTrailing) {
                     Button(adjusting ? "应用" : "创建") { save() }
                         .fontWeight(.semibold)
@@ -1114,18 +1129,20 @@ struct ProjectDesignerView: View {
         VStack(alignment: .leading, spacing: 10) {
             Text(prompt).font(TypeScale.caption).foregroundStyle(Ink.ink3)
             TextEditor(text: $wish)
-                .font(TypeScale.serif(17)).scrollContentBackground(.hidden)
+                .font(TypeScale.ui(15.5)).scrollContentBackground(.hidden)
                 .frame(minHeight: 96)
-                .padding(12).background(Ink.raised, in: InkRounded(radius: 20))
+                .padding(12).background(Ink.card, in: InkRounded(radius: 16))
+                .overlay(InkRounded(radius: 16).stroke(Ink.line, lineWidth: 0.7))
                 .accessibilityIdentifier("project-designer-wish")
             Button { generate() } label: {
                 HStack(spacing: 8) {
                     if working { ProgressView() } else { Image(systemName: "sparkles") }
                     Text(working ? "正在生成…" : buttonTitle)
                 }
-                .font(TypeScale.serif(17).weight(.semibold))
-                .frame(maxWidth: .infinity).frame(height: 46)
-                .overlay(InkCapsule().stroke(Ink.line, lineWidth: 1))
+                .font(TypeScale.ui(15.5, weight: .semibold))
+                .frame(maxWidth: .infinity).frame(height: 44)
+                .background(Ink.card, in: InkCapsule())
+                .overlay(InkCapsule().stroke(Ink.line, lineWidth: 0.8))
                 .contentShape(Capsule())
             }
             .buttonStyle(.plain)

@@ -7,7 +7,7 @@ struct StudyCloudBackupSection: View {
     @State private var keepLocal = false
     var body: some View {
         Section {
-            Toggle("自动备份学习项目到 Drive", isOn: Binding(get: { cloud.state.enabled }, set: cloud.setEnabled))
+            Toggle("自动备份学习项目到 Drive", isOn: Binding(get: { cloud.state.enabled }, set: cloud.setEnabled)).tint(Ink.seal)
             LabeledContent("Google账号", value: store.drive.accountLabel)
             Text(cloud.status).font(TypeScale.caption).foregroundStyle(Ink.ink3)
             if let capacity = cloud.imageCapacity {
@@ -119,9 +119,9 @@ private struct StudyRestorePreviewView: View {
                     Button("恢复这一版本") { confirming = true }.disabled(cloud.busy)
                 }
             }
-            .font(TypeScale.body).scrollContentBackground(.hidden).background(AppBackground()).foregroundStyle(Ink.ink).tint(Ink.ink)
+            .claudeGroupedFormStyle()
             .navigationTitle("核对恢复内容").navigationBarTitleDisplayMode(.inline)
-            .toolbar { ToolbarItem(placement: .cancellationAction) { Button("取消") { dismiss() } } }
+            .toolbar { ToolbarItem(placement: .topBarLeading) { ClaudeSheetCloseButton(label: "取消") { dismiss() } } }
             .confirmationDialog("确认恢复上述学习项目？", isPresented: $confirming) {
                 Button("保存本机快照并恢复") { cloud.confirmRestore() }
             } message: { Text("将恢复\(preview.payload.snapshot.threads.count)个对话和\(preview.payload.images.count)张图片。\(preview.payload.isComplete ? "" : "另有\(preview.payload.omittedImages?.count ?? 0)张图未包含。")原云端文件不会改变。") }

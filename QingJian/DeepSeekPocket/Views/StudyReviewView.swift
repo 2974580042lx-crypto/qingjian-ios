@@ -28,12 +28,13 @@ struct StudyReviewView: View {
                     }
                 }.padding(20)
             }
-            .background(AppBackground()).foregroundStyle(Ink.ink)
+            .background(Ink.groupedBg.ignoresSafeArea()).foregroundStyle(Ink.ink)
             .navigationTitle(kind == "voice" ? "今日语音复习" : "本周周报").navigationBarTitleDisplayMode(.inline)
             .toolbar {
-                ToolbarItem(placement: .cancellationAction) { Button("完成") { dismiss() } }
+                ToolbarItem(placement: .topBarLeading) { ClaudeSheetCloseButton(label: "完成") { dismiss() } }
                 ToolbarItem(placement: .confirmationAction) {
                     Button(copied ? "已复制" : "复制") { copyCurrent() }
+                        .fontWeight(.semibold)
                         .disabled(presentation?.current != true)
                 }
             }
@@ -79,14 +80,14 @@ struct StudyHistoryImportPreview: View {
                     }
                 }
             }
-            .font(TypeScale.body).scrollContentBackground(.hidden).background(AppBackground()).foregroundStyle(Ink.ink)
-            .navigationTitle("导入历史资料").navigationBarTitleDisplayMode(.inline).tint(Ink.ink)
+            .claudeGroupedFormStyle()
+            .navigationTitle("导入历史资料").navigationBarTitleDisplayMode(.inline)
             .toolbar {
-                ToolbarItem(placement: .cancellationAction) { Button("取消") { dismiss() } }
+                ToolbarItem(placement: .topBarLeading) { ClaudeSheetCloseButton(label: "取消") { dismiss() } }
                 ToolbarItem(placement: .confirmationAction) {
                     Button(pack.kind == "outline" ? "已核对，导入" : "导入参考资料") {
                         if store.importHistoryPack(projectID: projectID, pack: pack, confirmed: pack.kind == "outline") { dismiss() }
-                    }
+                    }.fontWeight(.semibold)
                 }
             }
         }

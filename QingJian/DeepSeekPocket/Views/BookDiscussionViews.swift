@@ -96,10 +96,10 @@ struct BookDiscussionCharacterPicker: View {
             }
             .disabled(store.isGenerating || !store.canPersist)
             .searchable(text: $search, prompt: "搜索或输入书中角色名")
-            .scrollContentBackground(.hidden).background(AppBackground())
+            .claudeGroupedListStyle()
             .navigationTitle("问角色").navigationBarTitleDisplayMode(.inline)
-            .toolbar { ToolbarItem(placement: .cancellationAction) { Button("取消") { dismiss() } } }
-        }.tint(Ink.seal)
+            .toolbar { ToolbarItem(placement: .topBarLeading) { ClaudeSheetCloseButton(label: "取消") { dismiss() } } }
+        }.tint(Ink.ink)
     }
 }
 
@@ -166,7 +166,7 @@ struct BookDiscussionsView: View {
             }
         }
         .searchable(text: $search, prompt: "搜索本书讨论")
-        .scrollContentBackground(.hidden).background(AppBackground()).navigationTitle("本书讨论")
+        .claudeGroupedListStyle().navigationTitle("本书讨论").navigationBarTitleDisplayMode(.inline)
     }
 }
 
@@ -194,15 +194,16 @@ struct BookReferencesView: View {
                     }
                 }
             }
-            .scrollContentBackground(.hidden).background(AppBackground()).navigationTitle("书内依据")
-            .navigationBarTitleDisplayMode(.inline).toolbar { Button("完成") { dismiss() } }
+            .claudeGroupedListStyle().navigationTitle("书内依据")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar { ToolbarItem(placement: .topBarLeading) { ClaudeSheetCloseButton(label: "完成") { dismiss() } } }
             .sheet(item: $reading) { ref in
                 NavigationStack {
                     ChapterReaderView(bookID: ref.bookID, chapter: ref.chapter, paragraph: ref.paragraph, opened: { reading = nil; dismiss() })
                         .environmentObject(store).environmentObject(books)
                 }
             }
-        }.tint(Ink.seal)
+        }.tint(Ink.ink)
     }
 }
 

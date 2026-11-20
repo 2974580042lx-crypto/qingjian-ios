@@ -109,10 +109,10 @@ struct StudyMemoryView: View {
                                         HStack(spacing: 6) {
                                             ForEach(summary.todayWordsList.prefix(25), id: \.word.id) { item in
                                                 Text("\(item.word.word) · \(ratingLabel(item.lastRating))")
-                                                    .font(.system(size: 12.5, weight: .medium, design: .monospaced))
-                                                    .foregroundStyle(Ink.seal)
+                                                    .font(.system(size: 12, weight: .medium, design: .monospaced))
+                                                    .foregroundStyle(Ink.ink2)
                                                     .padding(.horizontal, 8).padding(.vertical, 3)
-                                                    .background(Ink.seal.opacity(0.12), in: Capsule())
+                                                    .background(Ink.raised, in: Capsule())
                                             }
                                         }
                                     }
@@ -123,16 +123,16 @@ struct StudyMemoryView: View {
                                     ForEach(summary.recentWords, id: \.word.id) { item in
                                         VStack(alignment: .leading, spacing: 4) {
                                             HStack {
-                                                Text(item.word.word).font(TypeScale.body.weight(.semibold)).foregroundStyle(Ink.seal)
+                                                Text(item.word.word).font(TypeScale.ui(15.5, weight: .semibold)).foregroundStyle(Ink.ink)
                                                 if let phonetic = item.word.phonetic, !phonetic.isEmpty {
                                                     Text(phonetic).font(TypeScale.caption).foregroundStyle(Ink.ink3)
                                                 }
                                                 Spacer()
                                                 Text(ratingLabel(item.lastRating))
                                                     .font(TypeScale.tiny.weight(.medium))
-                                                    .foregroundStyle(Ink.seal)
-                                                    .padding(.horizontal, 6).padding(.vertical, 2)
-                                                    .background(Ink.seal.opacity(0.12), in: Capsule())
+                                                    .foregroundStyle(Ink.ink2)
+                                                    .padding(.horizontal, 7).padding(.vertical, 2)
+                                                    .background(Ink.raised, in: Capsule())
                                             }
                                             Text(item.word.meaning).font(TypeScale.caption).foregroundStyle(Ink.ink2).lineLimit(2)
                                             if let reviewedAt = item.lastReviewedAt {
@@ -238,8 +238,8 @@ struct StudyMemoryView: View {
                 }
             } else { Text("项目已上锁或不存在，请返回后重新打开。") }
         }
-        .font(TypeScale.body).scrollContentBackground(.hidden).background(AppBackground())
-        .foregroundStyle(Ink.ink).tint(Ink.ink).navigationTitle("项目学习记忆")
+        .claudeGroupedFormStyle()
+        .navigationTitle("项目学习记忆")
         .navigationBarTitleDisplayMode(.inline)
         .onAppear(perform: reload)
         .onChange(of: store.studyRevision) { _, _ in reload() }
@@ -355,14 +355,14 @@ private struct StudyRecordEditor: View {
                 if let issue = store.studyIssue { Text(issue).font(TypeScale.caption).foregroundStyle(.red) }
                 if record != nil { Button("移出有效记忆", role: .destructive) { deleting = true } }
             }
-            .font(TypeScale.body).scrollContentBackground(.hidden).background(AppBackground()).tint(Ink.ink)
+            .claudeGroupedFormStyle()
             .navigationTitle(record == nil ? "添加学习记录" : "编辑学习记录").navigationBarTitleDisplayMode(.inline)
             .toolbar {
-                ToolbarItem(placement: .cancellationAction) { Button("取消") { dismiss() } }
+                ToolbarItem(placement: .topBarLeading) { ClaudeSheetCloseButton(label: "取消") { dismiss() } }
                 ToolbarItem(placement: .confirmationAction) {
                     Button("保存") {
                         save(deleting: false)
-                    }.disabled(text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || text.count > 4000)
+                    }.fontWeight(.semibold).disabled(text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || text.count > 4000)
                 }
             }
             .confirmationDialog("移出有效记忆后，可以在修改历史里撤销。", isPresented: $deleting) {
