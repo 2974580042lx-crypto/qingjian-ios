@@ -533,8 +533,11 @@ final class OperationManualStore: @unchecked Sendable {
             try? save(fresh)
             return fresh
         }
+        guard let data = try? Data(contentsOf: url) else {
+            // File exists on disk (e.g. before first unlock) — use in-memory default without overwriting disk!
+            return OperationManualBook.defaultBook()
+        }
         do {
-            let data = try Data(contentsOf: url)
             let decoder = JSONDecoder()
             decoder.dateDecodingStrategy = .iso8601
             let decoded = try decoder.decode(OperationManualBook.self, from: data)
@@ -544,14 +547,20 @@ final class OperationManualStore: @unchecked Sendable {
             }
             return merged
         } catch {
-            // Preserve unreadable file for safety before falling back to defaults.
+            // Preserve the original file untouched on disk; keep at most 3 diagnostic copies.
+            let dir = url.deletingLastPathComponent()
             let stamp = Int(Date().timeIntervalSince1970)
-            let backupURL = url.deletingLastPathComponent()
-                .appendingPathComponent("operation-manual-corrupted-\(stamp).json")
-            try? fm.copyItem(at: url, to: backupURL)
-            let fallback = OperationManualBook.defaultBook()
-            try? save(fallback)
-            return fallback
+            let backupURL = dir.appendingPathComponent("operation-manual-corrupted-\(stamp).json")
+            try? data.write(to: backupURL, options: .atomic)
+            if let siblings = try? fm.contentsOfDirectory(at: dir, includingPropertiesForKeys: nil) {
+                let corrupted = siblings
+                    .filter { $0.lastPathComponent.hasPrefix("operation-manual-corrupted-") }
+                    .sorted { $0.lastPathComponent > $1.lastPathComponent }
+                for stale in corrupted.dropFirst(3) {
+                    try? fm.removeItem(at: stale)
+                }
+            }
+            return OperationManualBook.defaultBook()
         }
     }
 

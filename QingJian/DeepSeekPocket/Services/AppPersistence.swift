@@ -18,25 +18,39 @@ final class AppPersistence: @unchecked Sendable {
     private var lastNonEmptyThreadCount = 0
     var onBackgroundError: (@Sendable (String) -> Void)?
 
-    init() throws {
-        directory = try FileManager.default.url(for: .applicationSupportDirectory,
-                                                in: .userDomainMask, appropriateFor: nil, create: true)
-            .appendingPathComponent("QingJian", isDirectory: true)
+    convenience init() throws {
+        let support = try FileManager.default.url(
+            for: .applicationSupportDirectory,
+            in: .userDomainMask,
+            appropriateFor: nil,
+            create: true
+        ).appendingPathComponent("QingJian", isDirectory: true)
+        try self.init(baseDirectory: support)
+    }
+
+    init(baseDirectory: URL) throws {
+        directory = baseDirectory
         safetyDirectory = directory.appendingPathComponent("Safety", isDirectory: true)
         try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
         try FileManager.default.createDirectory(at: safetyDirectory, withIntermediateDirectories: true)
+        #if os(iOS)
         try? FileManager.default.setAttributes([.protectionKey: FileProtectionType.completeUntilFirstUserAuthentication], ofItemAtPath: directory.path)
         try? FileManager.default.setAttributes([.protectionKey: FileProtectionType.completeUntilFirstUserAuthentication], ofItemAtPath: safetyDirectory.path)
+        #endif
         file = directory.appendingPathComponent("conversations.json")
+        #if os(iOS)
         if FileManager.default.fileExists(atPath: file.path) {
             try? FileManager.default.setAttributes([.protectionKey: FileProtectionType.completeUntilFirstUserAuthentication], ofItemAtPath: file.path)
         }
+        #endif
     }
     func load() throws -> AppSnapshot? {
-        guard FileManager.default.fileExists(atPath: file.path) else { return nil }
-        let loaded = try AppSnapshot.decodeLocal(Data(contentsOf: file))
-        lastNonEmptyThreadCount = loaded.threads.filter { !$0.messages.isEmpty }.count
-        return loaded
+        try queue.sync {
+            guard FileManager.default.fileExists(atPath: file.path) else { return nil }
+            let loaded = try AppSnapshot.decodeLocal(Data(contentsOf: file))
+            lastNonEmptyThreadCount = loaded.threads.filter { !$0.messages.isEmpty }.count
+            return loaded
+        }
     }
     func save(_ snapshot: AppSnapshot, allowShrink: Bool = false) throws {
         try queue.sync { try write(snapshot, allowShrink: allowShrink) }
@@ -47,19 +61,27 @@ final class AppPersistence: @unchecked Sendable {
             catch { onBackgroundError?(error.localizedDescription) }
         }
     }
+    private static var atomicWriteOptions: Data.WritingOptions {
+        #if os(iOS)
+        return [.atomic, .completeFileProtectionUntilFirstUserAuthentication]
+        #else
+        return [.atomic]
+        #endif
+    }
     private func write(_ snapshot: AppSnapshot, allowShrink: Bool) throws {
         let data = try snapshot.encoded(pretty: false, isLocalStore: true)
         let newNonEmpty = snapshot.threads.filter { !$0.messages.isEmpty }.count
         if !allowShrink, FileManager.default.fileExists(atPath: file.path) {
-            let oldSize = (try? file.resourceValues(forKeys: [.fileSizeKey]).fileSize) ?? 0
+            let attrs = try? FileManager.default.attributesOfItem(atPath: file.path)
+            let oldSize = (attrs?[.size] as? NSNumber)?.intValue ?? 0
             let drasticByteDrop = oldSize > 100 * 1024 && data.count * 5 < oldSize
-            let drasticThreadDrop = lastNonEmptyThreadCount >= 5 && newNonEmpty == 0
+            let drasticThreadDrop = lastNonEmptyThreadCount >= 1 && newNonEmpty == 0
             if drasticByteDrop || drasticThreadDrop {
-                _ = try? createSafetyCopy(prefix: "before-shrink")
+                _ = try? createSafetyCopy(prefix: "before-shrink", keep: 5)
                 throw ChatError.server("检测到对话记录异常骤减，原文件已保护在 Safety 目录并停止覆盖。")
             }
         }
-        try data.write(to: file, options: [.atomic, .completeFileProtectionUntilFirstUserAuthentication])
+        try data.write(to: file, options: Self.atomicWriteOptions)
         lastNonEmptyThreadCount = newNonEmpty
     }
     @discardableResult
@@ -71,19 +93,22 @@ final class AppPersistence: @unchecked Sendable {
         let name = "\(prefix)-\(formatter.string(from: Date()))-\(UUID().uuidString.prefix(4)).json"
         let target = safetyDirectory.appendingPathComponent(name)
         let raw = try Data(contentsOf: file)
-        try raw.write(to: target, options: [.atomic, .completeFileProtectionUntilFirstUserAuthentication])
-        pruneSafetyCopies(keep: keep)
+        try raw.write(to: target, options: Self.atomicWriteOptions)
+        pruneSafetyCopies(prefix: prefix, keep: keep)
         return target
     }
-    private func pruneSafetyCopies(keep: Int) {
+    private func pruneSafetyCopies(prefix: String, keep: Int) {
         guard let urls = try? FileManager.default.contentsOfDirectory(
             at: safetyDirectory, includingPropertiesForKeys: [.creationDateKey], options: [.skipsHiddenFiles]
         ) else { return }
-        let sorted = urls.filter { $0.pathExtension == "json" }.sorted {
-            let d0 = (try? $0.resourceValues(forKeys: [.creationDateKey]).creationDate) ?? .distantPast
-            let d1 = (try? $1.resourceValues(forKeys: [.creationDateKey]).creationDate) ?? .distantPast
-            return d0 > d1
-        }
+        let bucketPrefix = prefix + "-"
+        let sorted = urls
+            .filter { $0.pathExtension == "json" && $0.lastPathComponent.hasPrefix(bucketPrefix) }
+            .sorted {
+                let d0 = (try? $0.resourceValues(forKeys: [.creationDateKey]).creationDate) ?? .distantPast
+                let d1 = (try? $1.resourceValues(forKeys: [.creationDateKey]).creationDate) ?? .distantPast
+                return d0 > d1
+            }
         for old in sorted.dropFirst(max(1, keep)) {
             try? FileManager.default.removeItem(at: old)
         }
@@ -101,17 +126,20 @@ final class AppPersistence: @unchecked Sendable {
     }
     func fileStats() -> (size: Int64, modified: Date?) {
         guard FileManager.default.fileExists(atPath: file.path),
-              let values = try? file.resourceValues(forKeys: [.fileSizeKey, .contentModificationDateKey]) else {
+              let attrs = try? FileManager.default.attributesOfItem(atPath: file.path) else {
             return (0, nil)
         }
-        return (Int64(values.fileSize ?? 0), values.contentModificationDate)
+        let size = (attrs[.size] as? NSNumber)?.int64Value ?? 0
+        let mod = attrs[.modificationDate] as? Date
+        return (size, mod)
     }
     func export(_ snapshot: AppSnapshot) throws -> URL {
         let formatter = DateFormatter()
+        formatter.locale = Locale(identifier: "en_US_POSIX")
         formatter.dateFormat = "yyyyMMdd-HHmmss"
         let url = FileManager.default.temporaryDirectory
             .appendingPathComponent("Sermo备份-\(formatter.string(from: Date())).json")
-        try snapshot.encoded(pretty: true, isLocalStore: false).write(to: url, options: [.atomic, .completeFileProtectionUntilFirstUserAuthentication])
+        try snapshot.encoded(pretty: true, isLocalStore: false).write(to: url, options: Self.atomicWriteOptions)
         return url
     }
 }

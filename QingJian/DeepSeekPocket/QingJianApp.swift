@@ -37,8 +37,7 @@ struct QingJianApp: App {
                     store.studyCloud.setForeground(phase == .active)
                     if phase == .background {
                         store.persistNow()
-                        // Leaving the app counts as leaving the conversation for project memory.
-                        store.updateMemory(leaving: store.activeThreadID)
+                        // relockProjects() also triggers updateMemory(leaving: activeThreadID) once cleanly.
                         store.relockProjects()
                     }
                     if phase == .active {

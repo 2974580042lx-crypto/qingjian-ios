@@ -350,9 +350,12 @@ enum IPAAnalyzer {
             for i in 0..<nfat {
                 let entryOffset = 8 + i * archSize
                 guard entryOffset + archSize <= data.count else { break }
-                let sliceOffset = isFat64 ? Int(u64BE(data, entryOffset + 8)) : Int(u32BE(data, entryOffset + 8))
-                let sliceSize = isFat64 ? Int(u64BE(data, entryOffset + 16)) : Int(u32BE(data, entryOffset + 12))
-                guard sliceOffset >= 0, sliceSize >= 28, sliceOffset + sliceSize <= data.count else { continue }
+                let rawOffset: UInt64 = isFat64 ? u64BE(data, entryOffset + 8) : UInt64(u32BE(data, entryOffset + 8))
+                let rawSize: UInt64 = isFat64 ? u64BE(data, entryOffset + 16) : UInt64(u32BE(data, entryOffset + 12))
+                let totalBytes = UInt64(data.count)
+                guard rawOffset <= totalBytes, rawSize >= 28, rawSize <= totalBytes - rawOffset else { continue }
+                let sliceOffset = Int(rawOffset)
+                let sliceSize = Int(rawSize)
                 let sliceData = data.subdata(in: (data.startIndex + sliceOffset)..<(data.startIndex + sliceOffset + sliceSize))
                 if let parsed = parseSingleMachO(sliceData) {
                     slices.append(parsed)

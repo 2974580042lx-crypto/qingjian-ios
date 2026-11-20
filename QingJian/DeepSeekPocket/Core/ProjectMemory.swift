@@ -96,17 +96,30 @@ enum ProjectMemory {
         return ChatRequest(settings: config, messages: [ChatMessage(role: .user, content: payload)])
     }
 
-    /// Claude Code style `/compact` structured conversation compaction.
-    static func compactRequest(thread: ChatThread, project: ChatProject?) throws -> ChatRequest {
+    struct CompactionPlan: Sendable {
+        let request: ChatRequest
+        let compactedCount: Int
+        let tailKeepCount: Int
+    }
+
+    /// Claude Code style `/compact` structured conversation compaction with exact lossless slicing.
+    static func prepareCompaction(
+        thread: ChatThread,
+        project: ChatProject?,
+        tailKeepCount: Int = 4,
+        maxBatchCount: Int = 60
+    ) throws -> CompactionPlan {
         let settled = thread.messages.filter { !$0.content.isEmpty && ($0.role == .user || $0.state == .complete) }
-        guard settled.count >= 4 else {
-            throw ChatError.server("当前对话还不长（少于 4 条完整消息），暂时不需要浓缩。")
+        guard settled.count > tailKeepCount else {
+            throw ChatError.server("当前对话还不长（少于 \(tailKeepCount + 1) 条完整消息），暂时不需要浓缩。")
         }
+        let eligibleCount = settled.count - tailKeepCount
+        let compactedCount = min(eligibleCount, max(1, maxBatchCount))
         func clip(_ text: String) -> String {
             let decoded = PendingDocumentCodec.decode(text).userText
             return decoded.count <= 1800 ? decoded : String(decoded.prefix(1100)) + "\n…\n" + String(decoded.suffix(500))
         }
-        let transcript = settled.suffix(60).enumerated().map { idx, msg in
+        let transcript = settled.prefix(compactedCount).enumerated().map { idx, msg in
             let role = msg.role == .user ? "用户" : "助手"
             return "[\(idx + 1)] \(role)：\(clip(msg.content))"
         }.joined(separator: "\n\n")
@@ -123,7 +136,39 @@ enum ProjectMemory {
         【当前进度与下一步】停留在哪一步、接下来准备继续什么。
         整体摘要控制在 800 字以内，准确、具体、可直接作为前情提要使用。
         """
-        return ChatRequest(settings: config, messages: [ChatMessage(role: .user, content: transcript)])
+        let request = ChatRequest(settings: config, messages: [ChatMessage(role: .user, content: transcript)])
+        return CompactionPlan(request: request, compactedCount: compactedCount, tailKeepCount: tailKeepCount)
+    }
+
+    static func compactRequest(thread: ChatThread, project: ChatProject?) throws -> ChatRequest {
+        try prepareCompaction(thread: thread, project: project).request
+    }
+
+    static func buildCompactedThread(
+        from current: ChatThread,
+        summary: String,
+        compactedCount: Int,
+        cleanTitle: String? = nil
+    ) -> ChatThread {
+        let settled = current.messages.filter { !$0.content.isEmpty && ($0.role == .user || $0.state == .complete) }
+        let actualCount = min(max(1, compactedCount), settled.count)
+        let remainingMessages = Array(settled.dropFirst(actualCount))
+        var headerMsg = ChatMessage(
+            role: .user,
+            content: "【前情无损浓缩摘要（/compact）】\n\(summary)",
+            directive: "已无损浓缩前 \(actualCount) 条消息（点开查看摘要，完整原记录仍在『旧答案』）",
+            directiveDetail: summary
+        )
+        headerMsg.createdAt = settled.first?.createdAt ?? Date()
+        var newMessages: [ChatMessage] = [headerMsg]
+        newMessages.append(contentsOf: remainingMessages)
+        var compactedThread = current
+        compactedThread.id = UUID()
+        compactedThread.parentThreadID = current.id
+        compactedThread.title = cleanTitle ?? current.title
+        compactedThread.messages = newMessages
+        compactedThread.updatedAt = Date()
+        return compactedThread
     }
 
     static func parseCompactSummary(_ text: String) -> String {

@@ -797,29 +797,49 @@ final class AppStore: ObservableObject {
             return false
         }
         let old = projects
+        let removedDocuments = clean.documents.count < projects[index].documents.count
         projects[index] = clean
         // Suggestions in flight were written for the old instructions.
         cancelReplySuggestions()
-        if !persistNow() { projects = old; return false }
+        if !persistNow(allowShrink: removedDocuments) { projects = old; return false }
         return true
     }
     // keepConversations moves the project's chats back to recents instead of deleting them.
     func deleteProject(_ id: UUID, keepConversations: Bool) {
         guard projects.contains(where: { $0.id == id }) else { return }
         let members = threads.filter { $0.projectID == id }.map(\.id)
-        guard generatingThreadID.map({ !members.contains($0) }) ?? true else { return }
+        guard generatingThreadID.map({ !members.contains($0) }) ?? true,
+              compactingThreadID.map({ !members.contains($0) }) ?? true else { return }
         if let project = project(id), project.studySubject != nil {
             do { try studyStore(for: id).archiveProject(project, keptThreadIDs: keepConversations ? members : []) }
             catch { errorMessage = "项目未删除，学习记录归档失败：\(error.localizedDescription)"; return }
         }
-        if !keepConversations {
-            for threadID in members where threads.contains(where: { $0.id == threadID }) { deleteThread(threadID) }
-        }
         let old = threads, oldProjects = projects, oldID = activeThreadID
-        for i in threads.indices where threads[i].projectID == id { threads[i].projectID = nil }
+        var removedPictures: [String] = []
+        if !keepConversations, !members.isEmpty {
+            let families = members.reduce(into: Set<UUID>()) { acc, tid in
+                acc.formUnion(ConversationHistory.memberIDs(for: tid, in: threads))
+            }
+            if suggestingThreadID.map({ families.contains($0) }) ?? false { cancelReplySuggestions() }
+            removedPictures = threads.filter { families.contains($0.id) }.flatMap { thread in
+                (thread.messages + (thread.storyCheckpoints ?? []).flatMap(\.messages)).flatMap { $0.images ?? [] }
+            }
+            threads.removeAll { families.contains($0.id) }
+            if threads.isEmpty { threads = [ChatThread()] }
+            if activeThreadID.map({ families.contains($0) }) ?? false { activeThreadID = sortedThreads.first?.id }
+            if translatingThreadID.map({ families.contains($0) }) ?? false { translationTask?.cancel() }
+        } else {
+            for i in threads.indices where threads[i].projectID == id { threads[i].projectID = nil }
+        }
         projects.removeAll { $0.id == id }
         unlockedProjectIDs.remove(id)
-        if !persistNow() { threads = old; projects = oldProjects; activeThreadID = oldID; return }
+        if !persistNow(allowShrink: true) { threads = old; projects = oldProjects; activeThreadID = oldID; return }
+        if !removedPictures.isEmpty {
+            let remainingPictures = Set(threads.flatMap { thread in
+                (thread.messages + (thread.storyCheckpoints ?? []).flatMap(\.messages)).flatMap { $0.images ?? [] }
+            })
+            removeStudySafeImages(removedPictures.filter { !remainingPictures.contains($0) })
+        }
         // A deleted manual stays deleted until it is restored from the feature overview.
         if id == AppManual.projectID { UserDefaults.standard.set(true, forKey: Self.manualDismissedKey) }
     }
@@ -991,7 +1011,9 @@ final class AppStore: ObservableObject {
 
     @discardableResult
     func selectConversationVersion(_ id: UUID) -> Bool {
+        let family = ConversationHistory.memberIDs(for: id, in: threads)
         guard canPersist, !isGenerating,
+              compactingThreadID.map({ !family.contains($0) }) ?? true,
               let thread = threads.first(where: { $0.id == id }), thread.story == nil, !isHidden(thread) else {
             errorMessage = "这个版本暂时不能打开，请等待回答结束或解锁项目。"
             return false
@@ -1002,8 +1024,7 @@ final class AppStore: ObservableObject {
         if let index = threads.firstIndex(where: { $0.id == id }) { threads[index].updatedAt = Date() }
         if !persistNow() { activeThreadID = oldID; threads = oldThreads; return false }
         if let projID = thread.projectID, project(projID)?.studySubject != nil {
-            let family = ConversationHistory.memberIDs(for: id, in: threads).subtracting([id])
-            try? studyMemory?.rebindSessions(from: family, to: id, projectID: projID)
+            try? studyMemory?.rebindSessions(from: family.subtracting([id]), to: id, projectID: projID)
         }
         return true
     }
@@ -1045,12 +1066,20 @@ final class AppStore: ObservableObject {
         _ = updateProject(next)
     }
     func unlock(_ projectID: UUID) { unlockedProjectIDs.insert(projectID) }
-    // Called when the app leaves the foreground: lock projects again and leave any locked page.
+    // Called when the app leaves the foreground: lock projects again and always detach from any locked page,
+    // even if a response is still streaming in the background on its own threadID.
     func relockProjects() {
         updateMemory(leaving: activeThreadID)
         guard !unlockedProjectIDs.isEmpty else { return }
         unlockedProjectIDs.removeAll()
-        if let thread = activeThread, isHidden(thread), !isGenerating { createThread() }
+        if let thread = activeThread, isHidden(thread) {
+            if let empty = sortedThreads.first(where: { $0.messages.isEmpty && ($0.draft ?? "").isEmpty && $0.projectID == nil }) {
+                activeThreadID = empty.id
+                _ = persistNow()
+            } else {
+                createThread(in: nil)
+            }
+        }
     }
 
     func refreshBalance(force: Bool = false) {
@@ -1099,8 +1128,17 @@ final class AppStore: ObservableObject {
         activeThreadID = id; persistNow()
     }
     func deleteThread(_ id: UUID) {
-        let family = ConversationHistory.memberIDs(for: id, in: threads)
-        guard generatingThreadID.map({ !family.contains($0) }) ?? true else { return }
+        deleteThreads([id])
+    }
+    func deleteThreads(_ ids: Set<UUID>) {
+        guard !ids.isEmpty else { return }
+        var family = Set<UUID>()
+        for id in ids {
+            family.formUnion(ConversationHistory.memberIDs(for: id, in: threads))
+        }
+        guard !family.isEmpty,
+              generatingThreadID.map({ !family.contains($0) }) ?? true,
+              compactingThreadID.map({ !family.contains($0) }) ?? true else { return }
         if suggestingThreadID.map({ family.contains($0) }) ?? false { cancelReplySuggestions() }
         let old = threads, oldID = activeThreadID
         let pictures = threads.filter { family.contains($0.id) }.flatMap { thread in
@@ -1109,7 +1147,7 @@ final class AppStore: ObservableObject {
         threads.removeAll { family.contains($0.id) }
         if threads.isEmpty { threads = [ChatThread()] }
         if activeThreadID.map({ family.contains($0) }) ?? false { activeThreadID = sortedThreads.first?.id }
-        if !persistNow() { threads = old; activeThreadID = oldID; return }
+        if !persistNow(allowShrink: true) { threads = old; activeThreadID = oldID; return }
         let remainingPictures = Set(threads.flatMap { thread in
             (thread.messages + (thread.storyCheckpoints ?? []).flatMap(\.messages)).flatMap { $0.images ?? [] }
         })
@@ -1404,14 +1442,14 @@ final class AppStore: ObservableObject {
         return false
     }
     func regenerate() {
-        guard !isGenerating, canChat, canPersist, let threadID = activeThreadID,
+        guard !isGenerating, compactingThreadID == nil, canChat, canPersist, let threadID = activeThreadID,
               let ti = threads.firstIndex(where: { $0.id == threadID }),
               threads[ti].messages.last?.role == .assistant else { return }
         do { _ = replaceConversation(try ConversationEditing.retryCopy(of: threads[ti]), generate: true) }
         catch { errorMessage = error.localizedDescription }
     }
     func editMessage(_ id: UUID, text: String, resend: Bool) -> Bool {
-        guard !isGenerating, canPersist, let original = activeThread else { return false }
+        guard !isGenerating, compactingThreadID == nil, canPersist, let original = activeThread else { return false }
         if resend && !canChat { errorMessage = chatUnavailableMessage; return false }
         do {
             let edited = try ConversationEditing.editedCopy(of: original, messageID: id, text: text, resend: resend)
@@ -2719,10 +2757,10 @@ final class AppStore: ObservableObject {
         let settled = (project.memorizedCounts?[threadID.uuidString] ?? 0) + batchCount
         let model = project.subscriptionModel ?? settings.subscriptionModel, before = project.memory, key = apiKey
         memorizingProjectID = project.id
-        // Leaving for the background must not cut the request off halfway.
-        let background = UIApplication.shared.beginBackgroundTask(withName: "project-memory", expirationHandler: nil)
-        memoryTask = Task { [weak self] in
-            defer { if background != .invalid { UIApplication.shared.endBackgroundTask(background) } }
+        // Leaving for the background must not cut the request off halfway; end cleanly if lease expires.
+        let lease = BackgroundTaskLease(name: "project-memory")
+        let worker = Task { @MainActor [weak self] in
+            defer { lease.end() }
             guard let self else { return }
             defer { self.memoryTask = nil; self.memorizingProjectID = nil }
             let buffer = MemoryBuffer()
@@ -2742,6 +2780,8 @@ final class AppStore: ObservableObject {
                 self.storeQuietly(latest)
             } catch { }
         }
+        lease.bind(worker)
+        memoryTask = worker
     }
     // After an answer: a long chat is folded in midway, and 「记住…」「忘掉…」 right away.
     private func updateMemoryAfterAnswer(threadID: UUID) {
@@ -2770,36 +2810,39 @@ final class AppStore: ObservableObject {
     func compactActiveThread() {
         guard !isGenerating, compactingThreadID == nil, canPersist,
               let thread = activeThread else { return }
+        guard thread.story == nil else {
+            errorMessage = "原著剧情扮演请使用右上角『剧情控制、记忆与存档』整理前情。"
+            return
+        }
+        guard threads.count < 2000 else {
+            errorMessage = "对话与历史版本合计已达 2000 份，请先导出并整理。"
+            return
+        }
         let provider = auxiliaryProvider(for: thread)
         guard isReady(provider) else {
             errorMessage = "请先在设置中配置可用的模型服务后再浓缩对话。"
             return
         }
         let proj = project(thread.projectID)
-        let request: ChatRequest
+        let plan: ProjectMemory.CompactionPlan
         do {
-            request = try ProjectMemory.compactRequest(thread: thread, project: proj)
+            plan = try ProjectMemory.prepareCompaction(thread: thread, project: proj)
         } catch {
             errorMessage = error.localizedDescription
             return
         }
         let threadID = thread.id
-        let originalSettledCount = thread.messages.filter { !$0.content.isEmpty && ($0.role == .user || $0.state == .complete) }.count
-        let tailFromOriginal = min(4, originalSettledCount)
-        let summarizedCount = max(1, originalSettledCount - tailFromOriginal)
         let subModel = proj?.subscriptionModel ?? settings.subscriptionModel
         compactingThreadID = threadID
-        let background = UIApplication.shared.beginBackgroundTask(withName: "compact-thread", expirationHandler: nil)
-        Task { @MainActor [weak self] in
-            defer {
-                if background != .invalid { UIApplication.shared.endBackgroundTask(background) }
-            }
+        let lease = BackgroundTaskLease(name: "compact-thread")
+        let worker = Task { @MainActor [weak self] in
+            defer { lease.end() }
             guard let self else { return }
             defer { self.compactingThreadID = nil }
             let buffer = MemoryBuffer()
             do {
                 try await self.streamModel(
-                    request,
+                    plan.request,
                     provider: provider,
                     subscriptionModel: subModel,
                     requestTimeout: 90,
@@ -2809,27 +2852,19 @@ final class AppStore: ObservableObject {
                 self.recordUsage(buffer.value.usage, model: provider == .deepSeek ? .flash : nil, at: Date(), provider: provider)
                 let raw = try buffer.value.result()
                 let summary = ProjectMemory.parseCompactSummary(raw)
-                guard !summary.isEmpty,
-                      let current = self.threads.first(where: { $0.id == threadID }) else { return }
-                let settled = current.messages.filter { !$0.content.isEmpty && ($0.role == .user || $0.state == .complete) }
-                let compactedCount = min(summarizedCount, max(1, originalSettledCount))
-                let remainingMessages = Array(settled.dropFirst(min(compactedCount, settled.count)))
-                var headerMsg = ChatMessage(
-                    role: .user,
-                    content: "【前情无损浓缩摘要（/compact）】\n\(summary)",
-                    directive: "已无损浓缩前 \(compactedCount) 条消息（点开查看摘要，完整原记录仍在『旧答案』）",
-                    directiveDetail: summary
+                guard !summary.isEmpty else {
+                    self.errorMessage = "浓缩摘要未返回有效内容，原对话保持不变。"
+                    return
+                }
+                guard let current = self.threads.first(where: { $0.id == threadID }),
+                      self.threads.count < 2000 else { return }
+                let cleanTitle = ConversationHistory.displayTitle(for: current, in: self.threads)
+                let compactedThread = ProjectMemory.buildCompactedThread(
+                    from: current,
+                    summary: summary,
+                    compactedCount: plan.compactedCount,
+                    cleanTitle: cleanTitle
                 )
-                headerMsg.createdAt = settled.first?.createdAt ?? Date()
-                var newMessages: [ChatMessage] = [headerMsg]
-                newMessages.append(contentsOf: remainingMessages)
-                var compactedThread = current
-                compactedThread.id = UUID()
-                compactedThread.parentThreadID = current.id
-                let baseTitle = String(current.title.prefix(28))
-                compactedThread.title = baseTitle + " · 修改"
-                compactedThread.messages = newMessages
-                compactedThread.updatedAt = Date()
                 let oldThreads = self.threads, oldActive = self.activeThreadID
                 self.threads.insert(compactedThread, at: 0)
                 if self.activeThreadID == threadID {
@@ -2839,20 +2874,26 @@ final class AppStore: ObservableObject {
                     self.threads = oldThreads
                     self.activeThreadID = oldActive
                 } else {
-                    if let projID = current.projectID,
-                       var latestProj = self.project(projID),
-                       latestProj.memorizedCounts?[threadID.uuidString] != nil {
-                        var counts = latestProj.memorizedCounts ?? [:]
-                        counts[compactedThread.id.uuidString] = newMessages.count
-                        latestProj.memorizedCounts = counts
-                        self.storeQuietly(latestProj)
+                    if let projID = current.projectID {
+                        if self.project(projID)?.studySubject != nil {
+                            try? self.studyMemory?.rebindSessions(from: [threadID], to: compactedThread.id, projectID: projID)
+                        } else if var latestProj = self.project(projID),
+                                  latestProj.memorizedCounts?[threadID.uuidString] != nil {
+                            var counts = latestProj.memorizedCounts ?? [:]
+                            counts[compactedThread.id.uuidString] = compactedThread.messages.count
+                            latestProj.memorizedCounts = counts
+                            self.storeQuietly(latestProj)
+                        }
                     }
-                    self.noticeMessage = "已将前 \(compactedCount) 条对话无损浓缩为四板块摘要，上下文水位已大幅降低（原完整记录随时可在右上角『旧答案』切回）。"
+                    self.noticeMessage = "已将前 \(plan.compactedCount) 条对话无损浓缩为四板块摘要，后续消息完整保留（原记录随时可在右上角『旧答案』切回）。"
                 }
+            } catch is CancellationError {
+                // Cancelled cleanly on background expiration
             } catch {
                 self.errorMessage = "浓缩对话未完成：\(error.localizedDescription)"
             }
         }
+        lease.bind(worker)
     }
 
     /// Triggers an immediate Auto-Dream consolidation pass on the active project's memory.
@@ -2870,12 +2911,16 @@ final class AppStore: ObservableObject {
             errorMessage = "请先进入一个项目对话，再使用 /做梦 整理项目记忆。"
             return
         }
+        guard proj.studySubject == nil else {
+            errorMessage = "考研学习项目使用独立学习记忆库自动记录，无需手动执行 /做梦。"
+            return
+        }
         let provider = auxiliaryProvider(for: thread)
         guard isReady(provider) else {
             errorMessage = "请先配置可用的模型服务后再执行记忆整合。"
             return
         }
-        let projectThreads = threads.filter { $0.projectID == proj.id }
+        let projectThreads = Array(self.threads(in: proj.id).prefix(5))
         let request: ChatRequest
         do {
             request = try ProjectMemory.dreamRequest(project: proj, recentThreads: projectThreads)
@@ -2885,10 +2930,14 @@ final class AppStore: ObservableObject {
         }
         let subModel = proj.subscriptionModel ?? settings.subscriptionModel
         let before = proj.memory
+        let settledCountsByThread: [String: Int] = Dictionary(uniqueKeysWithValues: projectThreads.map { t in
+            let settled = t.messages.filter { !$0.content.isEmpty && ($0.role == .user || $0.state == .complete) }.count
+            return (t.id.uuidString, settled)
+        })
         memorizingProjectID = proj.id
-        let background = UIApplication.shared.beginBackgroundTask(withName: "project-dream", expirationHandler: nil)
-        memoryTask = Task { @MainActor [weak self] in
-            defer { if background != .invalid { UIApplication.shared.endBackgroundTask(background) } }
+        let lease = BackgroundTaskLease(name: "project-dream")
+        let worker = Task { @MainActor [weak self] in
+            defer { lease.end() }
             guard let self else { return }
             defer { self.memoryTask = nil; self.memorizingProjectID = nil }
             let buffer = MemoryBuffer()
@@ -2906,12 +2955,21 @@ final class AppStore: ObservableObject {
                 guard !cleaned.isEmpty, var latest = self.project(proj.id), latest.memory == before else { return }
                 latest.memory = cleaned
                 latest.memoryUpdatedAt = Date()
+                var counts = latest.memorizedCounts ?? [:]
+                for (tid, count) in settledCountsByThread {
+                    counts[tid] = max(counts[tid] ?? 0, count)
+                }
+                latest.memorizedCounts = counts
                 self.storeQuietly(latest)
                 self.noticeMessage = "已完成「\(proj.name)」的 Auto-Dream 睡眠记忆整合（已去重、消歧并合并近期重点）。"
+            } catch is CancellationError {
+                // Cancelled cleanly on background expiration
             } catch {
                 self.errorMessage = "记忆整合未完成：\(error.localizedDescription)"
             }
         }
+        lease.bind(worker)
+        memoryTask = worker
     }
 
 
@@ -3999,5 +4057,53 @@ final class LiveStream: ObservableObject {
         copy.reasoning = reasoning
         if let thinkingSeconds { copy.thinkingSeconds = thinkingSeconds }
         return copy
+    }
+}
+
+private final class BackgroundTaskLease: @unchecked Sendable {
+    private var id: UIBackgroundTaskIdentifier = .invalid
+    private var worker: Task<Void, Never>?
+
+    @MainActor init(name: String) {
+        id = UIApplication.shared.beginBackgroundTask(withName: name) { [weak self] in
+            if Thread.isMainThread {
+                MainActor.assumeIsolated {
+                    self?.expireOnMain()
+                }
+            } else {
+                DispatchQueue.main.sync {
+                    MainActor.assumeIsolated {
+                        self?.expireOnMain()
+                    }
+                }
+            }
+        }
+    }
+
+    @MainActor func bind(_ task: Task<Void, Never>) {
+        worker = task
+        if id == .invalid {
+            task.cancel()
+        }
+    }
+
+    @MainActor private func expireOnMain() {
+        let currentID = id
+        id = .invalid
+        let currentWorker = worker
+        worker = nil
+        currentWorker?.cancel()
+        if currentID != .invalid {
+            UIApplication.shared.endBackgroundTask(currentID)
+        }
+    }
+
+    @MainActor func end() {
+        let currentID = id
+        id = .invalid
+        worker = nil
+        if currentID != .invalid {
+            UIApplication.shared.endBackgroundTask(currentID)
+        }
     }
 }

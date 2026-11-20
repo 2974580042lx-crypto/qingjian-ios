@@ -398,10 +398,16 @@ final class BookStore: ObservableObject {
             if let existing = books.first(where: { $0.title == prepared.title && chapters(of: $0.id).isEmpty }) {
                 var reconnected = existing
                 reconnected.characterCount = charCount
-                if reconnected.chapterTitles.isEmpty { reconnected.chapterTitles = prepared.chapters.map(\.title) }
-                if reconnected.segments.isEmpty {
+                let newTitles = prepared.chapters.map(\.title)
+                let chapterCountChanged = reconnected.chapterTitles.count != newTitles.count
+                reconnected.chapterTitles = newTitles
+                if reconnected.segments.isEmpty || chapterCountChanged {
                     reconnected.segments = prepared.segments
                     reconnected.notes = Array(repeating: nil, count: prepared.segments.count)
+                }
+                if var mark = reconnected.bookmark, !newTitles.isEmpty {
+                    mark.chapter = min(max(0, mark.chapter), newTitles.count - 1)
+                    reconnected.bookmark = mark
                 }
                 if !preview {
                     let target = try Self.folder(reconnected.id).appendingPathComponent("chapters.json")

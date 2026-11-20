@@ -200,6 +200,15 @@ enum AppManual {
         } else {
             next.documents.insert(ProjectDocument(name: documentName, text: document), at: 0)
         }
+        while next.includedCharacters > ChatProject.documentCharacterLimit {
+            if let extraIndex = next.documents.lastIndex(where: { $0.name != documentName && $0.isIncluded }) {
+                next.documents[extraIndex].isIncluded = false
+            } else if let manualIndex = next.documents.firstIndex(where: { $0.name == documentName && $0.isIncluded }) {
+                next.documents[manualIndex].isIncluded = false
+            } else {
+                break
+            }
+        }
         next.updatedAt = Date()
         return next
     }

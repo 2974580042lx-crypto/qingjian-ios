@@ -345,6 +345,34 @@ enum DocumentTextImporter {
             return doc
         }
 
+        let isStreamableOOXML = (ext == "docx" || ext == "xlsx" || ext == "pptx")
+        if isStreamableOOXML {
+            var coordinatedError: NSError?
+            var streamResult: Result<String, Error>?
+            NSFileCoordinator(filePresenter: nil).coordinate(readingItemAt: url, options: .withoutChanges, error: &coordinatedError) { local in
+                streamResult = Result {
+                    let info = try local.resourceValues(forKeys: [.fileSizeKey, .isDirectoryKey])
+                    guard info.isDirectory != true else { throw ImportFailure("请选择文件，不能导入文件夹。") }
+                    let size = info.fileSize ?? 0
+                    guard size > 0 else { throw ImportFailure("这个文件是空的。") }
+                    guard size <= maximumTextBytes else { throw oversized(false) }
+                    switch ext {
+                    case "docx": return try OfficeAndDocumentExtractor.extractDOCX(url: local)
+                    case "xlsx": return try OfficeAndDocumentExtractor.extractXLSX(url: local)
+                    case "pptx": return try OfficeAndDocumentExtractor.extractPPTX(url: local)
+                    default: throw ImportFailure("不支持的文档格式。")
+                    }
+                }
+            }
+            if let coordinatedError { throw ImportFailure("文件未能读取，请确认云盘文件已下载：\(coordinatedError.localizedDescription)") }
+            guard let streamResult else { throw ImportFailure("没有读到文件内容，请从「文件」App下载后重试。") }
+            let extractedText = try streamResult.get()
+            try Task.checkCancellation()
+            let (finalText, truncWarning) = trimHeadTailIfNeeded(extractedText, maxCharacters: maxCharacters)
+            if let truncWarning { warnings.append(truncWarning) }
+            return ImportedTextDocument(name: name, text: finalText, warnings: warnings)
+        }
+
         let limit = isPDF ? maximumPDFBytes : maximumTextBytes
         var coordinatedError: NSError?
         var result: Result<Data, Error>?

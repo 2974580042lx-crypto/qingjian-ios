@@ -116,18 +116,22 @@ final class StreamZipReader {
         guard Self.u32(header, 0) == 0x04034B50 else {
             throw ImportFailure("压缩包中的「\(entry.name)」本地文件头损坏。")
         }
-        let nameLen = Int(Self.u16(header, 26))
-        let extraLen = Int(Self.u16(header, 28))
-        let dataOffset = entry.localHeaderOffset + 30 + UInt64(nameLen) + UInt64(extraLen)
+        let nameLen = UInt64(Self.u16(header, 26))
+        let extraLen = UInt64(Self.u16(header, 28))
+        let headerExtra = 30 + nameLen + extraLen
+        let (dataOffset, offsetOverflow) = entry.localHeaderOffset.addingReportingOverflow(headerExtra)
+        guard !offsetOverflow, entry.compressedSize <= UInt64(Int.max) else {
+            throw ImportFailure("压缩包中的「\(entry.name)」文件偏移异常。")
+        }
         let compressed = try source.read(offset: dataOffset, length: Int(entry.compressedSize))
 
         switch entry.method {
         case 0:
             return compressed
         case 8:
-            let expectedSize = Int(entry.uncompressedSize)
-            if expectedSize == 0 && compressed.isEmpty { return Data() }
-            return try Self.inflate(compressed, expectedSize: max(expectedSize, 1), maxBytes: maxBytes, name: entry.name)
+            let clampedExpected = Int(min(entry.uncompressedSize, UInt64(maxBytes)))
+            if clampedExpected == 0 && compressed.isEmpty { return Data() }
+            return try Self.inflate(compressed, expectedSize: max(clampedExpected, 4096), maxBytes: maxBytes, name: entry.name)
         default:
             throw ImportFailure("「\(entry.name)」使用了不支持的压缩算法（method \(entry.method)）。")
         }
@@ -260,19 +264,24 @@ final class StreamZipReader {
     }
 
     private static func inflate(_ compressed: Data, expectedSize: Int, maxBytes: Int, name: String) throws -> Data {
-        let capacity = min(max(expectedSize, 64), maxBytes)
-        var output = Data(count: capacity)
-        let written = output.withUnsafeMutableBytes { target -> Int in
-            compressed.withUnsafeBytes { source -> Int in
-                guard let dst = target.bindMemory(to: UInt8.self).baseAddress,
-                      let src = source.bindMemory(to: UInt8.self).baseAddress else { return 0 }
-                return compression_decode_buffer(dst, capacity, src, compressed.count, nil, COMPRESSION_ZLIB)
+        var capacity = min(max(expectedSize, 1024), maxBytes)
+        while true {
+            var output = Data(count: capacity)
+            let written = output.withUnsafeMutableBytes { target -> Int in
+                compressed.withUnsafeBytes { source -> Int in
+                    guard let dst = target.bindMemory(to: UInt8.self).baseAddress,
+                          let src = source.bindMemory(to: UInt8.self).baseAddress else { return 0 }
+                    return compression_decode_buffer(dst, capacity, src, compressed.count, nil, COMPRESSION_ZLIB)
+                }
             }
+            guard written > 0 else {
+                throw ImportFailure("「\(name)」解压失败，文件可能已损坏。")
+            }
+            if written < capacity || capacity >= maxBytes {
+                return output.prefix(written)
+            }
+            capacity = min(capacity * 2, maxBytes)
         }
-        guard written > 0 else {
-            throw ImportFailure("「\(name)」解压失败，文件可能已损坏。")
-        }
-        return output.prefix(written)
     }
 
     // MARK: - Little-Endian Readers

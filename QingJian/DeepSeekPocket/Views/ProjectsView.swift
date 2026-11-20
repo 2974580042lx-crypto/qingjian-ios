@@ -1092,7 +1092,8 @@ struct AllChatsView: View {
             }
             .confirmationDialog("删除选中的 \(selection.count) 个对话？", isPresented: $confirmDelete, titleVisibility: .visible) {
                 Button("删除", role: .destructive) {
-                    for id in selection where id != store.generatingThreadID { store.deleteThread(id) }
+                    let deletable = selection.filter { $0 != store.generatingThreadID }
+                    store.deleteThreads(deletable)
                     selection = []; editMode = .inactive
                 }
             } message: { Text("附带的图片会一起删除，用量记录不受影响。") }

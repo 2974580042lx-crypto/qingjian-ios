@@ -418,7 +418,10 @@ struct ChatScreen: View {
     @State private var visibleMessageCount = 100
     @State private var hasPositionedInitially = false
     @State private var lastAutoScrollAt = Date.distantPast
-    private var visibleMessages: [ChatMessage] { Array((store.activeThread?.messages ?? []).suffix(visibleMessageCount)) }
+    private var visibleMessages: [ChatMessage] {
+        guard let thread = store.activeThread, !store.isHidden(thread) else { return [] }
+        return Array(thread.messages.suffix(visibleMessageCount))
+    }
     private var navigationSpace: CGFloat { 0 }
     // Read in body, so switching the look in Settings redraws this page.
     private var style: InterfaceStyle { InterfaceStyle.current }
@@ -1101,13 +1104,13 @@ struct ChatScreen: View {
                     .accessibilityLabel("查看旧答案和历史版本")
                     .accessibilityIdentifier("chat-versions")
                 }
-                if thread.messages.count >= 6 {
+                if thread.story == nil, thread.messages.count >= 6 {
                     Button("浓缩本对话上文（/compact）", systemImage: "arrow.down.right.and.arrow.up.left") {
                         store.compactActiveThread()
                     }
                     .disabled(store.isGenerating || store.compactingThreadID != nil)
                 }
-                if thread.projectID != nil {
+                if thread.projectID != nil, store.activeProject?.studySubject == nil {
                     Button("Auto-Dream 整理项目记忆", systemImage: "moon.stars") {
                         store.dreamConsolidateActiveProject()
                     }
@@ -1370,47 +1373,41 @@ struct ChatScreen: View {
     }
 
     private var attachmentTray: some View {
-        HStack(spacing: 8) {
-            if showsSystemPromptControl, let thread = store.activeThread {
-                let current = store.systemPromptTitle(for: thread)
-                trayButton("指令 · " + (current.count > 6 ? String(current.prefix(5)) + "…" : current),
-                           symbol: "text.bubble", id: "chat-system-prompt",
-                           disabled: store.isGenerating || !store.canPersist || !store.canChooseSystemPrompt(for: thread)) {
-                    focusComposer(false)
-                    systemPromptTarget = ConversationPanelTarget(threadID: thread.id)
-                }
-            }
-            trayButton("图片", symbol: "photo", id: "chat-add-photos",
-                       disabled: attachmentBusy || !store.canPersist || pendingImages.count >= 4) { choosePhotos() }
-            if store.activeProvider == .chatGPT {
-                trayButton(store.imageGenerationEnabled ? "画图 · 已开" : "画图",
-                           symbol: "wand.and.stars", id: "chat-generate-image",
-                           disabled: store.isGenerating || !store.canPersist) {
-                    store.imageGenerationEnabled.toggle()
-                }
-            }
-            trayButton("文件", symbol: "doc.badge.plus", id: "chat-add-document",
-                       disabled: attachmentBusy || !store.canPersist) { chooseDocuments() }
-            trayButton("粘贴", symbol: "doc.on.clipboard", id: "chat-paste-text", disabled: !store.canPersist) {
-                guard let id = store.activeThreadID else { return }
-                if UIPasteboard.general.hasImages, let image = UIPasteboard.general.image {
-                    guard pendingImages.count < 4 else {
-                        attachmentReport = "每条消息最多附加 4 张图片。"
-                        return
-                    }
-                    if let data = image.jpegData(compressionQuality: 0.85) ?? image.pngData() {
-                        pendingImages.append(PendingImage(data: data, preview: image))
-                        Haptic.tap()
-                        return
+        ScrollView(.horizontal, showsIndicators: false) {
+            HStack(spacing: 8) {
+                if showsSystemPromptControl, let thread = store.activeThread {
+                    let current = store.systemPromptTitle(for: thread)
+                    trayButton("指令 · " + (current.count > 6 ? String(current.prefix(5)) + "…" : current),
+                               symbol: "text.bubble", id: "chat-system-prompt",
+                               disabled: store.isGenerating || !store.canPersist || !store.canChooseSystemPrompt(for: thread)) {
+                        focusComposer(false)
+                        systemPromptTarget = ConversationPanelTarget(threadID: thread.id)
                     }
                 }
-                guard let text = UIPasteboard.general.string, !text.isEmpty else {
-                    attachmentReport = "剪贴板里没有图片或文字。"
-                    return
+                trayButton("图片", symbol: "photo", id: "chat-add-photos",
+                           disabled: attachmentBusy || !store.canPersist || pendingImages.count >= 4) { choosePhotos() }
+                trayButton("文件", symbol: "doc.badge.plus", id: "chat-add-document",
+                           disabled: attachmentBusy || !store.canPersist) { chooseDocuments() }
+                trayButton("粘贴", symbol: "doc.on.clipboard", id: "chat-paste-text", disabled: !store.canPersist) {
+                    guard let id = store.activeThreadID else { return }
+                    if UIPasteboard.general.hasImages, let image = UIPasteboard.general.image {
+                        guard pendingImages.count < 4 else {
+                            attachmentReport = "每条消息最多附加 4 张图片。"
+                            return
+                        }
+                        if let data = image.jpegData(compressionQuality: 0.85) ?? image.pngData() {
+                            pendingImages.append(PendingImage(data: data, preview: image))
+                            Haptic.tap()
+                            return
+                        }
+                    }
+                    guard let text = UIPasteboard.general.string, !text.isEmpty else {
+                        attachmentReport = "剪贴板里没有图片或文字。"
+                        return
+                    }
+                    if store.appendImportedText(text, to: id) { focusComposer(true) }
                 }
-                if store.appendImportedText(text, to: id) { focusComposer(true) }
             }
-            Spacer(minLength: 0)
         }
         .transition(.opacity.combined(with: .move(edge: .bottom)))
     }
@@ -1481,12 +1478,14 @@ struct ChatScreen: View {
                         localDraft = remainder
                         scheduleDraftPush()
                     }
-                    slashPill("/浓缩", subtitle: "无损浓缩上文") {
-                        localDraft = ""
-                        scheduleDraftPush()
-                        store.compactActiveThread()
+                    if store.activeThread?.story == nil {
+                        slashPill("/浓缩", subtitle: "无损浓缩上文") {
+                            localDraft = ""
+                            scheduleDraftPush()
+                            store.compactActiveThread()
+                        }
                     }
-                    if store.activeThread?.projectID != nil {
+                    if store.activeThread?.projectID != nil, store.activeProject?.studySubject == nil {
                         slashPill("/做梦", subtitle: "整合去重记忆") {
                             localDraft = ""
                             scheduleDraftPush()

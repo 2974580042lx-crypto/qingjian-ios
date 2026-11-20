@@ -205,6 +205,9 @@ struct AppSettings: Codable, Equatable, Sendable {
 
 // API keys are intentionally not part of this structure or any exported backup.
 struct AppSnapshot: Codable, Sendable {
+    static let maximumSnapshotBytes = 200 * 1024 * 1024
+    static let maximumThreadCount = 10_000
+
     var version = 1
     var exportedAt = Date()
     var settings: AppSettings
@@ -217,8 +220,7 @@ struct AppSnapshot: Codable, Sendable {
     var installedStudySubjects: [StudySubject]?
     func validate(isLocalStore: Bool = false) throws {
         guard version == 1 else { throw ChatError.invalidBackup("这个备份的版本暂不支持。") }
-        let maxThreads = isLocalStore ? 10000 : 5000
-        guard threads.count <= maxThreads else { throw ChatError.invalidBackup("备份中的对话数量过多。") }
+        guard threads.count <= Self.maximumThreadCount else { throw ChatError.invalidBackup("备份中的对话数量过多。") }
         let presets = systemPromptPresets ?? []
         guard presets.count <= 100, Set(presets.map(\.id)).count == presets.count else {
             throw ChatError.invalidBackup("系统指令库最多100份，且编号不能重复。")
@@ -254,7 +256,7 @@ struct AppSnapshot: Codable, Sendable {
         }
     }
     static func decode(_ data: Data) throws -> AppSnapshot {
-        guard data.count <= 50 * 1024 * 1024 else { throw ChatError.invalidBackup("请选择小于 50 MB 的备份文件。") }
+        guard data.count <= Self.maximumSnapshotBytes else { throw ChatError.invalidBackup("请选择小于 200 MB 的备份文件。") }
         let decoder = JSONDecoder()
         decoder.dateDecodingStrategy = .iso8601
         let result = try decoder.decode(Self.self, from: data)
@@ -265,8 +267,61 @@ struct AppSnapshot: Codable, Sendable {
         let decoder = JSONDecoder()
         decoder.dateDecodingStrategy = .iso8601
         let result = try decoder.decode(Self.self, from: data)
-        try result.validate(isLocalStore: true)
-        return result
+        do {
+            try result.validate(isLocalStore: true)
+            return result
+        } catch {
+            let recovered = result.sanitizedForLocalLoad()
+            try recovered.validate(isLocalStore: true)
+            return recovered
+        }
+    }
+    /// Non-destructive soft recovery for local startup: preserves all conversations and document texts,
+    /// disabling only excess included documents or malformed transient suggestions that would otherwise block startup.
+    func sanitizedForLocalLoad() -> AppSnapshot {
+        var copy = self
+        copy.settings = copy.settings.validated()
+        if var projectList = copy.projects {
+            for i in projectList.indices {
+                let trimmedName = projectList[i].name.trimmingCharacters(in: .whitespacesAndNewlines)
+                projectList[i].name = trimmedName.isEmpty ? "未命名项目" : String(trimmedName.prefix(80))
+                if projectList[i].instructions.count > 20_000 {
+                    projectList[i].instructions = String(projectList[i].instructions.prefix(20_000))
+                }
+                if let mem = projectList[i].memory, mem.count > ChatProject.memoryCharacterLimit {
+                    projectList[i].memory = String(mem.prefix(ChatProject.memoryCharacterLimit))
+                }
+                for di in projectList[i].documents.indices {
+                    if projectList[i].documents[di].name.count > 200 {
+                        projectList[i].documents[di].name = String(projectList[i].documents[di].name.prefix(200))
+                    }
+                    if projectList[i].documents[di].text.count > ChatProject.documentCharacterLimit {
+                        projectList[i].documents[di].text = String(projectList[i].documents[di].text.prefix(ChatProject.documentCharacterLimit))
+                    }
+                }
+                while projectList[i].includedCharacters > ChatProject.documentCharacterLimit,
+                      let lastIncluded = projectList[i].documents.lastIndex(where: { $0.isIncluded }) {
+                    projectList[i].documents[lastIncluded].isIncluded = false
+                }
+            }
+            copy.projects = projectList
+        }
+        for ti in copy.threads.indices {
+            if let selection = copy.threads[ti].modelSelection,
+               selection.subscriptionModel.isEmpty || selection.subscriptionModel.count > 200 {
+                copy.threads[ti].modelSelection = nil
+            }
+            for mi in copy.threads[ti].messages.indices {
+                if let batch = copy.threads[ti].messages[mi].replySuggestions {
+                    let valid = (1...ReplySuggestions.maximumCount).contains(batch.replies.count) &&
+                        batch.replies.allSatisfy { !$0.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty && $0.count <= ReplySuggestions.maximumLength }
+                    if !valid {
+                        copy.threads[ti].messages[mi].replySuggestions = nil
+                    }
+                }
+            }
+        }
+        return copy
     }
     func encoded(pretty: Bool = true, isLocalStore: Bool = false) throws -> Data {
         try validate(isLocalStore: isLocalStore)

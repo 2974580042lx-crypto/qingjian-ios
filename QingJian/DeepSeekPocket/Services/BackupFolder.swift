@@ -37,11 +37,12 @@ enum BackupFolder {
         for key in [bookmarkKey, nameKey] { UserDefaults.standard.removeObject(forKey: key) }
     }
 
-    /// File name for a given day; one file per day, rewritten if run again that day.
+    /// Timestamped versioned file name so multiple backups on the same day never overwrite the sole good backup.
     static func fileName(for date: Date, ext: String = "json") -> String {
         let formatter = DateFormatter()
         formatter.locale = Locale(identifier: "en_US_POSIX")
-        formatter.dateFormat = "yyyy-MM-dd"
+        formatter.timeZone = TimeZone(secondsFromGMT: 0)
+        formatter.dateFormat = "yyyy-MM-dd-HHmmss"
         return prefix + formatter.string(from: date) + "." + ext
     }
 

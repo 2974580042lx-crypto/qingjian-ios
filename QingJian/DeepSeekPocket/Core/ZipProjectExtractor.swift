@@ -92,12 +92,15 @@ enum ZipProjectExtractor {
         var unexpanded: [StreamZipReader.Entry] = []
         var expandedCount = 0
 
+        let trailerReserve = prioritized.count > 1 ? min(1800, max(200, maxCharacters / 6)) : 0
+        let expandBudget = max(400, maxCharacters - trailerReserve)
+
         for entry in prioritized {
             if entry.uncompressedSize > 512 * 1024 {
                 unexpanded.append(entry)
                 continue
             }
-            guard output.count < maxCharacters else {
+            guard output.count < expandBudget else {
                 unexpanded.append(entry)
                 continue
             }
@@ -106,27 +109,48 @@ enum ZipProjectExtractor {
                 continue
             }
             let block = "\n\n### \(entry.name)\n```\n\(text)\n```"
-            if output.count + block.count <= maxCharacters {
+            if output.count + block.count <= expandBudget {
                 output += block
                 expandedCount += 1
             } else if expandedCount == 0 {
-                let remaining = max(500, maxCharacters - output.count - 120)
-                output += "\n\n### \(entry.name)\n```\n\(String(text.prefix(remaining)))\n...\n```"
-                expandedCount += 1
+                let remaining = max(120, expandBudget - output.count - 120)
+                if remaining > 0 {
+                    output += "\n\n### \(entry.name)\n```\n\(String(text.prefix(remaining)))\n...\n```"
+                    expandedCount += 1
+                } else {
+                    unexpanded.append(entry)
+                }
             } else {
                 unexpanded.append(entry)
             }
         }
 
         if !unexpanded.isEmpty {
-            output += "\n\n## 未展开文件清单（共 \(unexpanded.count) 个，因字数预算限制未展开正文）\n"
-            for item in unexpanded.prefix(100) {
-                output += "- `\(item.name)` (\(formatSize(item.uncompressedSize)))\n"
-            }
-            if unexpanded.count > 100 {
-                output += "- ... 其余 \(unexpanded.count - 100) 个\n"
+            let header = "\n\n## 未展开文件清单（共 \(unexpanded.count) 个，因字数预算限制未展开正文）\n"
+            if output.count + header.count <= maxCharacters {
+                output += header
+                var listed = 0
+                for item in unexpanded.prefix(100) {
+                    let line = "- `\(item.name)` (\(formatSize(item.uncompressedSize)))\n"
+                    if output.count + line.count + 32 <= maxCharacters {
+                        output += line
+                        listed += 1
+                    } else {
+                        break
+                    }
+                }
+                if unexpanded.count > listed {
+                    let moreLine = "- ... 其余 \(unexpanded.count - listed) 个\n"
+                    if output.count + moreLine.count <= maxCharacters {
+                        output += moreLine
+                    }
+                }
             }
             warnings.append("压缩包已提取完整目录树与 \(expandedCount) 个核心文件，其余 \(unexpanded.count) 个文件因 10 万字预算仅保留路径清单。")
+        }
+
+        if output.count > maxCharacters {
+            output = String(output.prefix(maxCharacters))
         }
 
         let cleanName = (fileName as NSString).deletingPathExtension

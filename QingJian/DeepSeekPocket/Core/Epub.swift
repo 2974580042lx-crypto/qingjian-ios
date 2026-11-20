@@ -52,15 +52,24 @@ enum ZipArchive {
     }
 
     static func read(_ entry: Entry, from data: Data) throws -> Data {
+        guard entry.localOffset >= 0,
+              entry.compressedSize >= 0,
+              entry.localOffset <= data.count - 30 else {
+            throw ChatError.server("EPUB 里的 \(entry.name) 读不出来。")
+        }
         let bytes = [UInt8](data[data.startIndex.advanced(by: entry.localOffset)...].prefix(30))
         guard bytes.count == 30, bytes[0] == 0x50, bytes[1] == 0x4B, bytes[2] == 0x03, bytes[3] == 0x04 else {
             throw ChatError.server("EPUB 里的 \(entry.name) 读不出来。")
         }
         let nameLength = Int(bytes[26]) | Int(bytes[27]) << 8
         let extraLength = Int(bytes[28]) | Int(bytes[29]) << 8
-        let start = entry.localOffset + 30 + nameLength + extraLength
-        guard start + entry.compressedSize <= data.count else { throw ChatError.server("EPUB 文件不完整。") }
-        let body = data.subdata(in: (data.startIndex + start)..<(data.startIndex + start + entry.compressedSize))
+        let headerSpan = 30 + nameLength + extraLength
+        let (start, startOverflow) = entry.localOffset.addingReportingOverflow(headerSpan)
+        let (end, endOverflow) = start.addingReportingOverflow(entry.compressedSize)
+        guard !startOverflow, !endOverflow, start >= 0, end <= data.count else {
+            throw ChatError.server("EPUB 文件不完整。")
+        }
+        let body = data.subdata(in: (data.startIndex + start)..<(data.startIndex + end))
         switch entry.method {
         case 0: return body
         case 8: return try inflate(body, size: entry.size)

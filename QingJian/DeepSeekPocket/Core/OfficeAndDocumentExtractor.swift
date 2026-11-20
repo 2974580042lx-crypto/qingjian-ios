@@ -9,18 +9,53 @@ import AppKit
 /// and binary `.plist` files without any third-party dependencies.
 enum OfficeAndDocumentExtractor {
     static func extractDOCX(_ data: Data) throws -> String {
-        let reader = try StreamZipReader(data: data)
+        try extractDOCX(from: try StreamZipReader(data: data))
+    }
+
+    static func extractDOCX(url: URL) throws -> String {
+        try extractDOCX(from: try StreamZipReader(url: url))
+    }
+
+    private static func extractDOCX(from reader: StreamZipReader) throws -> String {
         guard let docEntry = reader.entry(named: "word/document.xml") else {
             throw ImportFailure("这个 DOCX 文件缺少正文内容（word/document.xml）。")
         }
         let xmlData = try reader.readEntry(docEntry)
-        let text = DOCXParser(data: xmlData).parse().trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !text.isEmpty else { throw ImportFailure("这个 DOCX 文件没有读出可提取的文字。") }
-        return text
+        let bodyText = DOCXParser(data: xmlData).parse().trimmingCharacters(in: .whitespacesAndNewlines)
+
+        var sections: [String] = []
+        if !bodyText.isEmpty {
+            sections.append(bodyText)
+        }
+        if let footnotesEntry = reader.entry(named: "word/footnotes.xml"),
+           let footnotesData = try? reader.readEntry(footnotesEntry) {
+            let notes = DOCXNotesParser(data: footnotesData, noteElement: "footnote", labelPrefix: "注").parse()
+            if !notes.isEmpty {
+                sections.append("## 脚注\n" + notes.joined(separator: "\n"))
+            }
+        }
+        if let endnotesEntry = reader.entry(named: "word/endnotes.xml"),
+           let endnotesData = try? reader.readEntry(endnotesEntry) {
+            let notes = DOCXNotesParser(data: endnotesData, noteElement: "endnote", labelPrefix: "尾注").parse()
+            if !notes.isEmpty {
+                sections.append("## 尾注\n" + notes.joined(separator: "\n"))
+            }
+        }
+
+        let combined = sections.joined(separator: "\n\n").trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !combined.isEmpty else { throw ImportFailure("这个 DOCX 文件没有读出可提取的文字。") }
+        return combined
     }
 
     static func extractXLSX(_ data: Data) throws -> String {
-        let reader = try StreamZipReader(data: data)
+        try extractXLSX(from: try StreamZipReader(data: data))
+    }
+
+    static func extractXLSX(url: URL) throws -> String {
+        try extractXLSX(from: try StreamZipReader(url: url))
+    }
+
+    private static func extractXLSX(from reader: StreamZipReader) throws -> String {
         var sharedStrings: [String] = []
         if let ssEntry = reader.entry(named: "xl/sharedStrings.xml"),
            let ssData = try? reader.readEntry(ssEntry) {
@@ -58,7 +93,14 @@ enum OfficeAndDocumentExtractor {
     }
 
     static func extractPPTX(_ data: Data) throws -> String {
-        let reader = try StreamZipReader(data: data)
+        try extractPPTX(from: try StreamZipReader(data: data))
+    }
+
+    static func extractPPTX(url: URL) throws -> String {
+        try extractPPTX(from: try StreamZipReader(url: url))
+    }
+
+    private static func extractPPTX(from reader: StreamZipReader) throws -> String {
         let slideEntries = reader.entries
             .filter { !$0.isDirectory && $0.name.lowercased().hasPrefix("ppt/slides/slide") && $0.name.lowercased().hasSuffix(".xml") }
             .sorted { numericOrder($0.name) < numericOrder($1.name) }
@@ -139,6 +181,7 @@ private final class DOCXParser: NSObject, XMLParserDelegate {
     private let data: Data
     private var output = ""
     private var inText = false
+    private var deletedDepth = 0
     private var inRow = false
     private var firstCellInRow = true
 
@@ -154,12 +197,22 @@ private final class DOCXParser: NSObject, XMLParserDelegate {
     func parser(_ parser: XMLParser, didStartElement elementName: String, namespaceURI: String?, qualifiedName qName: String?, attributes attributeDict: [String: String] = [:]) {
         let local = localName(elementName)
         switch local {
-        case "t", "delText":
-            inText = true
+        case "del", "moveFrom":
+            deletedDepth += 1
+        case "t":
+            if deletedDepth == 0 { inText = true }
+        case "footnoteReference":
+            if deletedDepth == 0, let id = wordAttribute("id", in: attributeDict), !isReservedWordNoteID(id) {
+                output += "[注\(id)]"
+            }
+        case "endnoteReference":
+            if deletedDepth == 0, let id = wordAttribute("id", in: attributeDict), !isReservedWordNoteID(id) {
+                output += "[尾注\(id)]"
+            }
         case "tab":
-            output += "\t"
+            if deletedDepth == 0 { output += "\t" }
         case "br", "cr":
-            output += "\n"
+            if deletedDepth == 0 { output += "\n" }
         case "tr":
             inRow = true
             firstCellInRow = true
@@ -172,13 +225,15 @@ private final class DOCXParser: NSObject, XMLParserDelegate {
     }
 
     func parser(_ parser: XMLParser, foundCharacters string: String) {
-        if inText { output += string }
+        if inText && deletedDepth == 0 { output += string }
     }
 
     func parser(_ parser: XMLParser, didEndElement elementName: String, namespaceURI: String?, qualifiedName qName: String?) {
         let local = localName(elementName)
         switch local {
-        case "t", "delText":
+        case "del", "moveFrom":
+            deletedDepth = max(0, deletedDepth - 1)
+        case "t":
             inText = false
         case "p":
             if !output.hasSuffix("\n") && !output.hasSuffix("\t") { output += "\n" }
@@ -189,6 +244,109 @@ private final class DOCXParser: NSObject, XMLParserDelegate {
             break
         }
     }
+}
+
+private final class DOCXNotesParser: NSObject, XMLParserDelegate {
+    private let data: Data
+    private let noteElement: String
+    private let labelPrefix: String
+    private var notes: [String] = []
+    private var currentID: String?
+    private var currentText = ""
+    private var inText = false
+    private var deletedDepth = 0
+
+    init(data: Data, noteElement: String, labelPrefix: String) {
+        self.data = data
+        self.noteElement = noteElement
+        self.labelPrefix = labelPrefix
+    }
+
+    func parse() -> [String] {
+        let parser = XMLParser(data: data)
+        parser.delegate = self
+        parser.parse()
+        return notes
+    }
+
+    func parser(_ parser: XMLParser, didStartElement elementName: String, namespaceURI: String?, qualifiedName qName: String?, attributes attributeDict: [String: String] = [:]) {
+        let local = localName(elementName)
+        if local == noteElement {
+            let noteType = (wordAttribute("type", in: attributeDict) ?? "").lowercased()
+            let id = wordAttribute("id", in: attributeDict) ?? ""
+            if noteType.contains("separator") || isReservedWordNoteID(id) {
+                currentID = nil
+            } else {
+                currentID = id
+                currentText = ""
+            }
+            deletedDepth = 0
+            inText = false
+            return
+        }
+        guard currentID != nil else { return }
+        switch local {
+        case "del", "moveFrom":
+            deletedDepth += 1
+        case "t":
+            if deletedDepth == 0 { inText = true }
+        case "tab":
+            if deletedDepth == 0 { currentText += "\t" }
+        case "br", "cr":
+            if deletedDepth == 0 { currentText += " " }
+        default:
+            break
+        }
+    }
+
+    func parser(_ parser: XMLParser, foundCharacters string: String) {
+        if currentID != nil && inText && deletedDepth == 0 {
+            currentText += string
+        }
+    }
+
+    func parser(_ parser: XMLParser, didEndElement elementName: String, namespaceURI: String?, qualifiedName qName: String?) {
+        let local = localName(elementName)
+        if local == noteElement {
+            if let id = currentID {
+                let cleaned = currentText
+                    .replacingOccurrences(of: "\n", with: " ")
+                    .trimmingCharacters(in: .whitespacesAndNewlines)
+                if !cleaned.isEmpty {
+                    notes.append("[\(labelPrefix)\(id)] \(cleaned)")
+                }
+            }
+            currentID = nil
+            currentText = ""
+            inText = false
+            deletedDepth = 0
+            return
+        }
+        guard currentID != nil else { return }
+        switch local {
+        case "del", "moveFrom":
+            deletedDepth = max(0, deletedDepth - 1)
+        case "t":
+            inText = false
+        case "p":
+            if !currentText.isEmpty && !currentText.hasSuffix(" ") {
+                currentText += " "
+            }
+        default:
+            break
+        }
+    }
+}
+
+private func wordAttribute(_ name: String, in attributes: [String: String]) -> String? {
+    if let direct = attributes["w:\(name)"] ?? attributes[name] {
+        return direct.trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+    return attributes.first(where: { localName($0.key) == name })?.value.trimmingCharacters(in: .whitespacesAndNewlines)
+}
+
+private func isReservedWordNoteID(_ id: String) -> Bool {
+    id.isEmpty || id == "0" || id == "-1"
 }
 
 private final class XLSXSharedStringsParser: NSObject, XMLParserDelegate {

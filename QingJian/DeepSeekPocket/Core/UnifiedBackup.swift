@@ -1,4 +1,5 @@
 import Foundation
+import CoreFoundation
 import Compression
 
 enum UnifiedRestoreMode: String, CaseIterable, Identifiable, Sendable {
@@ -152,23 +153,69 @@ enum UnifiedBackupCodec {
     static let maximumImageBudgetBytes = 96 * 1024 * 1024
 
     static let preferenceKeys: [String] = [
-        "qingjian.theme.paper",
-        "qingjian.theme.fontChoice",
-        "qingjian.profile.name",
-        "qingjian.profile.handle",
+        // Real active theme, typography, layout & personalization keys
+        "sermo.interface.style",
+        "sermo.appearance.mode",
+        "qingjian.font.choice",
+        "qingjian.reading.size",
+        "qingjian.haptics",
+        "sermo.personal.text",
+        "sermo.personal.accent",
+        "sermo.personal.paper",
+        "sermo.personal.bubble",
+        "sermo.personal.spacing",
+        "sermo.personal.margin",
+        "sermo.personal.medium",
+        "sermo.personal.boldAccent",
+        "sermo.chat.layoutMode.default",
+        // Per-provider web search channels
+        "sermo.web.channel.chatGPT",
+        "sermo.web.channel.deepSeek",
+        "sermo.web.channel.colab",
+        "sermo.web.channel.compatible",
+        // Chat, speech & manual preferences
         "qingjian.newChat.projectID",
         "qingjian.speech.auto",
         "qingjian.speech.voice",
-        "qingjian.manual.dismissed"
+        "qingjian.manual.dismissed",
+        // Bookshelf reader preferences
+        "sermo.reader.font",
+        "sermo.reader.size",
+        "sermo.reader.line",
+        "sermo.reader.paragraph",
+        "sermo.reader.margin",
+        "sermo.reader.palette",
+        "sermo.reader.mode",
+        "sermo.reader.spread",
+        "sermo.reader.indent",
+        "sermo.reader.orientation",
+        "sermo.reader.volumeKeys",
+        "sermo.reader.volumeReverse",
+        // Legacy keys kept for backward compatibility
+        "qingjian.theme.paper",
+        "qingjian.theme.fontChoice",
+        "qingjian.profile.name",
+        "qingjian.profile.handle"
+    ]
+
+    private static let doublePreferenceKeys: Set<String> = [
+        "qingjian.reading.size",
+        "sermo.reader.size",
+        "sermo.reader.line",
+        "sermo.reader.paragraph",
+        "sermo.reader.margin"
     ]
 
     static func collectPreferences(from defaults: UserDefaults = .standard) -> [String: String] {
         var result: [String: String] = [:]
         for key in preferenceKeys {
-            if let str = defaults.string(forKey: key) {
+            guard let raw = defaults.object(forKey: key) else { continue }
+            if CFGetTypeID(raw as CFTypeRef) == CFBooleanGetTypeID() {
+                result[key] = (raw as? Bool == true) ? "true" : "false"
+            } else if let str = raw as? String {
                 result[key] = str
-            } else if defaults.object(forKey: key) != nil {
-                result[key] = defaults.bool(forKey: key) ? "true" : "false"
+            } else if let num = raw as? NSNumber {
+                result[key] = num.stringValue
             }
         }
         return result
@@ -176,9 +223,12 @@ enum UnifiedBackupCodec {
 
     static func applyPreferences(_ prefs: [String: String]?, to defaults: UserDefaults = .standard) {
         guard let prefs else { return }
-        for (key, value) in prefs where preferenceKeys.contains(key) {
+        let allowed = Set(preferenceKeys)
+        for (key, value) in prefs where allowed.contains(key) {
             if value == "true" || value == "false" {
                 defaults.set(value == "true", forKey: key)
+            } else if doublePreferenceKeys.contains(key), let number = Double(value) {
+                defaults.set(number, forKey: key)
             } else {
                 defaults.set(value, forKey: key)
             }
@@ -279,7 +329,7 @@ enum UnifiedBackupCodec {
     }
 
     static func decode(_ data: Data) throws -> UnifiedBackupPayload {
-        guard data.count <= maximumUncompressedBytes else {
+        guard data.count <= maximumUncompressedBytes + 1024 else {
             throw ChatError.invalidBackup("备份文件体积超出上限。")
         }
         let prefixBytes = Data(magicPrefix.utf8)
@@ -341,6 +391,15 @@ enum UnifiedBackupCodec {
         try payload.snapshot.validate(isLocalStore: true)
         guard payload.learning.version == 1, payload.learning.rows.count <= 200_000 else {
             throw ChatError.invalidBackup("备份中的学习数据库格式不支持。")
+        }
+        var studyProjectIDs = Set((payload.snapshot.projects ?? []).filter { $0.studySubject != nil }.map(\.id))
+        for row in payload.learning.rows where row.kind == "archived_project" {
+            studyProjectIDs.insert(row.projectID)
+        }
+        do {
+            try StudyBackupCodec.validateArchive(payload.learning, projectIDs: studyProjectIDs)
+        } catch {
+            throw ChatError.invalidBackup(error.localizedDescription)
         }
         guard payload.booksMetadata.count <= 500, payload.personas.count <= 500 else {
             throw ChatError.invalidBackup("备份中的书架或人物卡数量超出上限。")
