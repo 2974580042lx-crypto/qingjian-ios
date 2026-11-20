@@ -36,12 +36,22 @@ enum Ink {
     }
     static var sheet: Color {
         if night { return fixed(0x071419) }
-        // One step from the page in the same hue: the sidebar had read as a separate, yellow sheet.
+        // One step from the page in the same neutral hue (Claude iOS sidebar #F3F3F1).
         return swiss ? Color.adaptive(light: 0xE7E7E3, dark: 0x0A0A0B) : Personal.sheet
+    }
+    /// Background behind insetGrouped white/dark cards in Settings, Projects, and modal forms.
+    static var groupedBg: Color {
+        if night { return fixed(0x051117) }
+        return swiss ? Color.adaptive(light: 0xF2F2EF, dark: 0x111214) : Personal.groupedBg
+    }
+    /// Crisp elevated card surface floating over `Ink.groupedBg`.
+    static var card: Color {
+        if night { return fixed(0x0F1D24) }
+        return swiss ? Color.adaptive(light: 0xFFFFFF, dark: 0x1D1E21) : Personal.card
     }
     static var raised: Color {
         if night { return fixed(0x0F1D24) }
-        return swiss ? Color.adaptive(light: 0xFFFFFF, dark: 0x1D1E21) : Color.adaptive(light: 0xF2EFE6, dark: 0x262522)
+        return swiss ? Color.adaptive(light: 0xFFFFFF, dark: 0x1D1E21) : Color.adaptive(light: 0xEFEEEA, dark: 0x262624)
     }
     static var ink: Color {
         if night { return fixed(0xDBEBEF) }
@@ -49,16 +59,16 @@ enum Ink {
     }
     static var ink2: Color {
         if night { return fixed(0xB4C3C9) }
-        return swiss ? Color.adaptive(light: 0x3B3B3B, dark: 0xC6C6C1) : Color.adaptive(light: 0x35322D, dark: 0xD6D2C9)
+        return swiss ? Color.adaptive(light: 0x3B3B3B, dark: 0xC6C6C1) : Color.adaptive(light: 0x4A4945, dark: 0xC7C5BE)
     }
     static var ink3: Color {
         if night { return fixed(0x92A1A8) }
-        return swiss ? Color.adaptive(light: 0x5E5E5E, dark: 0x9B9B96) : Color.adaptive(light: 0x6D685F, dark: 0xA6A299)
+        return swiss ? Color.adaptive(light: 0x5E5E5E, dark: 0x9B9B96) : Color.adaptive(light: 0x7A7872, dark: 0x8E8C85)
     }
     static var line: Color {
         if night { return fixed(0xDBEBEF, alpha: 0.13) }
         return swiss ? Color.adaptive(light: 0x111111, dark: 0xEDEDE9, lightAlpha: 0.16, darkAlpha: 0.18)
-            : Color.adaptive(light: 0x24211C, dark: 0xECE9E1, lightAlpha: 0.11, darkAlpha: 0.13)
+            : Color.adaptive(light: 0x1A1A18, dark: 0xECEBE7, lightAlpha: 0.09, darkAlpha: 0.11)
     }
     static var seal: Color {
         if night { return fixed(0xECD59F) }
@@ -100,20 +110,22 @@ enum Radius {
 }
 
 enum TypeScale {
-    // Chosen in Settings (built-in Georgia+NotoSerifSC editorial cascade, system PingFang, or an imported font).
+    // UI chrome across sidebars, settings, projects, and modals always uses clean system sans-serif
+    // (SF Pro + PingFang SC), matching Claude iOS. Reading prose uses `ReadingFont` / `ReadingStyle`.
     static var serifName: String { FontLibrary.regularFace }
-    static func serif(_ size: CGFloat, relativeTo style: Font.TextStyle = .body) -> Font {
-        // "系统字体" means the real system font: SF for Latin and digits, PingFang for
-        // Chinese. Naming PingFang alone drew Latin and digits thin and narrow.
-        if FontLibrary.usesSystemFace { return .system(size: scaled(size, style)) }
-        if FontLibrary.usesEditorialSerif {
-            // Editorial serif for body/headings (>= 17pt); crisp SF+PingFang sans for small chrome/labels (< 17pt).
-            if size >= 17 {
-                return Font(FontLibrary.editorialUIFont(size: scaled(size, style), bold: false, italic: false))
-            }
-            return .system(size: scaled(size, style))
+    static func ui(_ size: CGFloat, weight: Font.Weight = .regular, relativeTo style: Font.TextStyle = .body) -> Font {
+        .system(size: scaled(size, style), weight: weight)
+    }
+    /// Editorial serif display font strictly for brand wordmark ("Sermo"), Welcome greeting, and Night book titles.
+    static func editorialDisplay(_ size: CGFloat, weight: Font.Weight = .regular, relativeTo style: Font.TextStyle = .title) -> Font {
+        if InterfaceStyle.isSwiss {
+            return .system(size: scaled(size, style), weight: weight == .regular ? .semibold : weight)
         }
-        return .custom(serifName, size: size, relativeTo: style)
+        let isBold = (weight == .bold || weight == .heavy)
+        return Font(FontLibrary.editorialUIFont(size: scaled(size, style), bold: isBold, italic: false))
+    }
+    static func serif(_ size: CGFloat, relativeTo style: Font.TextStyle = .body) -> Font {
+        .system(size: scaled(size, style))
     }
     /// A point size grown or shrunk with the reader's text size setting.
     static func scaled(_ size: CGFloat, _ style: Font.TextStyle) -> CGFloat {
@@ -139,45 +151,31 @@ enum TypeScale {
     static var hasHeavy: Bool { UIFont(name: heavyName, size: 12) != nil }
     static func heavy(_ size: CGFloat, relativeTo style: Font.TextStyle = .body) -> Font {
         if InterfaceStyle.isSwiss { return .system(size: size, weight: .heavy) }
-        if FontLibrary.usesSystemFace { return .system(size: scaled(size, style), weight: .semibold) }
-        if FontLibrary.usesEditorialSerif {
-            return Font(FontLibrary.editorialUIFont(size: scaled(size, style), bold: true, italic: false))
-        }
-        return hasHeavy ? .custom(heavyName, size: size, relativeTo: style) : .system(size: size, weight: .heavy)
+        return .system(size: scaled(size, style), weight: .semibold)
     }
     /// Numbers and small labels in the Swiss look: Q.01, COPY, 2026.10.20.
     static func mono(_ size: CGFloat, relativeTo style: Font.TextStyle = .caption) -> Font {
         .system(size: size, weight: .medium, design: .monospaced)
     }
-    static var pageTitle: Font { serif(32, relativeTo: .largeTitle) }
-    static var hero: Font { serif(30, relativeTo: .title) }
-    static var subject: Font { serif(20, relativeTo: .title3) }
-    static var answer: Font { serif(18) }
-    static var note: Font { serif(15, relativeTo: .callout) }
-    static var body: Font { serif(18) }
-    static var label: Font { serif(13, relativeTo: .footnote) }
-    static var caption: Font { serif(13, relativeTo: .caption) }
-    static var tiny: Font { serif(11, relativeTo: .caption2) }
+    static var pageTitle: Font { ui(30, weight: .bold, relativeTo: .largeTitle) }
+    static var hero: Font { ui(28, weight: .semibold, relativeTo: .title) }
+    static var subject: Font { ui(18, weight: .medium, relativeTo: .title3) }
+    static var answer: Font { ui(17) }
+    static var note: Font { ui(15, relativeTo: .callout) }
+    static var body: Font { ui(16.5) }
+    static var label: Font { ui(13, relativeTo: .footnote) }
+    static var caption: Font { ui(13, relativeTo: .caption) }
+    static var tiny: Font { ui(11.5, relativeTo: .caption2) }
 }
 
 enum InkAppearance {
     @MainActor static func apply() {
         let ink = UIColor(Ink.ink)
-        let system = FontLibrary.usesSystemFace
-        let editorial = FontLibrary.usesEditorialSerif
-        let large: UIFont? = editorial
-            ? FontLibrary.editorialUIFont(size: 32, bold: true)
-            : (system ? UIFont.systemFont(ofSize: 32, weight: .bold) : UIFont(name: TypeScale.serifName, size: 32))
-        let inline: UIFont? = (system || editorial)
-            ? UIFont.systemFont(ofSize: 17, weight: .semibold)
-            : UIFont(name: TypeScale.serifName, size: 17)
+        let large = UIFont.systemFont(ofSize: 30, weight: .bold)
+        let inline = UIFont.systemFont(ofSize: 17, weight: .semibold)
         func update(_ bar: UINavigationBar) {
-            if let large {
-                bar.largeTitleTextAttributes = [.font: UIFontMetrics(forTextStyle: .largeTitle).scaledFont(for: large), .foregroundColor: ink]
-            }
-            if let inline {
-                bar.titleTextAttributes = [.font: UIFontMetrics(forTextStyle: .headline).scaledFont(for: inline), .foregroundColor: ink]
-            }
+            bar.largeTitleTextAttributes = [.font: UIFontMetrics(forTextStyle: .largeTitle).scaledFont(for: large), .foregroundColor: ink]
+            bar.titleTextAttributes = [.font: UIFontMetrics(forTextStyle: .headline).scaledFont(for: inline), .foregroundColor: ink]
         }
         update(UINavigationBar.appearance())
         // Appearance proxies affect future bars. Refresh existing bars in place
@@ -284,7 +282,7 @@ struct ReadingStyle: ViewModifier {
     // Observed so text redraws as soon as the font is changed in Settings.
     @AppStorage(FontLibrary.choiceKey) private var choice = ""
     @AppStorage(FontLibrary.revisionKey) private var revision = 0
-    @AppStorage("qingjian.reading.size") private var size = 18.0
+    @AppStorage("qingjian.reading.size") private var size = 17.0
     var adjustment: Double = 0
     var heavy = false
     func body(content: Content) -> some View {
@@ -297,18 +295,18 @@ struct ReadingStyle: ViewModifier {
     }
 }
 
-/// Clean sans-serif for user chat bubbles and composer input, contrasting with AI's editorial serif answers.
+/// Clean sans-serif for user chat bubbles and composer input, matching Claude iOS.
 struct UserMessageStyle: ViewModifier {
     @AppStorage(FontLibrary.choiceKey) private var choice = ""
     @AppStorage(FontLibrary.revisionKey) private var revision = 0
-    @AppStorage("qingjian.reading.size") private var size = 18.0
+    @AppStorage("qingjian.reading.size") private var size = 17.0
     func body(content: Content) -> some View {
         let _ = (choice, revision, StyleAppearance.shared.revision, FontAppearance.shared.revision)
         if FontLibrary.choice == .custom && !InterfaceStyle.isSwiss {
-            content.modifier(ReadingStyle(adjustment: -1))
+            content.modifier(ReadingStyle(adjustment: -0.5))
         } else {
             let weight: Font.Weight = (FontLibrary.usesSystemFace && Personal.mediumBody) ? .medium : .regular
-            content.font(.system(size: TypeScale.scaled(max(16, size - 1), .body), weight: weight))
+            content.font(.system(size: TypeScale.scaled(max(15.5, size - 0.5), .body), weight: weight))
         }
     }
 }
@@ -428,14 +426,111 @@ struct GlassCircle: View {
 
 struct SidebarGlyph: View {
     var body: some View {
-        VStack(alignment: .leading, spacing: 6) {
-            Capsule().frame(width: 16, height: 1.8)
-            Capsule().frame(width: 10, height: 1.8)
+        VStack(alignment: .leading, spacing: 4.5) {
+            Capsule().frame(width: 16, height: 1.4)
+            Capsule().frame(width: 16, height: 1.4)
+            Capsule().frame(width: 16, height: 1.4)
         }
         .foregroundStyle(Ink.ink)
         .frame(width: 22, height: 22, alignment: .center)
         .accessibilityHidden(true)
     }
+}
+
+/// Unified circular modal close button (`×`) for Settings, Projects, All Chats, Bookshelf, and secondary sheets.
+struct ClaudeSheetCloseButton: View {
+    var label: String = "关闭"
+    let action: () -> Void
+    var body: some View {
+        Button(action: action) {
+            Image(systemName: "xmark")
+                .font(.system(size: 14, weight: .medium))
+                .foregroundStyle(Ink.ink)
+        }
+        .accessibilityLabel(label)
+    }
+}
+
+/// Unified thin linear leading icon for Settings, Sidebar, and Project rows.
+struct ClaudeIconBadge: View {
+    let systemName: String
+    var color: Color = Ink.ink2
+    var size: CGFloat = 17
+    var body: some View {
+        Image(systemName: systemName)
+            .font(.system(size: size, weight: .light))
+            .foregroundStyle(color)
+            .frame(width: 24, alignment: .center)
+            .accessibilityHidden(true)
+    }
+}
+
+/// Airy Claude-style secondary pill for "+ 新建会话" in Sidebar and Project Detail.
+/// Preserves Night-River gold and Swiss square black pills.
+struct ClaudeSecondaryPillStyle: ButtonStyle {
+    var height: CGFloat = 40
+    var horizontalPadding: CGFloat = 15
+    func makeBody(configuration: Configuration) -> some View {
+        let swiss = InterfaceStyle.isSwiss
+        let night = InterfaceStyle.isNight
+        configuration.label
+            .font(.system(size: 14.5, weight: .medium))
+            .foregroundStyle(night ? Ink.onSeal : (swiss ? Ink.onSolid : Ink.ink))
+            .padding(.horizontal, horizontalPadding)
+            .frame(height: height)
+            .background {
+                if night {
+                    Capsule(style: .continuous).fill(Ink.seal)
+                } else if swiss {
+                    Rectangle().fill(Ink.solid)
+                } else {
+                    Capsule(style: .continuous)
+                        .fill(Color.adaptive(light: 0xE5E4E0, dark: 0x2E2E2B))
+                        .overlay(Capsule(style: .continuous).stroke(Ink.line, lineWidth: 0.6))
+                }
+            }
+            .contentShape(InkCapsule())
+            .scaleEffect(configuration.isPressed ? 0.96 : 1)
+            .opacity(configuration.isPressed ? 0.8 : 1)
+            .animation(.snappy(duration: 0.16), value: configuration.isPressed)
+    }
+}
+
+extension ButtonStyle where Self == ClaudeSecondaryPillStyle {
+    static var claudeSecondaryPill: ClaudeSecondaryPillStyle { ClaudeSecondaryPillStyle() }
+}
+
+/// Unified grouped form chrome across Settings, Sub-pages, Study views, and modals.
+/// Uses neutral `Ink.ink` container tint so standard action rows stay calm near-black.
+struct ClaudeGroupedFormModifier: ViewModifier {
+    func body(content: Content) -> some View {
+        let _ = StyleAppearance.shared.revision
+        content
+            .scrollContentBackground(.hidden)
+            .background(Ink.groupedBg.ignoresSafeArea())
+            .listRowSeparatorTint(Ink.line)
+            .foregroundStyle(Ink.ink)
+            .tint(Ink.ink)
+    }
+}
+
+struct ClaudeGroupedListModifier: ViewModifier {
+    func body(content: Content) -> some View {
+        let _ = StyleAppearance.shared.revision
+        content
+            .listStyle(.insetGrouped)
+            .scrollContentBackground(.hidden)
+            .background(Ink.groupedBg.ignoresSafeArea())
+            .listRowSeparatorTint(Ink.line)
+            .foregroundStyle(Ink.ink)
+            .tint(Ink.ink)
+    }
+}
+
+extension View {
+    func claudeGroupedFormStyle() -> some View { modifier(ClaudeGroupedFormModifier()) }
+    func claudeGroupedListStyle() -> some View { modifier(ClaudeGroupedListModifier()) }
+    func claudeCardRow() -> some View { listRowBackground(Ink.card) }
 }
 
 /// 个性化: the few things you can tune yourself, each changing the look as a set so it
@@ -455,7 +550,7 @@ enum Personal {
 
     struct Preset: Identifiable { let id: String; let title: String; let light: UInt32; let dark: UInt32 }
     static let textPresets = [
-        Preset(id: "black", title: "近黑", light: 0x1F1E1B, dark: 0xECE9E1),
+        Preset(id: "black", title: "近黑", light: 0x1A1A18, dark: 0xECEBE7),
         Preset(id: "warm", title: "暖深灰", light: 0x2B2925, dark: 0xE8E5DD),
         Preset(id: "brown", title: "深棕", light: 0x382920, dark: 0xEADACE),
     ]
@@ -471,7 +566,7 @@ enum Personal {
         Preset(id: "sky", title: "夜雨蓝", light: 0x2E7DE9, dark: 0x7AA2F7),
     ]
     static let paperPresets = [
-        Preset(id: "ivory", title: "柔白", light: 0xFAF9F5, dark: 0x191918),
+        Preset(id: "ivory", title: "柔白", light: 0xF8F8F6, dark: 0x191918),
         Preset(id: "white", title: "纯白", light: 0xFFFFFF, dark: 0x0C0C0C),
         Preset(id: "grey", title: "浅灰", light: 0xF3F3F1, dark: 0x1C1C1E),
         Preset(id: "gruvbox", title: "胶片", light: 0xFBF1C7, dark: 0x1D2021),
@@ -480,9 +575,19 @@ enum Personal {
         Preset(id: "tokyonight", title: "夜雨", light: 0xD5D6DB, dark: 0x16161E),
     ]
     private static let sheetFor: [String: (UInt32, UInt32)] = [
-        "ivory": (0xF3F0E8, 0x131312), "white": (0xF4F4F4, 0x050505), "grey": (0xEAEAE7, 0x141416),
+        "ivory": (0xF3F3F1, 0x121211), "white": (0xF4F4F4, 0x050505), "grey": (0xEAEAE7, 0x141416),
         "gruvbox": (0xF2E5BC, 0x282828), "catppuccin": (0xE6E9EF, 0x1E1E2E),
         "rosepine": (0xF2E9E1, 0x1F1D2E), "tokyonight": (0xCBCCD1, 0x1A1B26),
+    ]
+    private static let groupedBgFor: [String: (UInt32, UInt32)] = [
+        "ivory": (0xF4F4F2, 0x141413), "white": (0xF5F5F5, 0x0A0A0A), "grey": (0xEFEFED, 0x141416),
+        "gruvbox": (0xF4E8C1, 0x181A1B), "catppuccin": (0xE8ECF2, 0x141420),
+        "rosepine": (0xF4ECE4, 0x151320), "tokyonight": (0xCFD1D8, 0x12131B),
+    ]
+    private static let cardFor: [String: (UInt32, UInt32)] = [
+        "ivory": (0xFFFFFF, 0x222220), "white": (0xFFFFFF, 0x1A1A1A), "grey": (0xFFFFFF, 0x232326),
+        "gruvbox": (0xFEF9E4, 0x262829), "catppuccin": (0xFFFFFF, 0x232334),
+        "rosepine": (0xFFFDFB, 0x242136), "tokyonight": (0xF3F4F7, 0x1F202E),
     ]
 
     // Read from UserDefaults once per change, not once per paragraph per redraw.
@@ -529,20 +634,30 @@ enum Personal {
         let pair = sheetFor[raw] ?? sheetFor["ivory"]!
         return Color.adaptive(light: pair.0, dark: pair.1)
     }
-    /// Your message bubble: warm oat-milk cream by default, a wash of the accent, or a picked colour.
+    static var groupedBg: Color {
+        let raw = stored(paperKey)
+        let pair = groupedBgFor[raw] ?? groupedBgFor["ivory"]!
+        return Color.adaptive(light: pair.0, dark: pair.1)
+    }
+    static var card: Color {
+        let raw = stored(paperKey)
+        let pair = cardFor[raw] ?? cardFor["ivory"]!
+        return Color.adaptive(light: pair.0, dark: pair.1)
+    }
+    /// Your message bubble: crisp Claude-neutral light stone (#EFEEEA) by default, a wash of the accent, or a picked colour.
     static var bubble: Color {
         let raw = stored(bubbleKey)
         if InterfaceStyle.isSwiss || InterfaceStyle.isNight { return Ink.raised }
         if raw == "accent" { return accent.opacity(0.14) }
-        if let custom = hex(raw) { return Color.adaptive(light: custom, dark: 0x2A2926) }
+        if let custom = hex(raw) { return Color.adaptive(light: custom, dark: 0x2A2A27) }
         let darkBubble: UInt32 = switch stored(paperKey) {
         case "gruvbox": 0x3C3836
         case "catppuccin": 0x313244
         case "rosepine": 0x26233A
         case "tokyonight": 0x292E42
-        default: 0x2A2926
+        default: 0x2A2A27
         }
-        return Color.adaptive(light: 0xEFECE4, dark: darkBubble)
+        return Color.adaptive(light: 0xEFEEEA, dark: darkBubble)
     }
 
     static var syntaxKeyword: Color {
@@ -585,18 +700,20 @@ enum Personal {
         UserDefaults.standard.set(on ? "1" : "0", forKey: mediumKey)
         StyleAppearance.shared.bump()
     }
-    static var mediumBody: Bool { stored(mediumKey) != "0" }
+    /// Regular weight by default so Regular vs. Bold hierarchy pops like Claude iOS.
+    static var mediumBody: Bool { stored(mediumKey) == "1" }
     @MainActor static func setBoldUsesAccent(_ on: Bool) {
         UserDefaults.standard.set(on ? "1" : "0", forKey: boldAccentKey)
         StyleAppearance.shared.bump()
     }
-    static var boldUsesAccent: Bool { stored(boldAccentKey) != "0" }
+    /// Crisp near-black bold by default (Claude iOS); toggleable to accent bold in Personalization.
+    static var boldUsesAccent: Bool { stored(boldAccentKey) == "1" }
     /// Line spacing inside a paragraph and the gap between paragraphs.
     static var lineSpacing: CGFloat {
-        switch stored(spacingKey) { case "compact": return 4.5; case "loose": return 10.5; default: return 7.5 }
+        switch stored(spacingKey) { case "compact": return 4.5; case "loose": return 10.0; default: return 7.0 }
     }
     static var paragraphGap: CGFloat {
-        switch stored(spacingKey) { case "compact": return 13; case "loose": return 24; default: return 18 }
+        switch stored(spacingKey) { case "compact": return 12; case "loose": return 22; default: return 16 }
     }
     /// Left and right margin of the chat text.
     static var margin: CGFloat {

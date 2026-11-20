@@ -17,6 +17,15 @@ final class PricingAndImageTests: XCTestCase {
         XCTAssertFalse(Pricing.isPeak(try beijing(2026, 10, 11, 10)))
     }
 
+    func testCompactStatusLabelIsConcise() throws {
+        let peakLabel = Pricing.compactStatusLabel(at: try beijing(2026, 10, 12, 10))
+        let offPeakLabel = Pricing.compactStatusLabel(at: try beijing(2026, 10, 11, 10))
+        XCTAssertEqual(peakLabel, "高峰时段")
+        XCTAssertEqual(offPeakLabel, "空闲 · 半价")
+        XCTAssertLessThanOrEqual(peakLabel.count, 8)
+        XCTAssertLessThanOrEqual(offPeakLabel.count, 8)
+    }
+
     func testCostSplitsCachedInputAndOutput() throws {
         let usage = TokenUsage(promptTokens: 1_000_000, completionTokens: 500_000, cachedTokens: 400_000)
         let offPeak = Pricing.cost(model: .flash, usage: usage, at: try beijing(2026, 10, 11, 10))

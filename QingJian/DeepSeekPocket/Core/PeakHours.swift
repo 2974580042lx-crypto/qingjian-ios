@@ -25,6 +25,11 @@ extension Pricing {
     /// "（高峰）" or "（空闲）" after a price, for the hour the request was made.
     static func bandTag(_ date: Date) -> String { isPeak(date) ? "（高峰）" : "（空闲）" }
 
+    /// Compact label for the sidebar footer so it never truncates on 390pt widths.
+    static func compactStatusLabel(at date: Date = Date()) -> String {
+        isPeak(date) ? "高峰时段" : "空闲 · 半价"
+    }
+
     /// "高峰时段 · 到 12:00 结束" or "空闲时段 · 半价，到 周一 09:00".
     static func statusLabel(at date: Date = Date()) -> String {
         let peak = isPeak(date)

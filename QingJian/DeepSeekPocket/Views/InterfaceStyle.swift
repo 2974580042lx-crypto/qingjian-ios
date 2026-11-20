@@ -311,7 +311,7 @@ struct FlowRows: Layout {
 /// Everything about how Sermo looks, in one page, with a live sample on top.
 @MainActor
 struct PersonalizationView: View {
-    @AppStorage("qingjian.reading.size") private var readingSize = 18.0
+    @AppStorage("qingjian.reading.size") private var readingSize = 17.0
     @AppStorage("qingjian.haptics") private var hapticsEnabled = true
     @State private var confirmReset = false
     private let layoutPrefs = ChatLayoutPreferences.shared
@@ -324,19 +324,21 @@ struct PersonalizationView: View {
             Section {
                 InterfaceStylePicker()
             } header: { Text("界面") }
+            .claudeCardRow()
             Section {
                 FontSettingsRows()
                 VStack(alignment: .leading, spacing: 8) {
                     HStack { Text("正文字号"); Spacer(); Text("\(Int(readingSize))").foregroundStyle(Ink.ink3).monospacedDigit() }
-                    Slider(value: $readingSize, in: 15...23, step: 1)
+                    Slider(value: $readingSize, in: 15...23, step: 1).tint(Ink.seal)
                 }
-                Toggle("正文稍粗", isOn: Binding(get: { Personal.mediumBody }, set: { Personal.setMediumBody($0) }))
-                Toggle("加粗使用强调色", isOn: Binding(get: { Personal.boldUsesAccent }, set: { Personal.setBoldUsesAccent($0) }))
+                Toggle("正文稍粗", isOn: Binding(get: { Personal.mediumBody }, set: { Personal.setMediumBody($0) })).tint(Ink.seal)
+                Toggle("加粗使用强调色", isOn: Binding(get: { Personal.boldUsesAccent }, set: { Personal.setBoldUsesAccent($0) })).tint(Ink.seal)
                 choice("行距", key: Personal.spacingKey, fallback: "standard",
                        options: [("compact", "紧凑"), ("standard", "标准"), ("loose", "宽松")])
             } header: { Text("文字") } footer: {
-                Text("「正文稍粗」用于系统字体与自定义字体；「加粗使用强调色」默认开启，若想对齐纯墨黑加粗可在此关闭，反引号重点词仍保持陶土色标签。行距会连同段距一起变。")
+                Text("字体与字号只作用于聊天正文，不改变菜单与设置界面。「正文稍粗」默认关闭以保持清晰粗细对比；「加粗使用强调色」默认关闭以对齐纯黑加粗。行距会连同段距一起变。")
             }
+            .claudeCardRow()
             Section {
                 SwatchRow(title: "正文颜色", key: Personal.textKey, presets: Personal.textPresets, fallback: "black")
                 SwatchRow(title: "强调色", key: Personal.accentKey, presets: Personal.accentPresets, fallback: "clay")
@@ -344,9 +346,10 @@ struct PersonalizationView: View {
                 BubbleSwatchRow()
             } header: { Text("颜色") } footer: {
                 Text(appliesHere
-                     ? "强调色用在发送键、思考小花、「换一条」和链接上。自选的颜色用于浅色模式，深色模式自动换成相配的深色。"
+                     ? "强调色用在发送键、思考圆点与激活开关上。自选的颜色用于浅色模式，深色模式自动换成相配的深色。"
                      : "颜色只用于「纸笺」风格；瑞士和夜江保持自己的配色。")
             }
+            .claudeCardRow()
             Section {
                 choice("左右留白", key: Personal.marginKey, fallback: "standard",
                        options: [("narrow", "窄"), ("standard", "标准"), ("wide", "宽")])
@@ -358,25 +361,23 @@ struct PersonalizationView: View {
                         Label(mode.title, systemImage: mode.symbol).tag(mode)
                     }
                 }
-                Toggle("触感反馈", isOn: $hapticsEnabled)
+                Toggle("触感反馈", isOn: $hapticsEnabled).tint(Ink.seal)
             } header: { Text("布局与手感") } footer: {
                 Text("每个对话也可以在右上角「⋯」里随时单独切换「书页 / 信息气泡 / 智能」三种排版样式。")
             }
+            .claudeCardRow()
             Section {
                 Button("恢复默认", role: .destructive) { confirmReset = true }
             } footer: {
-                Text("恢复本页的颜色、字重、行距和留白，字号回到 18；字体、界面风格和白天夜晚设置不变。")
+                Text("恢复本页的颜色、字重、行距和留白，字号回到 17；字体、界面风格和白天夜晚设置不变。")
             }
+            .claudeCardRow()
         }
-        .font(TypeScale.body)
-        .scrollContentBackground(.hidden)
-        .background(AppBackground())
-        .foregroundStyle(Ink.ink)
-        .tint(Ink.seal)
+        .claudeGroupedFormStyle()
         .navigationTitle("个性化")
         .navigationBarTitleDisplayMode(.inline)
         .confirmationDialog("恢复个性化默认设置？", isPresented: $confirmReset, titleVisibility: .visible) {
-            Button("恢复默认", role: .destructive) { Personal.resetAll(); readingSize = 18 }
+            Button("恢复默认", role: .destructive) { Personal.resetAll(); readingSize = 17 }
         }
     }
 
@@ -475,7 +476,7 @@ private struct Swatch: View {
 /// thinking mark and a send key, so every change shows at once.
 @MainActor
 private struct PersonalPreview: View {
-    @AppStorage("qingjian.reading.size") private var readingSize = 18.0
+    @AppStorage("qingjian.reading.size") private var readingSize = 17.0
     var body: some View {
         let mode = ChatLayoutPreferences.shared.defaultMode
         let isImessage = mode == .imessage
@@ -486,13 +487,14 @@ private struct PersonalPreview: View {
                 Text("帮我想想周末去哪儿玩？")
                     .userMessageStyle()
                     .foregroundStyle(isImessage ? Ink.onSeal : Ink.ink)
-                    .padding(.horizontal, 16).padding(.vertical, 11)
+                    .padding(.horizontal, 15).padding(.vertical, 10)
                     .background(
                         isImessage ? Ink.seal : Personal.bubble,
                         in: AsymmetricBubbleShape.chatBubbleShape(isUser: true, position: .single)
                     )
             }
             HStack(spacing: 5) {
+                Image(systemName: "clock").font(.system(size: 12, weight: .light)).foregroundStyle(Ink.ink3)
                 Text("已思考 2 秒").font(.system(size: 13, weight: .regular)).foregroundStyle(Ink.ink3).monospacedDigit()
                 Image(systemName: "chevron.right").font(.system(size: 10, weight: .medium)).foregroundStyle(Ink.ink3.opacity(0.75))
             }

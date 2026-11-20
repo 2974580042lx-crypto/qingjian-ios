@@ -1290,6 +1290,23 @@ final class AppStore: ObservableObject {
         if !persistNow() { settings = old; threads = oldThreads; return false }
         return true
     }
+    /// Persists only the global default provider from Settings Home without touching Keychain or sub-page drafts.
+    @discardableResult
+    func saveDefaultProvider(_ provider: AIProvider) -> Bool {
+        guard settings.selectedProvider != provider else { return true }
+        let old = settings
+        let oldThreads = threads
+        var next = settings
+        next.provider = provider
+        settings = next.validated()
+        for i in threads.indices where threads[i].projectID == nil && threads[i].messages.isEmpty {
+            threads[i].modelSelection = ChatModelSelection(settings: settings, project: nil)
+        }
+        cancelReplySuggestions()
+        if !persistNow() { settings = old; threads = oldThreads; return false }
+        if provider == .colab { refreshColabEndpoint() }
+        return true
+    }
     func toggleThinking() {
         updateChatModel { $0.thinking.toggle() }
     }
