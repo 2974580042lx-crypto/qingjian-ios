@@ -403,7 +403,7 @@ enum MessageTimeDivider {
 
     static func shouldShow(previous: ChatMessage?, current: ChatMessage) -> Bool {
         guard current.directive == nil else { return false }
-        guard let previous else { return true }
+        guard let previous else { return false }
         let gap = current.createdAt.timeIntervalSince(previous.createdAt)
         return gap >= 1800 || !Calendar.current.isDate(previous.createdAt, inSameDayAs: current.createdAt)
     }

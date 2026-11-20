@@ -77,17 +77,23 @@ struct WelcomeView: View {
     private var paperBody: some View {
         TimelineView(.periodic(from: .now, by: 60)) { timeline in
             let line = WelcomeLine.pick(hour: Calendar.current.component(.hour, from: timeline.date), name: name, seed: page.uuid.0)
-            VStack(spacing: 20) {
-                PulseDot(size: 20, pulsing: false)
-                    .modifier(Arrive(shown: shown, delay: 0.05))
-                // Plain, without the highlighter: on the opening line it read oddly.
+            VStack(spacing: 16) {
+                Group {
+                    if InterfaceStyle.isNight {
+                        MoonDisc(size: 20, glow: false)
+                    } else {
+                        ThinkingMark(live: false, size: 28)
+                    }
+                }
+                .modifier(Arrive(shown: shown, delay: 0.05))
+                // Editorial serif display greeting matching Claude iOS welcome page.
                 Text(line.before + line.marked + line.after)
-                .font(TypeScale.serif(28, relativeTo: .title))
-                .foregroundStyle(Ink.ink)
-                .lineLimit(1).minimumScaleFactor(0.6)
-                .accessibilityElement(children: .combine)
-                .accessibilityIdentifier("time-greeting")
-                .modifier(Arrive(shown: shown, delay: 0.18))
+                    .font(TypeScale.editorialDisplay(27, weight: .regular, relativeTo: .title))
+                    .foregroundStyle(Ink.ink)
+                    .lineLimit(1).minimumScaleFactor(0.6)
+                    .accessibilityElement(children: .combine)
+                    .accessibilityIdentifier("time-greeting")
+                    .modifier(Arrive(shown: shown, delay: 0.18))
                 if let projectName {
                     Text("在「\(projectName)」里").font(TypeScale.label).foregroundStyle(Ink.ink3)
                         .modifier(Arrive(shown: shown, delay: 0.3))

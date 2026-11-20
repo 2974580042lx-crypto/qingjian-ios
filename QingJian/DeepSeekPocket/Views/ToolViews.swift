@@ -108,8 +108,8 @@ struct ToolActivityList: View {
                                 Text(excerpt.source).font(TypeScale.caption).foregroundStyle(Ink.ink3)
                             }
                             .frame(maxWidth: .infinity, alignment: .leading).padding(14)
-                            .background(Ink.raised, in: InkRounded(radius: 14))
-                            .overlay(InkRounded(radius: 14).stroke(Ink.seal.opacity(0.25), lineWidth: 1))
+                            .background(Ink.card, in: InkRounded(radius: 14))
+                            .overlay(InkRounded(radius: 14).stroke(Ink.line, lineWidth: 0.8))
                         }
                     }
                 }
@@ -217,8 +217,8 @@ struct InlineToolApprovalCard: View {
             }
         }
         .padding(14)
-        .background(Ink.raised, in: InkRounded(radius: 16))
-        .overlay(InkRounded(radius: 16).stroke(Ink.seal.opacity(0.35), lineWidth: 1))
+        .background(Ink.card, in: InkRounded(radius: 16))
+        .overlay(InkRounded(radius: 16).stroke(Ink.line, lineWidth: 0.8))
         .padding(.horizontal, 4)
         .transition(.opacity.combined(with: .move(edge: .bottom)))
     }
@@ -282,11 +282,15 @@ struct SelectableTextSheet: View {
                 .navigationBarTitleDisplayMode(.inline)
                 .toolbar {
                     ToolbarItem(placement: .topBarLeading) {
-                        Button("全部复制") { UIPasteboard.general.string = plain; dismiss() }
+                        ClaudeSheetCloseButton(label: "完成") { dismiss() }
                     }
-                    ToolbarItem(placement: .topBarTrailing) { Button("完成") { dismiss() } }
+                    ToolbarItem(placement: .topBarTrailing) {
+                        Button("全部复制") { UIPasteboard.general.string = plain; dismiss() }
+                            .fontWeight(.medium)
+                    }
                 }
         }
+        .tint(Ink.ink)
         .presentationDragIndicator(.visible)
     }
 }

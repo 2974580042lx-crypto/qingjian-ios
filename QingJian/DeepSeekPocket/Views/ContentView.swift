@@ -523,26 +523,22 @@ struct ChatScreen: View {
                     .padding(.horizontal, swiss ? 20 : Personal.margin).padding(.top, 10).padding(.bottom, 22)
                 }
                 .accessibilityIdentifier("chat-scroll")
-                // The system's top edge effect drew a solid paper band behind the buttons, so
-                // they never looked afloat. Text now passes under the glass; only the clock
-                // keeps a short fade so it stays readable.
-                .scrollEdgeEffectHidden(true, for: .top)
+                // Native iOS 26 soft edge blur at both top and bottom so text gently dissolves
+                // behind the floating glass toolbar and composer, plus a compact status-bar clock scrim.
+                .scrollEdgeEffectStyle(.soft, for: .top)
+                .scrollEdgeEffectStyle(.soft, for: .bottom)
                 .background(TranscriptLeftSwipePan(enabled: !sidebarOpen, model: timeReveal))
                 .overlay(alignment: .top) {
-                    // The clock row sits on the page colour fading out below it, so the time
-                    // never prints over the text. A plain gradient: a live blur here had to be
-                    // recomputed every frame while an answer streamed and scrolled under it.
                     LinearGradient(
                         stops: [
-                            .init(color: Ink.paper, location: 0),
-                            .init(color: Ink.paper.opacity(0.92), location: 0.48),
-                            .init(color: Ink.paper.opacity(0.42), location: 0.78),
+                            .init(color: Ink.paper.opacity(0.86), location: 0),
+                            .init(color: Ink.paper.opacity(0.48), location: 0.55),
                             .init(color: Ink.paper.opacity(0), location: 1)
                         ],
                         startPoint: .top,
                         endPoint: .bottom
                     )
-                    .frame(height: topInset + 30).allowsHitTesting(false).accessibilityHidden(true)
+                    .frame(height: topInset + 16).allowsHitTesting(false).accessibilityHidden(true)
                 }
                 .scrollPosition($scrollPosition)
                 .contentMargins(.top, topChrome, for: .scrollContent)
@@ -638,7 +634,9 @@ struct ChatScreen: View {
             // In a conversation the right one holds new-page and a "⋯" menu with the title.
             ToolbarItemGroup(placement: .topBarTrailing) {
                 // A new page stays in the project you are in.
-                Button { store.createThread(in: store.activeThread?.projectID); followsOutput = true } label: { Image(systemName: "square.and.pencil") }
+                Button { store.createThread(in: store.activeThread?.projectID); followsOutput = true } label: {
+                    Image(systemName: "square.and.pencil").font(.system(size: 16, weight: .regular))
+                }
                     .accessibilityLabel("新建对话")
                 if !isEmptyPage || store.activeThread?.bookDiscussion != nil { titleMenu }
             }
@@ -1139,33 +1137,32 @@ struct ChatScreen: View {
                 .font(TypeScale.mono(11)).foregroundStyle(Ink.ink).lineLimit(1)
                 .frame(height: 38).contentShape(Rectangle())
         } else {
-            HStack(spacing: 6) {
-                Text(store.pillModelTitle).foregroundStyle(Ink.ink).lineLimit(1)
-                Text(store.pillEffortTitle).foregroundStyle(Ink.ink3)
+            HStack(spacing: 5) {
+                Text(store.pillModelTitle).fontWeight(.medium).foregroundStyle(Ink.ink).lineLimit(1)
+                Text(store.pillEffortTitle).fontWeight(.regular).foregroundStyle(Ink.ink3)
             }
-            // A soft grey capsule, as in the Claude app ("Opus 5.5 中等").
-            .font(.system(size: 14, weight: .medium)).monospacedDigit()
-            .padding(.horizontal, 14).frame(height: 38)
+            // A soft neutral capsule matching Claude iOS ("Opus 5.5 中等").
+            .font(.system(size: 13.5)).monospacedDigit()
+            .padding(.horizontal, 12).frame(height: 34)
             .background(Ink.raised, in: Capsule())
             .contentShape(Capsule())
         }
     }
 
-    // The web switch: a globe that grows into a 联网 pill, or WEB: ON / OFF in the Swiss look.
+    // The web switch: a slim muted globe beside the model pill, brightening when enabled.
     @ViewBuilder private var webToggleLabel: some View {
         if swiss {
             Text(store.webSearchEnabled ? "WEB: ON" : "WEB: OFF")
                 .font(TypeScale.mono(11))
                 .foregroundStyle(store.webSearchEnabled ? Ink.seal : Ink.ink3)
-                .frame(minWidth: 38, minHeight: 38).contentShape(Rectangle())
+                .frame(minWidth: 34, minHeight: 34).contentShape(Rectangle())
         } else {
-            // Off: a quiet globe. On: the globe and 「联网」 in the accent colour, no base.
-            HStack(spacing: 5) {
-                Image(systemName: "globe")
-                if store.webSearchEnabled { Text("联网").font(.system(size: 14, weight: .medium)) }
+            HStack(spacing: 4) {
+                Image(systemName: "globe").font(.system(size: 15.5, weight: .light))
+                if store.webSearchEnabled { Text("联网").font(.system(size: 13, weight: .medium)) }
             }
             .foregroundStyle(store.webSearchEnabled ? Ink.seal : Ink.ink3)
-            .frame(minWidth: 38, minHeight: 38)
+            .frame(minWidth: 34, minHeight: 34)
             .contentShape(Rectangle())
         }
     }
@@ -1342,10 +1339,10 @@ struct ChatScreen: View {
             Haptic.tap()
             withAnimation(.snappy(duration: 0.22)) { attachTrayOpen.toggle() }
         } label: {
-            Image(systemName: "plus").font(.system(size: 17, weight: .medium))
-                .foregroundStyle(Ink.ink)
+            Image(systemName: "plus").font(.system(size: 15, weight: .regular))
+                .foregroundStyle(Ink.ink2)
                 .rotationEffect(.degrees(attachTrayOpen ? 45 : 0))
-                .frame(width: 38, height: 38)
+                .frame(width: 34, height: 34)
                 .background(Ink.raised, in: swiss ? AnyShape(Rectangle()) : AnyShape(Circle()))
                 .contentShape(Circle())
         }
@@ -1802,40 +1799,48 @@ struct ChatScreen: View {
                             }
                         }
                     } label: {
-                        Image(systemName: store.isGenerating ? "stop.fill" : "arrow.up")
-                            .font(.system(size: 15, weight: .bold)).foregroundStyle(Ink.sendGlyph)
-                            .frame(width: 38, height: 38)
-                            .background(Ink.sendFill, in: RoundedRectangle(cornerRadius: swiss ? 0 : 19, style: .continuous))
-                            .shadow(color: night ? Ink.seal.opacity(0.35) : .clear, radius: night ? 12 : 0)
+                        let readyToSend = hasInput || ghostText != nil
+                        let isStop = store.isGenerating
+                        let circleFill: Color = isStop
+                            ? (swiss ? Ink.solid : (night ? Ink.seal : Ink.raised))
+                            : (readyToSend ? Ink.sendFill : Ink.raised)
+                        let glyphColor: Color = isStop
+                            ? (swiss ? Ink.onSolid : (night ? Ink.onSeal : Ink.ink))
+                            : (readyToSend ? Ink.sendGlyph : Ink.ink3.opacity(0.65))
+                        Image(systemName: isStop ? "stop.fill" : "arrow.up")
+                            .font(.system(size: isStop ? 11 : 14, weight: readyToSend ? .semibold : .medium))
+                            .foregroundStyle(glyphColor)
+                            .frame(width: 34, height: 34)
+                            .background(circleFill, in: RoundedRectangle(cornerRadius: swiss ? 0 : 17, style: .continuous))
+                            .shadow(color: night && (readyToSend || isStop) ? Ink.seal.opacity(0.35) : .clear, radius: night ? 12 : 0)
                             .contentShape(Rectangle())
                     }
                     .buttonStyle(.plain)
                     .disabled(!store.isGenerating && (!store.canChat || !(hasInput || ghostText != nil) || !store.canPersist || loadingPhotos
                         || (fileImportThreadID != nil && fileImportThreadID == store.activeThreadID)))
-                    .opacity(!store.isGenerating && !(hasInput || ghostText != nil) ? 0.35 : 1)
                     .accessibilityLabel(store.isGenerating ? "停止生成" : "发送消息")
                 }
             }
-            .padding(.horizontal, 14).padding(.top, swiss ? 14 : 16).padding(.bottom, swiss ? 10 : 12)
-            .clearGlass(radius: 26)
+            .padding(.horizontal, 14).padding(.top, 12).padding(.bottom, 10)
+            .clearGlass(radius: 24)
             if store.isGenerating && store.generatingThreadID != store.activeThreadID {
                 Text("另一个对话正在生成，右侧按钮可停止。")
                     .font(TypeScale.tiny).foregroundStyle(Ink.ink3)
             }
         }
-        .padding(.horizontal, 14).padding(.top, 8).padding(.bottom, 10)
+        .padding(.horizontal, 14).padding(.top, 6).padding(.bottom, 10)
         .background(alignment: .bottom) {
+            // Sheer translucent edge fade so scrolling text visibly drifts behind the liquid-glass composer.
             LinearGradient(
                 stops: [
                     .init(color: Ink.paper.opacity(0), location: 0),
-                    .init(color: Ink.paper.opacity(0.92), location: 0.24),
-                    .init(color: Ink.paper, location: 0.58),
-                    .init(color: Ink.paper, location: 1)
+                    .init(color: Ink.paper.opacity(0.55), location: 0.42),
+                    .init(color: Ink.paper.opacity(0.84), location: 1)
                 ],
                 startPoint: .top,
                 endPoint: .bottom
             )
-            .padding(.top, -16)
+            .padding(.top, -12)
             .ignoresSafeArea(.container, edges: .bottom)
             .allowsHitTesting(false)
         }
@@ -1877,21 +1882,25 @@ private struct ChatFloatingControlsOverlay<ProjectMenu: View>: View {
     var body: some View {
         let showJump = hasMessages && scrollUIState.showJumpToLatest
         if canChooseProject || showJump {
-            HStack(spacing: 10) {
-                if canChooseProject { projectMenu() }
-                Spacer(minLength: 0)
+            ZStack {
+                if canChooseProject {
+                    HStack {
+                        projectMenu()
+                        Spacer(minLength: 0)
+                    }
+                }
                 if showJump {
                     Button(action: jumpToLatest) {
-                        Image(systemName: "arrow.down").font(.system(size: 17, weight: .medium))
+                        Image(systemName: "arrow.down").font(.system(size: 15, weight: .medium))
                             .foregroundStyle(Ink.ink)
-                            .frame(width: 44, height: 44)
+                            .frame(width: 40, height: 40)
                             .floatingGlass(in: AnyShape(Circle()))
                             .contentShape(Circle())
                     }
                     .buttonStyle(.pressFeedback)
                     .accessibilityLabel("一键回到最新消息")
                     .accessibilityIdentifier("chat-jump-to-latest")
-                    .transition(.opacity.combined(with: .scale(scale: 0.8)))
+                    .transition(.opacity.combined(with: .scale(scale: 0.85)))
                 }
             }
             .animation(.snappy(duration: 0.2), value: showJump)
@@ -1949,11 +1958,11 @@ private struct ChatMessageBrowser: View {
     var body: some View {
         NavigationStack {
             browserContents
-                .background(AppBackground())
+                .background(Ink.groupedBg.ignoresSafeArea())
                 .navigationTitle(request.mode.title)
                 .navigationBarTitleDisplayMode(.inline)
                 .searchable(text: $query, prompt: request.mode == .search ? "搜索消息正文" : "搜索收藏内容")
-                .toolbar { ToolbarItem(placement: .topBarTrailing) { Button("完成") { dismiss() } } }
+                .toolbar { ToolbarItem(placement: .topBarLeading) { ClaudeSheetCloseButton(label: "完成") { dismiss() } } }
         }
         .tint(Ink.ink).presentationDragIndicator(.visible)
         .alert("暂时没有完成", isPresented: Binding(
@@ -1986,7 +1995,7 @@ private struct ChatMessageBrowser: View {
                 }
             }
         }
-        .listStyle(.insetGrouped).scrollContentBackground(.hidden)
+        .claudeGroupedListStyle()
     }
     private var emptyResults: some View {
         VStack(alignment: .leading, spacing: 8) {
@@ -1994,11 +2003,11 @@ private struct ChatMessageBrowser: View {
                 .font(TypeScale.body).foregroundStyle(Ink.ink)
             Text(request.mode == .bookmarks && term.isEmpty ? "长按对话中的消息，选择「收藏消息」。" : "试试更短的关键词。")
                 .font(TypeScale.label).foregroundStyle(Ink.ink3)
-        }.padding(.vertical, 10).listRowBackground(Ink.raised)
+        }.padding(.vertical, 10).claudeCardRow()
     }
     private func resultRow(_ message: ChatMessage) -> some View {
         ChatMessageMatchRow(message: message, query: term) { open(message.id) }
-            .listRowBackground(Ink.raised)
+            .claudeCardRow()
             .contextMenu {
                 Button(message.isBookmarked == true ? "取消收藏" : "收藏消息", systemImage: message.isBookmarked == true ? "bookmark.slash" : "bookmark") {
                     guard let thread, thread.messages.contains(where: { $0.id == message.id }) else { return }
@@ -2162,7 +2171,7 @@ struct MessageView: View, Equatable {
                     UIPasteboard.general.string = cleanCopyText
                     Haptic.tap()
                 }
-                Button("选择文字", systemImage: "selection.pin.in.out") { selecting = true }
+                Button("选择文字", systemImage: "character.cursor.ibeam") { selecting = true }
                 Button("编辑文字", systemImage: "pencil") { edit() }.disabled(isGenerating)
                 if message.role == .assistant && message.state == .complete, let speech {
                     Button(speech.isActive(message.id) ? "停止朗读" : "朗读回答",
@@ -2247,27 +2256,44 @@ struct MessageView: View, Equatable {
                         StreamActivityView(message: message)
                     }
                 } else if !(isImessage && message.state != .failed) {
-                    HStack(spacing: 18) {
-                        Button { copyAnswer() } label: { Image(systemName: copied ? "checkmark" : "doc.on.doc") }
-                            .accessibilityLabel("复制回答")
-                        Button { selecting = true } label: { Image(systemName: "selection.pin.in.out") }
-                            .accessibilityLabel("选择部分文字")
-                        Button { edit() } label: { Image(systemName: "pencil") }
-                            .disabled(isGenerating).accessibilityLabel("编辑回答")
-                        if message.state == .complete, let speech {
-                            SpeechPlaybackControl(speech: speech, text: message.content, messageID: message.id)
-                        }
+                    let isEmptyFailure = message.state == .failed && message.content.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+                    if isEmptyFailure {
                         if isLast {
-                            Button { regenerate() } label: { Image(systemName: "arrow.clockwise") }
-                                .disabled(isGenerating || !canRegenerate).accessibilityLabel("重新生成")
+                            HStack(spacing: 12) {
+                                Button { regenerate() } label: {
+                                    Label("重试", systemImage: "arrow.clockwise")
+                                        .font(.system(size: 13.5, weight: .medium))
+                                }
+                                .disabled(isGenerating || !canRegenerate)
+                                .accessibilityLabel("重新生成")
+                                Spacer(minLength: 4)
+                            }
+                            .foregroundStyle(Ink.ink2).buttonStyle(.pressFeedback).padding(.top, 2)
                         }
-                        Spacer(minLength: 4)
-                        // Cost only; the time is in the long-press menu.
-                        if let usage = message.usage {
-                            Text(usageLabel(usage)).font(.system(size: 11.5)).monospacedDigit().lineLimit(1)
-                                .accessibilityLabel("本次请求共 \(usage.totalTokens) 个 Token")
-                        }
-                    }.font(.system(size: 15)).foregroundStyle(Ink.ink3).buttonStyle(.pressFeedback).padding(.top, 2)
+                    } else {
+                        HStack(spacing: 16) {
+                            Button { copyAnswer() } label: { Image(systemName: copied ? "checkmark" : "doc.on.doc") }
+                                .accessibilityLabel("复制回答")
+                            Button { selecting = true } label: { Image(systemName: "character.cursor.ibeam") }
+                                .accessibilityLabel("选择部分文字")
+                            Button { edit() } label: { Image(systemName: "pencil") }
+                                .disabled(isGenerating).accessibilityLabel("编辑回答")
+                            if message.state == .complete, let speech {
+                                SpeechPlaybackControl(speech: speech, text: message.content, messageID: message.id)
+                            }
+                            if isLast {
+                                Button { regenerate() } label: { Image(systemName: "arrow.clockwise") }
+                                    .disabled(isGenerating || !canRegenerate).accessibilityLabel("重新生成")
+                            }
+                            Spacer(minLength: 4)
+                            // Cost only; the time is in the long-press menu.
+                            if let usage = message.usage {
+                                Text(usageLabel(usage)).font(.system(size: 11)).monospacedDigit().lineLimit(1)
+                                    .foregroundStyle(Ink.ink3.opacity(0.78))
+                                    .accessibilityLabel("本次请求共 \(usage.totalTokens) 个 Token")
+                            }
+                        }.font(.system(size: 14.5, weight: .light)).foregroundStyle(Ink.ink3.opacity(0.88)).buttonStyle(.pressFeedback).padding(.top, 2)
+                    }
                 }
             }
             trailingParts
@@ -2650,9 +2676,9 @@ struct MarkdownAnswer: View, Equatable {
                 case .heading(let text, let level):
                     EditorialHeadingRow(text: text, level: level, style: style)
                 case .list(let items):
-                    VStack(alignment: .leading, spacing: 8) {
+                    VStack(alignment: .leading, spacing: swiss ? 8 : 12) {
                         ForEach(Array(items.enumerated()), id: \.offset) { _, item in
-                            HStack(alignment: .firstTextBaseline, spacing: 8) {
+                            HStack(alignment: .firstTextBaseline, spacing: swiss ? 8 : 6) {
                                 if swiss {
                                     // Bullets become dashes, numbers go monospaced, both in the accent.
                                     Text(item.marker == "•" ? "—" : item.marker == "◦" ? "–" : item.marker)
@@ -2672,7 +2698,7 @@ struct MarkdownAnswer: View, Equatable {
                         .padding(.leading, 14)
                         .overlay(alignment: .leading) {
                             RoundedRectangle(cornerRadius: swiss ? 0 : 1.25, style: .continuous)
-                                .fill(swiss ? Ink.ink : Ink.seal.opacity(0.75)).frame(width: swiss ? 3 : 2.5)
+                                .fill(swiss ? Ink.ink : Ink.ink3.opacity(0.35)).frame(width: swiss ? 3 : 2.5)
                         }
                 case .table(let header, let rows, let alignments):
                     MarkdownTableBlockView(header: header, rows: rows, alignments: alignments, swiss: swiss).equatable()
@@ -2769,9 +2795,9 @@ private struct MarkdownCodeBlockView: View, Equatable {
         let previewable = HTMLPreviewHelper.isPreviewable(language: parsed.language, body: parsed.body)
         VStack(alignment: .leading, spacing: 8) {
             HStack(spacing: 10) {
-                Text(swiss ? (parsed.language.map { "CODE · \($0)" } ?? "CODE") : (parsed.language.map { "代码 · \($0)" } ?? "代码"))
-                    .font(swiss ? TypeScale.mono(10) : TypeScale.tiny.weight(.semibold))
-                    .foregroundStyle(Ink.seal)
+                Text(swiss ? (parsed.language.map { "CODE · \($0)" } ?? "CODE") : (parsed.language ?? "代码"))
+                    .font(swiss ? TypeScale.mono(10) : .system(size: 12, weight: .medium))
+                    .foregroundStyle(swiss ? Ink.seal : Ink.ink3)
                 Spacer()
                 if previewable {
                     Button {
@@ -2779,11 +2805,11 @@ private struct MarkdownCodeBlockView: View, Equatable {
                         showHTMLPreview = true
                     } label: {
                         Label("预览网页", systemImage: "safari")
-                            .font(.system(size: 11, weight: .semibold))
-                            .foregroundStyle(Ink.seal)
+                            .font(.system(size: 11.5, weight: .medium))
+                            .foregroundStyle(Ink.ink2)
                             .padding(.horizontal, 8)
                             .padding(.vertical, 3.5)
-                            .background(Ink.seal.opacity(0.12), in: Capsule())
+                            .background(Ink.raised, in: Capsule())
                     }
                     .buttonStyle(.pressFeedback)
                     .accessibilityLabel("预览网页效果")
@@ -2798,10 +2824,13 @@ private struct MarkdownCodeBlockView: View, Equatable {
                     }
                 } label: {
                     Image(systemName: copied ? "checkmark" : "doc.on.doc")
-                        .foregroundStyle(Ink.seal)
+                        .foregroundStyle(swiss ? Ink.seal : Ink.ink3)
                 }
-                .font(.system(size: 11))
+                .font(.system(size: 12.5, weight: .light))
                 .accessibilityLabel("复制代码")
+            }
+            if !swiss {
+                Rectangle().fill(Ink.line).frame(height: 0.5)
             }
             ScrollView(.horizontal) {
                 Text(MarkdownAnswer.highlightedCode(parsed.body, language: parsed.language))
@@ -2810,9 +2839,9 @@ private struct MarkdownCodeBlockView: View, Equatable {
             }
         }
         .padding(14)
-        .background(Ink.raised, in: RoundedRectangle(cornerRadius: swiss ? 0 : 16, style: .continuous))
-        .overlay(RoundedRectangle(cornerRadius: swiss ? 0 : 16, style: .continuous)
-            .stroke(swiss ? Ink.line : Ink.seal.opacity(0.18), lineWidth: 1).allowsHitTesting(false))
+        .background(swiss ? Ink.raised : Ink.card, in: RoundedRectangle(cornerRadius: swiss ? 0 : 14, style: .continuous))
+        .overlay(RoundedRectangle(cornerRadius: swiss ? 0 : 14, style: .continuous)
+            .stroke(Ink.line, lineWidth: swiss ? 1 : 0.8).allowsHitTesting(false))
         .sheet(isPresented: $showHTMLPreview) {
             HTMLPreviewSheet(code: parsed.body, language: parsed.language)
         }
@@ -2832,8 +2861,8 @@ private struct MarkdownMathBlockView: View, Equatable {
         VStack(alignment: .leading, spacing: 8) {
             HStack {
                 Text(swiss ? "MATH" : "公式")
-                    .font(swiss ? TypeScale.mono(10) : TypeScale.tiny.weight(.semibold))
-                    .foregroundStyle(Ink.seal)
+                    .font(swiss ? TypeScale.mono(10) : .system(size: 12, weight: .medium))
+                    .foregroundStyle(swiss ? Ink.seal : Ink.ink3)
                 Spacer()
                 Button {
                     UIPasteboard.general.string = formula
@@ -2845,9 +2874,9 @@ private struct MarkdownMathBlockView: View, Equatable {
                     }
                 } label: {
                     Image(systemName: copied ? "checkmark" : "doc.on.doc")
-                        .foregroundStyle(Ink.seal)
+                        .foregroundStyle(swiss ? Ink.seal : Ink.ink3)
                 }
-                .font(.system(size: 11))
+                .font(.system(size: 12.5, weight: .light))
                 .accessibilityLabel("复制公式原文")
             }
             ScrollView(.horizontal, showsIndicators: false) {
@@ -2861,9 +2890,9 @@ private struct MarkdownMathBlockView: View, Equatable {
             }
         }
         .padding(14)
-        .background(Ink.raised, in: RoundedRectangle(cornerRadius: swiss ? 0 : 14, style: .continuous))
+        .background(swiss ? Ink.raised : Ink.card, in: RoundedRectangle(cornerRadius: swiss ? 0 : 14, style: .continuous))
         .overlay(RoundedRectangle(cornerRadius: swiss ? 0 : 14, style: .continuous)
-            .stroke(swiss ? Ink.line : Ink.seal.opacity(0.16), lineWidth: 1).allowsHitTesting(false))
+            .stroke(Ink.line, lineWidth: swiss ? 1 : 0.8).allowsHitTesting(false))
     }
 }
 
@@ -2874,7 +2903,7 @@ struct TableCell: View {
     let alignment: TableAlignment
     @AppStorage(FontLibrary.choiceKey) private var fontChoice = ""
     @AppStorage(FontLibrary.revisionKey) private var fontRevision = 0
-    @AppStorage("qingjian.reading.size") private var readingSize = 18.0
+    @AppStorage("qingjian.reading.size") private var readingSize = 17.0
     private var frameAlignment: Alignment {
         switch alignment {
         case .leading: return .leading
@@ -2906,7 +2935,7 @@ private struct EditorialHeadingRow: View {
     let style: InterfaceStyle
     @AppStorage(FontLibrary.choiceKey) private var fontChoice = ""
     @AppStorage(FontLibrary.revisionKey) private var fontRevision = 0
-    @AppStorage("qingjian.reading.size") private var readingSize = 18.0
+    @AppStorage("qingjian.reading.size") private var readingSize = 17.0
     var body: some View {
         let _ = (fontChoice, fontRevision, StyleAppearance.shared.revision, FontAppearance.shared.revision)
         let delta: CGFloat = level == 1 ? 5 : (level == 2 ? 3.5 : 2)
@@ -2926,13 +2955,15 @@ private struct EditorialListMarker: View {
     let marker: String
     @AppStorage(FontLibrary.choiceKey) private var fontChoice = ""
     @AppStorage(FontLibrary.revisionKey) private var fontRevision = 0
-    @AppStorage("qingjian.reading.size") private var readingSize = 18.0
+    @AppStorage("qingjian.reading.size") private var readingSize = 17.0
     var body: some View {
         let _ = (fontChoice, fontRevision, StyleAppearance.shared.revision, FontAppearance.shared.revision)
+        let isNumbered = marker != "•" && marker != "◦"
         Text(marker)
-            .font(ReadingFont.resolve(baseSize: CGFloat(readingSize), bold: false, italic: false))
+            .font(ReadingFont.resolve(baseSize: CGFloat(readingSize), bold: isNumbered, italic: false))
+            .monospacedDigit()
             .foregroundStyle(Ink.ink)
-            .frame(minWidth: marker.count > 1 ? 22 : 12, alignment: .leading)
+            .frame(minWidth: isNumbered ? 20 : 12, alignment: .leading)
     }
 }
 
@@ -2967,7 +2998,7 @@ private struct EditorialParagraphBody: View {
     let parsed: AttributedString
     @AppStorage(FontLibrary.choiceKey) private var fontChoice = ""
     @AppStorage(FontLibrary.revisionKey) private var fontRevision = 0
-    @AppStorage("qingjian.reading.size") private var readingSize = 18.0
+    @AppStorage("qingjian.reading.size") private var readingSize = 17.0
     var body: some View {
         let _ = (fontChoice, fontRevision, StyleAppearance.shared.revision, FontAppearance.shared.revision)
         Text(parsed.applyingEditorialStyle(baseSize: CGFloat(readingSize)))
@@ -2999,18 +3030,18 @@ struct EditMessageView: View {
                     }.buttonStyle(.inkPrimary)
                         .disabled(text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
                 }
-            }.padding(20).background(Ink.paper)
+            }.padding(20).background(Ink.groupedBg.ignoresSafeArea())
                 .navigationTitle(message.role == .user ? "编辑你的消息" : "编辑回答")
                 .navigationBarTitleDisplayMode(.inline)
                 .toolbar {
-                    ToolbarItem(placement: .topBarLeading) { Button("取消") { dismiss() } }
+                    ToolbarItem(placement: .topBarLeading) { ClaudeSheetCloseButton(label: "取消") { dismiss() } }
                     ToolbarItem(placement: .topBarTrailing) {
                         Button("保存") {
                             if store.editMessage(message.id, text: text, resend: false) { dismiss() }
-                        }.disabled(text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+                        }.fontWeight(.semibold).disabled(text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
                     }
                 }
-        }.presentationDragIndicator(.visible)
+        }.tint(Ink.ink).presentationDragIndicator(.visible)
             .onAppear { text = message.content }
             .alert("暂时没有完成", isPresented: Binding(get: { store.errorMessage != nil }, set: { if !$0 { store.errorMessage = nil } })) {
                 Button("知道了") { store.errorMessage = nil }
@@ -3112,7 +3143,7 @@ private struct DocumentPreviewSheet: View {
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .topBarLeading) {
-                    Button("关闭") { dismiss() }
+                    ClaudeSheetCloseButton(label: "关闭") { dismiss() }
                 }
                 ToolbarItem(placement: .topBarTrailing) {
                     Button(copied ? "已复制" : "复制全文") {
@@ -3122,6 +3153,7 @@ private struct DocumentPreviewSheet: View {
                 }
             }
         }
+        .tint(Ink.ink)
         .presentationDragIndicator(.visible)
     }
 }

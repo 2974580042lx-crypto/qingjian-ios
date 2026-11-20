@@ -14,15 +14,12 @@ extension AttributedString {
     ///   / `.emphasized` intents afterwards so SwiftUI never strips `.cascadeList`).
     /// - Draws `**bold**` in deep ink (`Ink.ink`) by default (or `Ink.seal` when `Personal.boldUsesAccent` is on).
     /// - Draws `` `inline code` `` in warm terracotta brick (`#B84A27` / `#E28262`) over an oatmeal chip (`#ECE8DE` / `#2D2B27`).
-    func applyingEditorialStyle(baseSize: CGFloat = 18, boldColor: Color? = nil, forceBold: Bool = false) -> AttributedString {
+    func applyingEditorialStyle(baseSize: CGFloat = 17, boldColor: Color? = nil, forceBold: Bool = false) -> AttributedString {
         var copy = self
-        let usesDefaultClay = Personal.value(Personal.accentKey).isEmpty || Personal.value(Personal.accentKey) == "clay"
-        let codeInk: Color = InterfaceStyle.isSwiss || InterfaceStyle.isNight || !usesDefaultClay
-            ? Ink.seal
-            : Color.adaptive(light: 0xB84A27, dark: 0xE28262)
+        let codeInk: Color = InterfaceStyle.isSwiss || InterfaceStyle.isNight ? Ink.seal : Ink.ink
         let codeFill: Color = InterfaceStyle.isSwiss || InterfaceStyle.isNight
             ? Ink.raised
-            : Color.adaptive(light: 0xECE8DE, dark: 0x2D2B27)
+            : Color.adaptive(light: 0xECEBE6, dark: 0x2A2A27)
         let monoSize = max(13.5, TypeScale.scaled(baseSize - 2, .body))
         let resolvedBoldColor = boldColor ?? (Personal.boldUsesAccent ? Ink.seal : Ink.ink)
 

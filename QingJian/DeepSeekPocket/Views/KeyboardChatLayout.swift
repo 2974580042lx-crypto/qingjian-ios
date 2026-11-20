@@ -96,7 +96,10 @@ struct KeyboardChatLayout<Transcript: View, Composer: View>: UIViewControllerRep
                 transcriptScroll = firstScrollView(in: transcriptHost.view)
             }
             guard let scroll = transcriptScroll else { return }
-            scroll.topEdgeEffect.isHidden = true
+            scroll.topEdgeEffect.isHidden = false
+            scroll.topEdgeEffect.style = .soft
+            scroll.bottomEdgeEffect.isHidden = false
+            scroll.bottomEdgeEffect.style = .soft
             scroll.alwaysBounceHorizontal = false
             scroll.showsHorizontalScrollIndicator = false
             if abs(scroll.contentOffset.x) > 0.5,

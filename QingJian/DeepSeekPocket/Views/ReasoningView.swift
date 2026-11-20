@@ -23,20 +23,27 @@ struct ThinkingRow: View {
 
     var body: some View {
         Button(action: open) {
-            HStack(spacing: 5) {
+            HStack(spacing: 6) {
                 if live {
-                    ThinkingMark(live: true, size: 14)
-                    TimelineView(.periodic(from: .now, by: 1)) { timeline in
-                        line(head: "思考中 · \(max(0, Int(timeline.date.timeIntervalSince(message.createdAt)))) 秒")
+                    if InterfaceStyle.isNight || InterfaceStyle.isSwiss {
+                        ThinkingMark(live: true, size: 14)
+                    } else {
+                        ClaudeThinkingDots()
                     }
+                    line(head: snippet.isEmpty ? "正在思考…" : snippet)
+                        .lineLimit(1)
+                        .truncationMode(.tail)
                 } else {
+                    Image(systemName: "clock")
+                        .font(.system(size: 13, weight: .light))
+                        .foregroundStyle(Ink.ink3)
                     line(head: message.thinkingSeconds.map { "已思考 \($0) 秒" } ?? "思考过程")
                 }
                 Image(systemName: "chevron.right")
-                    .font(.system(size: 10, weight: .medium))
+                    .font(.system(size: 10.5, weight: .light))
                     .foregroundStyle(Ink.ink3.opacity(0.75))
             }
-            .font(.system(size: 13, weight: .regular))
+            .font(.system(size: 13.5, weight: .regular))
             .padding(.vertical, 3)
             .frame(minHeight: 28, alignment: .leading)
             .contentShape(Rectangle())
@@ -48,6 +55,30 @@ struct ThinkingRow: View {
 
     private func line(head: String) -> some View {
         Text(head).foregroundStyle(Ink.ink3).monospacedDigit()
+    }
+}
+
+/// Claude iOS-style two tiny pulsing terracotta dots shown beside live thinking / connecting lines.
+struct ClaudeThinkingDots: View {
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @State private var pulse = false
+
+    var body: some View {
+        HStack(spacing: 4) {
+            ForEach(0..<2, id: \.self) { index in
+                Circle()
+                    .fill(Ink.seal)
+                    .frame(width: 4.5, height: 4.5)
+                    .opacity(reduceMotion ? 0.85 : (pulse == (index == 0) ? 1.0 : 0.32))
+                    .scaleEffect(reduceMotion ? 1.0 : (pulse == (index == 0) ? 1.05 : 0.82))
+                    .animation(
+                        reduceMotion ? nil : .easeInOut(duration: 0.72).repeatForever(autoreverses: true),
+                        value: pulse
+                    )
+            }
+        }
+        .onAppear { if !reduceMotion { pulse = true } }
+        .accessibilityHidden(true)
     }
 }
 
@@ -131,10 +162,10 @@ struct ThinkingSheet: View {
             }
             .toolbar {
                 ToolbarItem(placement: .topBarLeading) {
-                    Button { dismiss() } label: { Image(systemName: "xmark") }.accessibilityLabel("关闭思考过程")
+                    ClaudeSheetCloseButton(label: "关闭思考过程") { dismiss() }
                 }
                 ToolbarItem(placement: .principal) {
-                    Text("思考过程").font(TypeScale.serif(17).weight(.semibold)).foregroundStyle(Ink.ink)
+                    Text("思考过程").font(TypeScale.ui(17, weight: .semibold)).foregroundStyle(Ink.ink)
                 }
             }
             .navigationBarTitleDisplayMode(.inline)

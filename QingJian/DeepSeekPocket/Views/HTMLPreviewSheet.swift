@@ -20,8 +20,8 @@ enum HTMLPreviewHelper {
         }
         let isSVG = language?.uppercased() == "SVG" || lower.hasPrefix("<svg")
         let bodyStyle = isSVG
-            ? "margin:0;padding:16px;min-height:100vh;display:flex;align-items:center;justify-content:center;background:#FAF8F4;box-sizing:border-box;"
-            : "margin:0;padding:16px;background:#FAF8F4;color:#24211C;font-family:-apple-system,BlinkMacSystemFont,sans-serif;box-sizing:border-box;"
+            ? "margin:0;padding:16px;min-height:100vh;display:flex;align-items:center;justify-content:center;background:#F8F8F6;box-sizing:border-box;"
+            : "margin:0;padding:16px;background:#F8F8F6;color:#1A1A18;font-family:-apple-system,BlinkMacSystemFont,sans-serif;box-sizing:border-box;"
         return """
         <!DOCTYPE html>
         <html>
@@ -61,26 +61,26 @@ struct HTMLPreviewSheet: View {
                 .navigationBarTitleDisplayMode(.inline)
                 .toolbar {
                     ToolbarItem(placement: .topBarLeading) {
-                        Button("关闭") { dismiss() }
+                        ClaudeSheetCloseButton(label: "关闭") { dismiss() }
                     }
                     ToolbarItemGroup(placement: .topBarTrailing) {
                         Button {
                             reloadToken = UUID()
                         } label: {
-                            Image(systemName: "arrow.clockwise")
+                            Image(systemName: "arrow.clockwise").font(.system(size: 15, weight: .regular))
                         }
                         .accessibilityLabel("重新加载预览")
 
                         Button {
                             exportHTML()
                         } label: {
-                            Image(systemName: "square.and.arrow.up")
+                            Image(systemName: "square.and.arrow.up").font(.system(size: 15, weight: .regular))
                         }
                         .accessibilityLabel("导出网页文件")
                     }
                 }
         }
-        .tint(Ink.seal)
+        .tint(Ink.ink)
         .sheet(isPresented: Binding(get: { exportURL != nil }, set: { if !$0 { exportURL = nil } }), onDismiss: cleanupExportFile) {
             if let url = exportURL {
                 ShareSheet(items: [url])

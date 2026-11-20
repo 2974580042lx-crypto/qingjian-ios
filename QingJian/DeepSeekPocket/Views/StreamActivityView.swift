@@ -12,6 +12,14 @@ struct StreamActivityView: View {
         return store.generationProgress?.phase ?? .connecting
     }
 
+    @ViewBuilder private var indicator: some View {
+        if InterfaceStyle.isNight || InterfaceStyle.isSwiss {
+            PulseDot()
+        } else {
+            ClaudeThinkingDots()
+        }
+    }
+
     var body: some View {
         let currentPhase = phase
         Group {
@@ -19,8 +27,8 @@ struct StreamActivityView: View {
                 TimelineView(.periodic(from: .now, by: 1)) { timeline in
                     let seconds = max(0, Int(timeline.date.timeIntervalSince(message.createdAt)))
                     VStack(alignment: .leading, spacing: 7) {
-                        HStack(spacing: 9) {
-                            PulseDot()
+                        HStack(spacing: 8) {
+                            indicator
                             Text("\(currentPhase.title) · \(seconds) 秒").font(TypeScale.caption).monospacedDigit()
                         }
                         if seconds >= 30 {
@@ -32,8 +40,8 @@ struct StreamActivityView: View {
                     }
                 }
             } else {
-                HStack(spacing: 9) {
-                    PulseDot()
+                HStack(spacing: 8) {
+                    indicator
                 }
             }
         }
