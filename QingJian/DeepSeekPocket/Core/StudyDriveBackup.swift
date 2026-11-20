@@ -19,7 +19,7 @@ struct StudyDriveFile: Codable, Identifiable, Sendable {
     var backupID: String? { appProperties?["backupID"] }
     var isPrivateOwned: Bool { ownedByMe == true && shared == false && driveId == nil }
 }
-struct StudyUploadSession: Codable, Sendable {
+struct StudyUploadSession: Codable, Equatable, Sendable {
     let backupID: String
     var sessionURL: String?
     var offset: Int
