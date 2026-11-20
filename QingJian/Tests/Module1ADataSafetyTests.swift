@@ -226,7 +226,7 @@ final class Module1ADataSafetyTests: XCTestCase {
         var studyProj = ChatProject(name: "考研历史")
         studyProj.studySubject = .history
         let snap = AppSnapshot(settings: AppSettings(), threads: [ChatThread()], activeThreadID: nil, projects: [studyProj])
-        let badRow = StudyArchiveRow(projectID: studyProj.id, kind: "memory", id: "m1", updatedAt: Date(), payload: Data("not-json".utf8))
+        let badRow = StudyMemoryArchive.Row(projectID: studyProj.id, kind: "memory", id: "m1", payload: Data("not-json".utf8))
         let badPayload = UnifiedBackupPayload(
             snapshot: snap,
             learning: StudyMemoryArchive(version: 1, rows: [badRow]),

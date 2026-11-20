@@ -156,7 +156,7 @@
   "QingJian/Tests/HighlightMarksTests.swift": "ddf4ca94c036a7c41c129052afbe560c9511f66295809700f9daed72eca3ab7e",
   "QingJian/Tests/IntegrationSafetyTests.swift": "ed3702eba1913a2e2ab9740814d575716121001de928e67960cc6264bf8bd415",
   "QingJian/Tests/MarkdownBlockTests.swift": "c2757db4a2fd455d952a4d7c21ec81c2e1b9854dd6d59a5e43130b62b209e837",
-  "QingJian/Tests/Module1ADataSafetyTests.swift": "a40ffdbfbe2937980bca3fab54bdc2d60cf03f096573e53a16c5294ab3b48990",
+  "QingJian/Tests/Module1ADataSafetyTests.swift": "dd0f3b53238ae3721f34cc5b473509592eafd9c7e15ce77e115d385de3ef010b",
   "QingJian/Tests/NetworkTransportTests.swift": "1c3a2179086fb6182759dce0f2a7d6ece41e77ab19b6cd1c5cb7fd4b361f54b9",
   "QingJian/Tests/OperationManualTests.swift": "835ec4042a3082b3387089a60d96d46bbd735ca7070d1b9a13e7b2b1df1e94a8",
   "QingJian/Tests/PricingAndImageTests.swift": "834af06ba72c38cd34f2a2be3499d35525a618dd115af62b9fb219a5346f107e",
