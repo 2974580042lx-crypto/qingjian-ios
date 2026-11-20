@@ -64,6 +64,7 @@ struct StudyHistoryImportPreview: View {
     var body: some View {
         NavigationStack {
             Form {
+                Group {
                 Section("来源") {
                     Text(pack.source)
                     Text("\(pack.entries.count) 条 · \(pack.verification)").font(TypeScale.caption).foregroundStyle(Ink.ink3)
@@ -79,6 +80,7 @@ struct StudyHistoryImportPreview: View {
                         }
                     }
                 }
+                }.claudeCardRow()
             }
             .claudeGroupedFormStyle()
             .navigationTitle("导入历史资料").navigationBarTitleDisplayMode(.inline)

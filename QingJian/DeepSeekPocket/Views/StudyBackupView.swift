@@ -86,6 +86,7 @@ private struct StudyRestorePreviewView: View {
     var body: some View {
         NavigationStack {
             Form {
+                Group {
                 Section("已核验的备份") {
                     Text(preview.file.name).textSelection(.enabled)
                     LabeledContent("生成时间", value: preview.payload.createdAt.formatted(date: .abbreviated, time: .shortened))
@@ -118,6 +119,7 @@ private struct StudyRestorePreviewView: View {
                     if let issue = cloud.issue { Text(issue).foregroundStyle(.red) }
                     Button("恢复这一版本") { confirming = true }.disabled(cloud.busy)
                 }
+                }.claudeCardRow()
             }
             .claudeGroupedFormStyle()
             .navigationTitle("核对恢复内容").navigationBarTitleDisplayMode(.inline)

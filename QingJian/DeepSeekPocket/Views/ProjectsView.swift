@@ -154,6 +154,7 @@ struct ProjectPageView: View {
     let projectID: UUID
     let opened: () -> Void
     @State private var editingInstructions = false
+    @State private var showingFiles = false
     @State private var adjusting = false
     @State private var renaming = false
     @State private var renameText = ""
@@ -165,7 +166,7 @@ struct ProjectPageView: View {
         List {
             Section {
                 HStack(spacing: 10) {
-                    NavigationLink { ProjectFilesView(projectID: projectID) } label: {
+                    Button { showingFiles = true } label: {
                         pill((project?.documents.isEmpty ?? true) ? "添加文件" : "文件 · \(project?.documents.count ?? 0)", symbol: "doc.text")
                     }
                     .accessibilityIdentifier("project-files")
@@ -284,6 +285,9 @@ struct ProjectPageView: View {
                 .accessibilityIdentifier("project-pin")
                 optionsMenu
             }
+        }
+        .navigationDestination(isPresented: $showingFiles) {
+            ProjectFilesView(projectID: projectID)
         }
         .sheet(isPresented: $editingInstructions) {
             ProjectInstructionsView(projectID: projectID).environmentObject(store)
@@ -491,6 +495,7 @@ struct ProjectMemoryView: View {
 
     var body: some View {
         Form {
+            Group {
             if project == nil {
                 Text("项目已上锁或不存在，请返回后重新打开。").foregroundStyle(Ink.ink3)
             } else {
@@ -511,6 +516,7 @@ struct ProjectMemoryView: View {
                     .disabled((project?.memory ?? "").isEmpty || !store.canPersist)
             }
             }
+            }.claudeCardRow()
         }
         .claudeGroupedFormStyle()
         .navigationTitle("项目备忘（跨对话）")
@@ -581,6 +587,7 @@ struct ProjectFilesView: View {
 
     var body: some View {
         Form {
+            Group {
             if project == nil {
                 Text("项目已上锁或不存在，请返回后重新打开。").foregroundStyle(Ink.ink3)
             } else {
@@ -654,6 +661,7 @@ struct ProjectFilesView: View {
                 }
             }
             }
+            }.claudeCardRow()
         }
         .claudeGroupedFormStyle()
         .searchable(text: $search, prompt: "搜索资料名称或正文")
@@ -863,6 +871,7 @@ private struct ProjectDocumentEditor: View {
     var body: some View {
         NavigationStack {
             Form {
+                Group {
                 if project == nil {
                     Text("项目已上锁或不存在，请返回后重新打开。").foregroundStyle(Ink.ink3)
                 } else {
@@ -885,6 +894,7 @@ private struct ProjectDocumentEditor: View {
                         Text(saveError).font(TypeScale.label).foregroundStyle(.red)
                     }
                 }
+                }.claudeCardRow()
             }
             .claudeGroupedFormStyle()
             .navigationTitle("查看与编辑资料").navigationBarTitleDisplayMode(.inline)

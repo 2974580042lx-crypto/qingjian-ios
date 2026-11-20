@@ -80,8 +80,9 @@ struct SettingsView: View {
                         Picker("默认服务", selection: Binding(
                             get: { store.settings.selectedProvider },
                             set: { newValue in
-                                draftSettings.provider = newValue
-                                _ = store.saveDefaultProvider(newValue)
+                                if store.saveDefaultProvider(newValue) {
+                                    draftSettings.provider = newValue
+                                }
                             }
                         )) {
                             ForEach(AIProvider.allCases) { Text($0.title).tag($0) }
@@ -165,7 +166,7 @@ struct SettingsView: View {
     // MARK: Sub-pages. Each keeps the same look; pages with edits to save carry 保存.
 
     private func page<Content: View>(_ title: String, saves: Bool = false, @ViewBuilder _ content: () -> Content) -> some View {
-        Form { content() }
+        Form { Group { content() }.claudeCardRow() }
             .claudeGroupedFormStyle()
             .navigationTitle(title)
             .navigationBarTitleDisplayMode(.inline)
@@ -544,6 +545,7 @@ struct SystemPromptLibraryView: View {
 
     var body: some View {
         List {
+            Group {
             Section {
                 Button {
                     editing = SystemPromptPreset(name: "", content: "")
@@ -583,6 +585,7 @@ struct SystemPromptLibraryView: View {
             if let issue {
                 Text(issue).font(TypeScale.label).foregroundStyle(.red)
             }
+            }.claudeCardRow()
         }
         .claudeGroupedListStyle()
         .navigationTitle("系统指令库").navigationBarTitleDisplayMode(.inline)
@@ -628,6 +631,7 @@ private struct SystemPromptPresetEditor: View {
     var body: some View {
         NavigationStack {
             Form {
+                Group {
                 Section("名字 · \(name.count) / 60") {
                     TextField("例如：随便聊聊、简洁一点、角色名字", text: $name)
                         .accessibilityIdentifier("system-prompt-name")
@@ -640,6 +644,7 @@ private struct SystemPromptPresetEditor: View {
                 }
                 if let validation { Text(validation).font(TypeScale.label).foregroundStyle(Ink.ink3) }
                 if let issue { Text(issue).font(TypeScale.label).foregroundStyle(.red) }
+                }.claudeCardRow()
             }
             .claudeGroupedFormStyle()
             .navigationTitle(preset.name.isEmpty ? "新建系统指令" : "编辑系统指令")
@@ -691,6 +696,7 @@ struct SystemPromptPickerSheet: View {
     var body: some View {
         NavigationStack {
             List {
+                Group {
                 if let thread, store.canChooseSystemPrompt(for: thread) {
                     currentSection(thread)
                     Section {
@@ -723,6 +729,7 @@ struct SystemPromptPickerSheet: View {
                     }
                 }
                 if let issue { Text(issue).font(TypeScale.label).foregroundStyle(.red) }
+                }.claudeCardRow()
             }
             .claudeGroupedListStyle()
             .navigationTitle("选择系统指令").navigationBarTitleDisplayMode(.inline)
@@ -794,6 +801,7 @@ struct LocalDataStatusView: View {
     var body: some View {
         let stats = store.localDataDiagnostics()
         List {
+            Group {
             Section("运行与存储状态") {
                 LabeledContent("主记录保存权限", value: store.canPersist ? "正常" : "只读保护中")
                 LabeledContent("书架保存权限", value: store.books.canPersist ? "正常" : "只读保护中")
@@ -855,6 +863,7 @@ struct LocalDataStatusView: View {
                     }
                 }
             } header: { Text("Documents/自动备份（最近 \(autoBackups.count) 份）") }
+            }.claudeCardRow()
         }
         .claudeGroupedListStyle()
         .navigationTitle("本机数据状态")
@@ -893,6 +902,7 @@ struct UnifiedRestorePreviewSheet: View {
     var body: some View {
         NavigationStack {
             Form {
+                Group {
                 Section("已核验的备份文件") {
                     LabeledContent("文件名", value: preview.fileName)
                     LabeledContent("格式类型", value: preview.package.formatTitle)
@@ -946,6 +956,7 @@ struct UnifiedRestorePreviewSheet: View {
                 } footer: {
                     Text("无论选择哪种方式，恢复开始前都会先把本机当前记录另存一份到「Safety 保护快照」，确保不会丢失现有数据。")
                 }
+                }.claudeCardRow()
             }
             .claudeGroupedFormStyle()
             .navigationTitle("核对备份内容")

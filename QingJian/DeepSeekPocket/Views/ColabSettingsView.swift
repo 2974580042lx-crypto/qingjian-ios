@@ -14,6 +14,7 @@ struct ColabSettingsView: View {
     @State private var showRefreshError = false
     var body: some View {
         Form {
+            Group {
             Section("连接 Colab") {
                 TextField("Base URL（https://…/v1）", text: $baseURL)
                     .textInputAutocapitalization(.never).autocorrectionDisabled().keyboardType(.URL)
@@ -63,6 +64,7 @@ struct ColabSettingsView: View {
             if let issue = colab.issue {
                 Section { Text(issue).font(TypeScale.caption).foregroundStyle(Ink.ink3) }
             }
+            }.claudeCardRow()
         }
         .claudeGroupedFormStyle()
         .navigationTitle("Colab").navigationBarTitleDisplayMode(.inline)

@@ -21,6 +21,7 @@ struct FeatureOverviewView: View {
 
     var body: some View {
         List {
+            Group {
             Section {
                 if store.manualDismissed {
                     Button("恢复「\(AppManual.projectName)」项目") { store.restoreManualProject() }
@@ -60,6 +61,7 @@ struct FeatureOverviewView: View {
                     }
                 }
             }
+            }.claudeCardRow()
         }
         .claudeGroupedListStyle()
         .navigationTitle("功能一览")

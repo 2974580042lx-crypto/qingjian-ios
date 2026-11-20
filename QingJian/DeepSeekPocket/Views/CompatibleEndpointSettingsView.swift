@@ -14,6 +14,7 @@ struct CompatibleEndpointSettingsView: View {
 
     var body: some View {
         Form {
+            Group {
             Section {
                 Picker("服务预设", selection: $selectedPreset) {
                     ForEach(CompatiblePresetID.allCases) { preset in
@@ -71,6 +72,7 @@ struct CompatibleEndpointSettingsView: View {
                     Text(notice).font(.footnote).foregroundStyle(.green)
                 }
             }
+            }.claudeCardRow()
         }
         .claudeGroupedFormStyle()
         .navigationTitle("其他模型（兼容端点）")

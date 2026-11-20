@@ -194,6 +194,7 @@ private struct UsageDetailsView: View {
 
     var body: some View {
         List {
+            Group {
             Section {
                 Picker("日期范围", selection: $period) {
                     ForEach(UsagePeriod.allCases) { Text($0.rawValue).tag($0) }
@@ -245,6 +246,7 @@ private struct UsageDetailsView: View {
                     .disabled(records.isEmpty)
                     .accessibilityIdentifier("usage-export-csv")
             }
+            }.claudeCardRow()
         }
         .claudeGroupedListStyle()
         .navigationTitle("用量明细")

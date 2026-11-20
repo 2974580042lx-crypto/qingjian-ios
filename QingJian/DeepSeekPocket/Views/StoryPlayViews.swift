@@ -41,6 +41,7 @@ struct StoryPlaySheet: View {
     var body: some View {
         NavigationStack {
             Form {
+                Group {
                 if let story {
                     Section {
                         StoryDirectionMenu(threadID: threadID)
@@ -84,6 +85,7 @@ struct StoryPlaySheet: View {
                         }
                     }
                 }
+                }.claudeCardRow()
             }
             .claudeGroupedFormStyle()
             .navigationTitle("剧情控制").navigationBarTitleDisplayMode(.inline)
@@ -116,6 +118,7 @@ struct StoryMemoryView: View {
     private var facts: [StoryFact] { thread?.story?.memory?.facts ?? [] }
     var body: some View {
         List {
+            Group {
             Section {
                 Button { store.refreshStoryMemory(threadID: threadID, force: true) } label: {
                     HStack { Text(store.memorizingStoryID == threadID ? "正在整理…" : "整理新发生的经历"); Spacer(); if store.memorizingStoryID == threadID { ProgressView() } }
@@ -140,6 +143,7 @@ struct StoryMemoryView: View {
                 }
                 .swipeActions { Button("删除", role: .destructive) { store.deleteStoryFact(fact.id, threadID: threadID) } }
             }
+            }.claudeCardRow()
         }
         .claudeGroupedListStyle().navigationTitle("本局记忆").navigationBarTitleDisplayMode(.inline)
         .toolbar { Button { editing = StoryFact(kind: .event, text: "", locked: true) } label: { Image(systemName: "plus") }.disabled(store.isGenerating) }
@@ -169,9 +173,11 @@ struct StoryFactEditor: View {
     var body: some View {
         NavigationStack {
             Form {
+                Group {
                 Picker("类型", selection: $fact.kind) { ForEach(StoryFactKind.allCases) { Text($0.title).tag($0) } }
                 TextField("已经发生的事实", text: $fact.text, axis: .vertical).lineLimit(4...14)
                 Toggle("锁定，自动整理时保留", isOn: $fact.locked).tint(Ink.seal)
+                }.claudeCardRow()
             }
             .claudeGroupedFormStyle()
             .navigationTitle("编辑记忆").navigationBarTitleDisplayMode(.inline)
@@ -198,6 +204,7 @@ struct StoryCheckpointsView: View {
     private var thread: ChatThread? { store.threads.first { $0.id == threadID } }
     var body: some View {
         List {
+            Group {
             Section {
                 TextField("存档名称，例如：赴宴之前", text: $name)
                 Button("保存当前进度") { if store.saveStoryCheckpoint(threadID: threadID, name: name) { name = "" } }
@@ -216,6 +223,7 @@ struct StoryCheckpointsView: View {
                 }
                 .swipeActions { Button("删除存档", role: .destructive) { store.deleteStoryCheckpoint(checkpoint.id, in: threadID) } }
             }
+            }.claudeCardRow()
         }
         .claudeGroupedListStyle().navigationTitle("存档与分线").navigationBarTitleDisplayMode(.inline)
         .disabled(store.isGenerating)
@@ -240,6 +248,7 @@ struct StoryArchiveView: View {
     }
     var body: some View {
         List {
+            Group {
             ForEach([false, true], id: \.self) { ended in
                 Section(ended ? "已完结" : "正在演") {
                     ForEach(stories.filter { ($0.story?.ended == true) == ended }) { thread in
@@ -260,6 +269,7 @@ struct StoryArchiveView: View {
                 }
             }
             if stories.isEmpty { Text("这本书还没有开始的故事。选一个人物或名场面开局。").foregroundStyle(Ink.ink3) }
+            }.claudeCardRow()
         }
         .searchable(text: $search, prompt: "找故事、人物或内容")
         .claudeGroupedListStyle().navigationTitle("故事档案").navigationBarTitleDisplayMode(.inline)
@@ -279,6 +289,7 @@ struct StoryCompareView: View {
     var body: some View {
         NavigationStack {
             Form {
+                Group {
                 Section("选择两条故事线") {
                     Picker("第一条", selection: $left) { ForEach(stories) { Text($0.title).tag(Optional($0.id)) } }
                     Picker("第二条", selection: $right) { ForEach(stories) { Text($0.title).tag(Optional($0.id)) } }
@@ -287,6 +298,7 @@ struct StoryCompareView: View {
                     comparison(a, other: b)
                     comparison(b, other: a)
                 }
+                }.claudeCardRow()
             }
             .claudeGroupedFormStyle()
             .navigationTitle("分线对比").navigationBarTitleDisplayMode(.inline)
@@ -328,6 +340,7 @@ struct ScenePickerSheet: View {
                         Text(scene.before ?? "从事件发生前开场；可补全名场面以定位到具体段落。").font(TypeScale.label).foregroundStyle(Ink.ink2)
                     }.multilineTextAlignment(.leading).padding(.vertical, 4)
                 }
+                .claudeCardRow()
             }
             .searchable(text: $search, prompt: "搜场景、人物或事件")
             .claudeGroupedListStyle().navigationTitle("从名场面之前开始").navigationBarTitleDisplayMode(.inline)
@@ -351,6 +364,7 @@ struct SceneCatalogueView: View {
     }
     var body: some View {
         List {
+            Group {
             Section {
                 if books.sceneScanBookID == bookID {
                     HStack { ProgressView(); Text("补全中 \(books.sceneScanProgress)") }
@@ -371,6 +385,7 @@ struct SceneCatalogueView: View {
                     }.multilineTextAlignment(.leading).padding(.vertical, 5)
                 }
             }
+            }.claudeCardRow()
         }
         .searchable(text: $search, prompt: "搜名场面、人物或事件")
         .claudeGroupedListStyle().navigationTitle("名场面 · \(scenes.count)").navigationBarTitleDisplayMode(.inline)

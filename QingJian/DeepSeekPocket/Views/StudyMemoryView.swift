@@ -33,6 +33,7 @@ struct StudyMemoryView: View {
 
     var body: some View {
         Form {
+            Group {
             if let subject, !store.isLocked(projectID) {
                 if let issue = store.studyIssue {
                     Section { Text(issue).foregroundStyle(.red); Button("重新读取") { reload() } }
@@ -237,6 +238,7 @@ struct StudyMemoryView: View {
                     Text("完整学习备份包含记录、资料、修改历史、现场和图片实体。云盘状态与恢复入口在设置的“用量与备份”里。")
                 }
             } else { Text("项目已上锁或不存在，请返回后重新打开。") }
+            }.claudeCardRow()
         }
         .claudeGroupedFormStyle()
         .navigationTitle("项目学习记忆")
@@ -347,6 +349,7 @@ private struct StudyRecordEditor: View {
     var body: some View {
         NavigationStack {
             Form {
+                Group {
                 Picker("栏目", selection: $category) {
                     ForEach(store.project(projectID)?.studySubject?.categories ?? [], id: \.self) { Text($0).tag($0) }
                 }
@@ -354,6 +357,7 @@ private struct StudyRecordEditor: View {
                 Text("\(text.count) / 4000 字").font(TypeScale.caption).foregroundStyle(Ink.ink3)
                 if let issue = store.studyIssue { Text(issue).font(TypeScale.caption).foregroundStyle(.red) }
                 if record != nil { Button("移出有效记忆", role: .destructive) { deleting = true } }
+                }.claudeCardRow()
             }
             .claudeGroupedFormStyle()
             .navigationTitle(record == nil ? "添加学习记录" : "编辑学习记录").navigationBarTitleDisplayMode(.inline)

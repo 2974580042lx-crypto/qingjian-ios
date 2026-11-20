@@ -64,6 +64,7 @@ struct BookDiscussionCharacterPicker: View {
     var body: some View {
         NavigationStack {
             List {
+                Group {
                 Section {
                     Text("选一位人物，让他用自己的口吻回答这一问。发送后自动回到普通讨论。")
                         .font(TypeScale.body).foregroundStyle(Ink.ink2)
@@ -93,6 +94,7 @@ struct BookDiscussionCharacterPicker: View {
                         Text("没有人物档案也能提问，回答时会查找这个人物的原文。")
                     }
                 }
+                }.claudeCardRow()
             }
             .disabled(store.isGenerating || !store.canPersist)
             .searchable(text: $search, prompt: "搜索或输入书中角色名")
@@ -147,6 +149,7 @@ struct BookDiscussionsView: View {
     }
     var body: some View {
         List {
+            Group {
             Button {
                 if store.startBookDiscussion(bookID) { opened() }
             } label: { Label("新建一个讨论", systemImage: "plus.bubble") }
@@ -164,6 +167,7 @@ struct BookDiscussionsView: View {
                     }.multilineTextAlignment(.leading).padding(.vertical, 5)
                 }.disabled(store.isGenerating)
             }
+            }.claudeCardRow()
         }
         .searchable(text: $search, prompt: "搜索本书讨论")
         .claudeGroupedListStyle().navigationTitle("本书讨论").navigationBarTitleDisplayMode(.inline)
@@ -180,6 +184,7 @@ struct BookReferencesView: View {
     var body: some View {
         NavigationStack {
             List {
+                Group {
                 Text("这里保留了本次发给模型参考的原文，可对照回答核对。").font(TypeScale.label).foregroundStyle(Ink.ink3)
                 ForEach(Array(references.enumerated()), id: \.element.id) { index, ref in
                     Section("原文\(index + 1) · 第\(ref.chapter + 1)章") {
@@ -193,6 +198,7 @@ struct BookReferencesView: View {
                         }
                     }
                 }
+                }.claudeCardRow()
             }
             .claudeGroupedListStyle().navigationTitle("书内依据")
             .navigationBarTitleDisplayMode(.inline)

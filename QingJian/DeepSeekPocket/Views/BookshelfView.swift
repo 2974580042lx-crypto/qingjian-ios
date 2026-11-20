@@ -462,6 +462,7 @@ struct CharacterEditView: View {
 
     var body: some View {
         Form {
+            Group {
             Section {
                 Button {
                     Task {
@@ -518,6 +519,7 @@ struct CharacterEditView: View {
                     .onDelete { draft.quotes.remove(atOffsets: $0) }
                 }
             }
+            }.claudeCardRow()
         }
         .claudeGroupedFormStyle()
         .disabled(reading)
@@ -552,6 +554,7 @@ struct StyleEditView: View {
 
     var body: some View {
         Form {
+            Group {
             Section {
                 Button {
                     Task {
@@ -577,6 +580,7 @@ struct StyleEditView: View {
             if let avoid = style?.avoid, !avoid.isEmpty {
                 Section("原著不会这样写") { ForEach(avoid, id: \.self) { Text($0).font(TypeScale.label).foregroundStyle(Ink.ink2) } }
             }
+            }.claudeCardRow()
         }
         .claudeGroupedFormStyle()
         .disabled(reading)
@@ -642,6 +646,7 @@ struct StartStoryView: View {
     var body: some View {
         NavigationStack {
             Form {
+                Group {
                 Section("和谁聊") {
                     Picker("人物", selection: $character) {
                         ForEach(profile.characters) { Text($0.name).tag($0.name) }
@@ -725,6 +730,7 @@ struct StartStoryView: View {
                     TextField("例如：用小说的笔法写，多写环境和心理描写；每次回复末尾加一行状态：时间 / 地点 / 好感度", text: $instruction, axis: .vertical)
                         .lineLimit(3...10)
                 } header: { Text("本局玩法（可选）") } footer: { Text("写给模型的规矩，这一局一直有效，优先于其他设定。聊天时可以在标题旁的「⋯ → 本局设定」里修改。") }
+                }.claudeCardRow()
             }
             .claudeGroupedFormStyle()
             .disabled(starting)
@@ -816,21 +822,27 @@ struct PersonaListView: View {
         NavigationStack {
             List {
                 if books.personas.isEmpty {
-                    Text("把你常用的原创人物存在这里：名字、外貌、身份、性格、说话方式。开局时在「你扮演谁 → 我的人物卡」里一点就带上，任何一本书都能用。")
-                        .font(TypeScale.serif(15)).foregroundStyle(Ink.ink3).listRowBackground(Color.clear)
-                }
-                ForEach(books.personas) { card in
-                    NavigationLink {
-                        PersonaEditView(card: card)
-                    } label: {
-                        VStack(alignment: .leading, spacing: 3) {
-                            Text(card.name).font(TypeScale.serif(17)).foregroundStyle(Ink.ink)
-                            Text(card.detail).font(TypeScale.tiny).foregroundStyle(Ink.ink3).lineLimit(2)
-                        }.padding(.vertical, 4)
+                    Section {
+                        Text("把你常用的原创人物存在这里：名字、外貌、身份、性格、说话方式。开局时在「你扮演谁 → 我的人物卡」里一点就带上，任何一本书都能用。")
+                            .font(TypeScale.ui(14.5)).foregroundStyle(Ink.ink3)
                     }
-                    .listRowBackground(Color.clear)
+                    .claudeCardRow()
+                } else {
+                    Section {
+                        ForEach(books.personas) { card in
+                            NavigationLink {
+                                PersonaEditView(card: card)
+                            } label: {
+                                VStack(alignment: .leading, spacing: 3) {
+                                    Text(card.name).font(TypeScale.ui(16)).foregroundStyle(Ink.ink)
+                                    Text(card.detail).font(TypeScale.tiny).foregroundStyle(Ink.ink3).lineLimit(2)
+                                }.padding(.vertical, 3)
+                            }
+                        }
+                        .onDelete { books.deletePersonas(at: $0) }
+                    }
+                    .claudeCardRow()
                 }
-                .onDelete { books.deletePersonas(at: $0) }
             }
             .claudeGroupedListStyle()
             .navigationTitle("我的人物卡")
@@ -857,10 +869,12 @@ struct PersonaEditView: View {
 
     var body: some View {
         Form {
+            Group {
             Section("名字") { TextField("名字", text: $draft.name) }
             Section {
                 TextField("外貌、身份、性格、说话方式，和这个世界有什么关系…", text: $draft.detail, axis: .vertical).lineLimit(5...16)
             } header: { Text("人物卡") } footer: { Text("开局时会作为「你扮演的人物」一起发给模型。") }
+            }.claudeCardRow()
         }
         .claudeGroupedFormStyle()
         .navigationTitle(draft.name.isEmpty ? "新人物卡" : draft.name)
@@ -894,29 +908,31 @@ struct ChapterListView: View {
         let titles = book?.chapterTitles ?? []
         List {
             if let mark = book?.bookmark, titles.indices.contains(mark.chapter) {
-                NavigationLink {
-                    ChapterReaderView(bookID: bookID, chapter: mark.chapter, paragraph: mark.paragraph, opened: opened)
-                } label: {
-                    Label("继续阅读 · \(titles[mark.chapter])", systemImage: "bookmark.fill").foregroundStyle(Ink.ink)
+                Section {
+                    NavigationLink {
+                        ChapterReaderView(bookID: bookID, chapter: mark.chapter, paragraph: mark.paragraph, opened: opened)
+                    } label: {
+                        Label("继续阅读 · \(titles[mark.chapter])", systemImage: "bookmark.fill").foregroundStyle(Ink.ink)
+                    }
+                    .accessibilityIdentifier("book-continue-reading")
                 }
-                .listRowBackground(Color.clear)
-                .accessibilityIdentifier("book-continue-reading")
+                .claudeCardRow()
             }
-            ForEach(titles.indices, id: \.self) { index in
-                NavigationLink {
-                    ChapterReaderView(bookID: bookID, chapter: index, opened: opened)
-                } label: {
-                    HStack(alignment: .firstTextBaseline, spacing: 12) {
-                        Text("\(index + 1)").font(TypeScale.tiny).monospacedDigit().foregroundStyle(Ink.ink3).frame(minWidth: 28, alignment: .trailing)
-                        Text(titles[index]).font(TypeScale.serif(16)).foregroundStyle(Ink.ink).lineLimit(1)
+            Section("章节目录") {
+                ForEach(titles.indices, id: \.self) { index in
+                    NavigationLink {
+                        ChapterReaderView(bookID: bookID, chapter: index, opened: opened)
+                    } label: {
+                        HStack(alignment: .firstTextBaseline, spacing: 12) {
+                            Text("\(index + 1)").font(TypeScale.tiny).monospacedDigit().foregroundStyle(Ink.ink3).frame(minWidth: 28, alignment: .trailing)
+                            Text(titles[index]).font(TypeScale.ui(15.5)).foregroundStyle(Ink.ink).lineLimit(1)
+                        }
                     }
                 }
-                .listRowBackground(Color.clear)
             }
+            .claudeCardRow()
         }
-        .listStyle(.plain)
-        .scrollContentBackground(.hidden)
-        .background(AppBackground())
+        .claudeGroupedListStyle()
         .navigationTitle("目录")
         .navigationBarTitleDisplayMode(.inline)
     }
@@ -975,6 +991,7 @@ struct StoryCorrectionSheet: View {
                 } header: { Text("哪里不像，他会怎样") } footer: {
                     Text("会记进这个人物的人物卡，之后每一局都会带上；在书页的人物卡里可以查看和删除。想让这一条也改过来，可以接着点重新生成。")
                 }
+                .claudeCardRow()
             }
             .claudeGroupedFormStyle()
             .navigationTitle("这里不像")
@@ -1017,6 +1034,7 @@ struct StorySettingsSheet: View {
     var body: some View {
         NavigationStack {
             Form {
+                Group {
                 if let session {
                     Section {
                         LabeledContent("书", value: "《\(session.bookTitle)》")
@@ -1044,6 +1062,7 @@ struct StorySettingsSheet: View {
                         } header: { Text("前情提要") } footer: { Text("模型按这段理解人物此刻的处境，可以手动修正。对话顶部显示的是开局时的版本。") }
                     }
                 }
+                }.claudeCardRow()
             }
             .claudeGroupedFormStyle()
             .navigationTitle("本局设定")
@@ -1139,14 +1158,15 @@ struct InnerThoughtsSheet: View {
                 .frame(maxWidth: .infinity, alignment: .leading)
                 .padding(24)
             }
-            .background(AppBackground())
+            .background(Ink.groupedBg.ignoresSafeArea())
             .navigationTitle(title)
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .topBarLeading) {
-                    Button(writing && available ? "停止" : "完成") {
-                        if writing && available { store.cancelThoughts() }
-                        else {
+                    if writing && available {
+                        Button("停止") { store.cancelThoughts() }
+                    } else {
+                        ClaudeSheetCloseButton(label: "完成") {
                             if writing { store.cancelThoughts() }
                             dismiss()
                         }

@@ -9,6 +9,7 @@ struct OperationManualView: View {
 
     var body: some View {
         List {
+            Group {
             Section {
                 Text("所有项目与普通对话中的 AI 都自带规范查阅工具（manual_search / manual_read）。平时系统只附带极简的一句话目录，不占上下文；当你问起规范或需要执行对应操作时，AI 会自己翻阅正文，绝不会让你手动发文件。所有规范只约束后台数据真实性，100% 尊重你设定的人设与语气。")
                     .font(TypeScale.caption)
@@ -43,6 +44,7 @@ struct OperationManualView: View {
                     Text("只恢复内置的 \(OperationManualBook.defaultChapters.count) 个章节及其启用开关；你自己新建的章节会完整保留。")
                 }
             }
+            }.claudeCardRow()
         }
         .claudeGroupedListStyle()
         .navigationTitle("内置文档规范")
@@ -170,6 +172,7 @@ struct OperationManualChapterEditor: View {
 
     var body: some View {
         Form {
+            Group {
             Section {
                 TextField("章节标题（如：英语：聊天式精读与做题）", text: $title)
                 if isNew {
@@ -280,6 +283,7 @@ struct OperationManualChapterEditor: View {
                     }
                 }
             }
+            }.claudeCardRow()
         }
         .claudeGroupedFormStyle()
         .navigationTitle(isNew ? "新建规范章节" : "编辑规范章节")

@@ -58,6 +58,8 @@ struct HistorySidebar: View {
                         .background {
                             if swiss {
                                 Rectangle().fill(Ink.raised).overlay(Rectangle().stroke(Ink.ink, lineWidth: 1.5))
+                            } else if night {
+                                Circle().fill(Ink.raised).overlay(Circle().stroke(Ink.line, lineWidth: 0.6))
                             } else {
                                 Circle().fill(Color.adaptive(light: 0xE5E4E0, dark: 0x262624))
                             }

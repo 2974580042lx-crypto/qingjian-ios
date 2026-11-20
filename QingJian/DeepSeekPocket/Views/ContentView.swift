@@ -1801,6 +1801,8 @@ struct ChatScreen: View {
                     } label: {
                         let readyToSend = hasInput || ghostText != nil
                         let isStop = store.isGenerating
+                        let sendDisabled = !isStop && (!store.canChat || !readyToSend || !store.canPersist || loadingPhotos
+                            || (fileImportThreadID != nil && fileImportThreadID == store.activeThreadID))
                         let circleFill: Color = isStop
                             ? (swiss ? Ink.solid : (night ? Ink.seal : Ink.raised))
                             : (readyToSend ? Ink.sendFill : Ink.raised)
@@ -1813,6 +1815,7 @@ struct ChatScreen: View {
                             .frame(width: 34, height: 34)
                             .background(circleFill, in: RoundedRectangle(cornerRadius: swiss ? 0 : 17, style: .continuous))
                             .shadow(color: night && (readyToSend || isStop) ? Ink.seal.opacity(0.35) : .clear, radius: night ? 12 : 0)
+                            .opacity(readyToSend && sendDisabled ? 0.42 : 1)
                             .contentShape(Rectangle())
                     }
                     .buttonStyle(.plain)
