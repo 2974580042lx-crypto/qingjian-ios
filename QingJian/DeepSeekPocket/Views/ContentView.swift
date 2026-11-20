@@ -73,6 +73,14 @@ struct ContentView: View {
             if open { store.refreshBalance() }
         }
         .sheet(isPresented: $showSettings) { SettingsView().environmentObject(store).environmentObject(profile) }
+        .alert("提示", isPresented: Binding(
+            get: { !showSettings && store.noticeMessage != nil },
+            set: { if !$0 { store.noticeMessage = nil } }
+        )) {
+            Button("知道了") { store.noticeMessage = nil }
+        } message: {
+            Text(store.noticeMessage ?? "")
+        }
         .sheet(item: Binding(get: { showSettings ? nil : store.unifiedRestorePreview }, set: { store.unifiedRestorePreview = $0 })) { preview in
             UnifiedRestorePreviewSheet(preview: preview)
                 .environmentObject(store)
@@ -239,6 +247,38 @@ private final class ChatScrollUIState {
     var showJumpToLatest = false
 }
 
+/// Isolates live typing text in its own `@Observable` model so keystrokes only
+/// invalidate `ComposerObserverScope` inside `composerHost` and never re-evaluate
+/// `ChatScreen.body` or `transcript` / `messageRows` (PERF-4).
+@MainActor @Observable
+private final class ComposerDraftModel {
+    var text: String = ""
+}
+
+@MainActor
+private struct ComposerObserverScope<Content: View>: View {
+    @ViewBuilder let content: () -> Content
+    var body: some View { content() }
+}
+
+@MainActor
+private final class TranscriptScrollBox {
+    var proxy: ScrollViewProxy?
+    func scrollToBottom(animated: Bool = false) {
+        guard let proxy else { return }
+        if animated {
+            withAnimation(.easeOut(duration: 0.2)) {
+                proxy.scrollTo("chat-bottom-anchor", anchor: .bottom)
+            }
+        } else {
+            proxy.scrollTo("chat-bottom-anchor", anchor: .bottom)
+        }
+    }
+    func scrollToMessage(_ id: UUID) {
+        proxy?.scrollTo(id, anchor: .top)
+    }
+}
+
 private struct ScrollBottomMetrics: Equatable {
     let nearBottom: Bool
     let showJump: Bool
@@ -360,7 +400,7 @@ struct ChatScreen: View {
     }
     private var ghostReplies: [String] { Array(ghostSource?.replySuggestions?.replies.prefix(3) ?? []) }
     private var ghostText: String? {
-        guard !hasInput, !ghostReplies.isEmpty else { return nil }
+        guard quotingMessage == nil, !hasInput, !ghostReplies.isEmpty else { return nil }
         return ghostReplies[suggestionIndex % ghostReplies.count]
     }
     private func takeGhost(send: Bool) {
@@ -414,8 +454,9 @@ struct ChatScreen: View {
             .transition(.opacity)
         }
     }
-    @State private var scrollPosition = ScrollPosition(edge: .top)
-    @State private var visibleMessageCount = 100
+    @State private var scrollBox = TranscriptScrollBox()
+    @State private var bottomObstruction: CGFloat = 0
+    @State private var visibleMessageCount = 40
     @State private var hasPositionedInitially = false
     @State private var lastAutoScrollAt = Date.distantPast
     private var visibleMessages: [ChatMessage] {
@@ -429,13 +470,32 @@ struct ChatScreen: View {
     private var night: Bool { style == .night }
     private var shouldFollowOutput: Bool { followsOutput && pendingMessageJump == nil && focusedMessageID == nil }
 
-    // Typing stays in this screen and reaches the store a moment after you pause, so
-    // a keystroke no longer redraws the sidebar or re-saves every chat; long messages
-    // used to make every key heavier.
-    @State private var localDraft = ""
+    // Typing stays inside `draftModel` (observed only by `ComposerObserverScope`) and reaches
+    // the store off-main-thread after a brief pause; `composerHeightBucket` only changes when
+    // line count / empty / slash state changes so `KeyboardChatLayout` avoids per-key measurements.
+    @State private var draftModel = ComposerDraftModel()
+    @State private var composerHeightBucket = 0
     @State private var draftThreadID: UUID?
     @State private var lastPushedDraft = ""
     @State private var draftPushTask: Task<Void, Never>?
+    private static func computeHeightBucket(for text: String) -> Int {
+        let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
+        let nonEmpty = trimmed.isEmpty ? 0 : 1
+        let slash = (trimmed.hasPrefix("/") || trimmed.hasPrefix("／")) ? 1 : 0
+        let explicitLines = text.reduce(1) { $0 + ($1 == "\n" ? 1 : 0) }
+        let wrappedEst = min(5, max(explicitLines, (text.count / 24) + 1))
+        return (nonEmpty * 100) + (slash * 10) + wrappedEst
+    }
+    private var localDraft: String {
+        get { draftModel.text }
+        nonmutating set {
+            draftModel.text = newValue
+            let nextBucket = Self.computeHeightBucket(for: newValue)
+            if composerHeightBucket != nextBucket {
+                composerHeightBucket = nextBucket
+            }
+        }
+    }
     private var draft: Binding<String> {
         Binding(get: { localDraft }, set: { localDraft = $0; scheduleDraftPush() })
     }
@@ -491,8 +551,30 @@ struct ChatScreen: View {
         )
     }
 
+    private var effectiveBottomObstruction: CGFloat {
+        max(keyboardVisible ? 0 : bottomInset, bottomObstruction)
+    }
+
+    private var composerLayoutSignature: Int {
+        var hasher = Hasher()
+        hasher.combine(composerHeightBucket)
+        hasher.combine(attachTrayOpen)
+        hasher.combine(pendingImages.count)
+        hasher.combine(pendingDocuments.count)
+        hasher.combine(quotingMessage != nil)
+        hasher.combine(ghostSource?.id)
+        hasher.combine(suggestionIndex)
+        hasher.combine(store.pendingApproval != nil)
+        hasher.combine(store.searchingThreadID == store.activeThreadID && store.isGenerating)
+        hasher.combine(store.canChat)
+        hasher.combine(keyboardVisible)
+        hasher.combine(cachedContext != nil)
+        return hasher.finalize()
+    }
+
     private var transcript: some View {
-        ZStack(alignment: .bottom) {
+        let bottomClearance = composerPanelHeight + effectiveBottomObstruction
+        return ZStack(alignment: .bottom) {
             if isEmptyPage {
                 VStack(spacing: 0) {
                     Spacer(minLength: 12)
@@ -503,107 +585,115 @@ struct ChatScreen: View {
                             .id(store.activeThreadID)
                     }
                     Spacer(minLength: 12)
-                }.padding(.top, topChrome).padding(.bottom, composerPanelHeight)
+                }
+                .padding(.top, topChrome)
+                .padding(.bottom, bottomClearance)
+                .contentShape(Rectangle())
+                .onTapGesture {
+                    if isComposerFocused { focusComposer(false) }
+                }
             } else {
                 let rowSpacing: CGFloat = swiss ? 0 : (currentLayoutMode == .imessage ? 16 : (currentLayoutMode == .smart ? 24 : 30))
-                ScrollView {
-                    VStack(alignment: .leading, spacing: rowSpacing) {
-                        if swiss, let thread = store.activeThread {
-                            SwissThreadHeader(title: thread.title, date: thread.createdAt,
-                                              model: store.pillModelTitle + " / " + store.pillEffortTitle,
-                                              rounds: thread.messages.filter { $0.role == .user }.count)
-                                .padding(.top, 6)
+                let totalMessagesCount = store.activeThread?.messages.count ?? 0
+                ScrollViewReader { scrollProxy in
+                    let _ = (scrollBox.proxy = scrollProxy)
+                    ScrollView {
+                        VStack(alignment: .leading, spacing: rowSpacing) {
+                            if swiss, let thread = store.activeThread {
+                                SwissThreadHeader(title: thread.title, date: thread.createdAt,
+                                                  model: store.pillModelTitle + " / " + store.pillEffortTitle,
+                                                  rounds: thread.messages.filter { $0.role == .user }.count)
+                                    .padding(.top, 6)
+                            }
+                            if totalMessagesCount > visibleMessageCount {
+                                Button("查看更早消息（还有 \(totalMessagesCount - visibleMessageCount) 条）") {
+                                    let anchorID = visibleMessages.first?.id
+                                    visibleMessageCount += 40
+                                    if let anchorID {
+                                        DispatchQueue.main.async {
+                                            scrollBox.scrollToMessage(anchorID)
+                                        }
+                                    }
+                                }.font(TypeScale.caption).foregroundStyle(Palette.secondary)
+                                    .frame(maxWidth: .infinity)
+                            }
+                            messageRows
+                            Color.clear.frame(height: 1).id("chat-bottom-anchor")
                         }
-                        if (store.activeThread?.messages.count ?? 0) > visibleMessageCount {
-                            Button("查看更早消息") {
-                                visibleMessageCount += 100
-                                scrollPosition.scrollTo(edge: .top)
-                            }.font(TypeScale.caption).foregroundStyle(Palette.secondary)
-                                .frame(maxWidth: .infinity)
-                        }
-                        messageRows
-                        Color.clear.frame(height: 2)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .padding(.horizontal, swiss ? 20 : Personal.margin).padding(.top, 10).padding(.bottom, 18)
                     }
-                    .scrollTargetLayout()
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                    .padding(.horizontal, swiss ? 20 : Personal.margin).padding(.top, 10).padding(.bottom, 22)
-                }
-                .accessibilityIdentifier("chat-scroll")
-                // Native iOS 26 soft edge blur at both top and bottom so text gently dissolves
-                // behind the floating glass toolbar and composer, plus a compact status-bar clock scrim.
-                .scrollEdgeEffectStyle(.soft, for: .top)
-                .scrollEdgeEffectStyle(.soft, for: .bottom)
-                .background(TranscriptLeftSwipePan(enabled: !sidebarOpen, model: timeReveal))
-                .overlay(alignment: .top) {
-                    ZStack {
-                        Rectangle()
-                            .fill(.ultraThinMaterial)
-                        LinearGradient(
-                            stops: [
-                                .init(color: Ink.paper.opacity(0.72), location: 0),
-                                .init(color: Ink.paper.opacity(0.32), location: 0.55),
-                                .init(color: Ink.paper.opacity(0), location: 1)
-                            ],
-                            startPoint: .top,
-                            endPoint: .bottom
+                    .accessibilityIdentifier("chat-scroll")
+                    // Native iOS 26 soft edge blur at both top and bottom so text gently dissolves
+                    // behind the floating glass toolbar, composer, and Home Indicator.
+                    .scrollEdgeEffectStyle(.soft, for: .top)
+                    .scrollEdgeEffectStyle(.soft, for: .bottom)
+                    .background(TranscriptLeftSwipePan(enabled: !sidebarOpen, model: timeReveal))
+                    .overlay(alignment: .top) {
+                        ZStack {
+                            Rectangle()
+                                .fill(.ultraThinMaterial)
+                            LinearGradient(
+                                stops: [
+                                    .init(color: Ink.paper.opacity(0.72), location: 0),
+                                    .init(color: Ink.paper.opacity(0.32), location: 0.55),
+                                    .init(color: Ink.paper.opacity(0), location: 1)
+                                ],
+                                startPoint: .top,
+                                endPoint: .bottom
+                            )
+                        }
+                        .mask(
+                            LinearGradient(
+                                stops: [
+                                    .init(color: .black, location: 0),
+                                    .init(color: .black.opacity(0.82), location: 0.48),
+                                    .init(color: .clear, location: 1)
+                                ],
+                                startPoint: .top,
+                                endPoint: .bottom
+                            )
                         )
+                        .frame(height: topInset + 22).allowsHitTesting(false).accessibilityHidden(true)
                     }
-                    .mask(
-                        LinearGradient(
-                            stops: [
-                                .init(color: .black, location: 0),
-                                .init(color: .black.opacity(0.82), location: 0.48),
-                                .init(color: .clear, location: 1)
-                            ],
-                            startPoint: .top,
-                            endPoint: .bottom
-                        )
-                    )
-                    .frame(height: topInset + 22).allowsHitTesting(false).accessibilityHidden(true)
-                }
-                .scrollPosition($scrollPosition)
-                .contentMargins(.top, topChrome, for: .scrollContent)
-                .contentMargins(.top, topChrome, for: .scrollIndicators)
-                .contentMargins(.bottom, composerPanelHeight + 18, for: .scrollContent)
-                .contentMargins(.bottom, composerPanelHeight + 18, for: .scrollIndicators)
-                .scrollDismissesKeyboard(.interactively)
-                .onAppear {
-                    if !hasPositionedInitially && !store.isPreview {
-                        let threadID = store.activeThreadID
-                        DispatchQueue.main.async {
-                            if store.activeThreadID == threadID && shouldFollowOutput { scrollPosition.scrollTo(edge: .bottom) }
+                    .contentMargins(.top, topChrome, for: .scrollContent)
+                    .contentMargins(.top, topChrome, for: .scrollIndicators)
+                    .contentMargins(.bottom, bottomClearance + 14, for: .scrollContent)
+                    .contentMargins(.bottom, bottomClearance + 14, for: .scrollIndicators)
+                    .scrollDismissesKeyboard(.interactively)
+                    .onAppear {
+                        if !hasPositionedInitially && !store.isPreview {
+                            let threadID = store.activeThreadID
+                            DispatchQueue.main.async {
+                                if store.activeThreadID == threadID && shouldFollowOutput { scrollBox.scrollToBottom() }
+                            }
                         }
+                        hasPositionedInitially = true
                     }
-                    hasPositionedInitially = true
-                }
-                .onScrollGeometryChange(for: ScrollBottomMetrics.self) { g in
-                    let visibleHeight = max(0, g.containerSize.height - g.contentInsets.top - g.contentInsets.bottom)
-                    let distance = g.contentSize.height + g.contentInsets.bottom - g.contentOffset.y - g.containerSize.height
-                    let overflows = g.contentSize.height > visibleHeight + 48
-                    return ScrollBottomMetrics(nearBottom: distance < 48, showJump: overflows && distance > 160)
-                } action: { _, value in
-                    if scrollUIState.nearBottom != value.nearBottom { scrollUIState.nearBottom = value.nearBottom }
-                    if scrollUIState.showJumpToLatest != value.showJump { scrollUIState.showJumpToLatest = value.showJump }
-                }
-                .onScrollPhaseChange { _, phase in
-                    if phase == .interacting || phase == .decelerating {
-                        if timeReveal.offset != 0 { timeReveal.offset = 0 }
+                    .onScrollGeometryChange(for: ScrollBottomMetrics.self) { g in
+                        let visibleHeight = max(0, g.containerSize.height - g.contentInsets.top - g.contentInsets.bottom)
+                        let distance = g.contentSize.height + g.contentInsets.bottom - g.contentOffset.y - g.containerSize.height
+                        let overflows = g.contentSize.height > visibleHeight + 80
+                        return ScrollBottomMetrics(nearBottom: distance < 56, showJump: overflows && distance > 220)
+                    } action: { _, value in
+                        if scrollUIState.nearBottom != value.nearBottom { scrollUIState.nearBottom = value.nearBottom }
+                        if scrollUIState.showJumpToLatest != value.showJump { scrollUIState.showJumpToLatest = value.showJump }
                     }
-                    if phase == .interacting { followsOutput = false; clearMessageNavigation() }
-                    if phase == .idle && scrollUIState.nearBottom && pendingMessageJump == nil && focusedMessageID == nil { followsOutput = true }
-                }
-                .onChange(of: store.activeThread?.messages.count) { _, _ in
-                    // Straight to the new message: a glide here, on top of the list's own
-                    // update, left a ghost of the text while sending.
-                    guard shouldFollowOutput else { return }
-                    lastAutoScrollAt = Date()
-                    scrollPosition.scrollTo(edge: .bottom)
-                }
-                .onChange(of: store.activeThread?.messages.last?.content) { _, _ in
-                    followLiveText()
-                }
-                .onChange(of: store.activeThread?.messages.last?.replySuggestions) { _, _ in
-                    if shouldFollowOutput { scrollPosition.scrollTo(edge: .bottom) }
+                    .onScrollPhaseChange { _, phase in
+                        if phase == .interacting || phase == .decelerating {
+                            if timeReveal.offset != 0 { timeReveal.offset = 0 }
+                        }
+                        if phase == .interacting { followsOutput = false; clearMessageNavigation() }
+                        if phase == .idle && scrollUIState.nearBottom && pendingMessageJump == nil && focusedMessageID == nil { followsOutput = true }
+                    }
+                    .onChange(of: store.activeThread?.messages.count) { _, _ in
+                        guard shouldFollowOutput else { return }
+                        lastAutoScrollAt = Date()
+                        scrollBox.scrollToBottom()
+                    }
+                    .onChange(of: store.activeThread?.messages.last?.replySuggestions) { _, _ in
+                        if shouldFollowOutput { scrollBox.scrollToBottom() }
+                    }
                 }
             }
 
@@ -614,8 +704,8 @@ struct ChatScreen: View {
                 projectMenu: { projectPill },
                 jumpToLatest: jumpToLatest
             )
-            .padding(.horizontal, 14)
-            .padding(.bottom, composerPanelHeight + 10)
+            .padding(.horizontal, 16)
+            .padding(.bottom, bottomClearance + 8)
         }
     }
 
@@ -624,15 +714,22 @@ struct ChatScreen: View {
     // Separate opaque view expressions keep type checking bounded. State remains
     // on ChatScreen, and the transcript preference stays inside its hosting tree.
     private var chatLayout: some View {
-        KeyboardChatLayout {
+        KeyboardChatLayout(
+            layoutSignature: composerLayoutSignature,
+            onBottomObstructionChange: { obstructed in
+                if abs(bottomObstruction - obstructed) > 0.5 {
+                    bottomObstruction = obstructed
+                }
+            }
+        ) {
             transcript.environmentObject(store).environmentObject(profile)
         } composer: {
             composer.fixedSize(horizontal: false, vertical: true)
                 .environmentObject(store).environmentObject(profile)
         }
-        // Up under the status bar and the glass buttons: before, the chat began below
-        // the bar, so text could never pass behind the buttons and stopped at a band.
-        .ignoresSafeArea(.container, edges: .top)
+        // Up under the status bar and down behind the Home Indicator so prose glides smoothly
+        // beneath both the top glass chrome and bottom Liquid Glass composer on iPhone Air.
+        .ignoresSafeArea(.container, edges: [.top, .bottom])
     }
 
     private var chatWithNavigation: some View {
@@ -697,7 +794,7 @@ struct ChatScreen: View {
         .onChange(of: isComposerFocused) { _, focused in
             keyboardVisible = focused
             if timeReveal.offset != 0 { timeReveal.offset = 0 }
-            if focused && shouldFollowOutput { scrollPosition.scrollTo(edge: .bottom) }
+            if focused && shouldFollowOutput { scrollBox.scrollToBottom() }
         }
         .onChange(of: sidebarOpen) { _, open in
             if open && timeReveal.offset != 0 { timeReveal.offset = 0 }
@@ -741,11 +838,11 @@ struct ChatScreen: View {
             storyPlayFor = nil; pendingSuggestedReply = nil
             quotingMessage = nil
             if timeReveal.offset != 0 { timeReveal.offset = 0 }
-            visibleMessageCount = 100; followsOutput = true
+            visibleMessageCount = 40; followsOutput = true
             scrollUIState.nearBottom = true
             scrollUIState.showJumpToLatest = false
             DispatchQueue.main.async {
-                if store.activeThreadID == newID && shouldFollowOutput { scrollPosition.scrollTo(edge: .bottom) }
+                if store.activeThreadID == newID && shouldFollowOutput { scrollBox.scrollToBottom() }
             }
         }
         .onDisappear { keyboardVisible = false }
@@ -889,11 +986,11 @@ struct ChatScreen: View {
                   thread.messages.contains(where: { $0.id == request.messageID }) else { return }
             followsOutput = false
             focusedMessageID = request.messageID
-            scrollPosition.scrollTo(id: request.messageID, anchor: .top)
+            scrollBox.scrollToMessage(request.messageID)
             pendingMessageJump = nil
             DispatchQueue.main.asyncAfter(deadline: .now() + 0.09) {
                 if focusedMessageID == request.messageID && store.activeThreadID == request.threadID {
-                    scrollPosition.scrollTo(id: request.messageID, anchor: .top)
+                    scrollBox.scrollToMessage(request.messageID)
                 }
             }
         }
@@ -957,7 +1054,7 @@ struct ChatScreen: View {
             focusComposer(true)
         } : nil
         return MessageView(message: message, threadID: threadID, isLast: isLast,
-                    isGenerating: store.isGenerating, canRegenerate: store.canChat,
+                    isGenerating: isLast ? store.isGenerating : false, canRegenerate: store.canChat,
                     showsSuggestions: store.settings.shouldSuggestReplies && store.activeProject?.studySubject == nil,
                     edit: { focusComposer(false); editingThreadID = threadID; editedMessage = message },
                     regenerate: regeneratePreservingDraftImages,
@@ -981,7 +1078,7 @@ struct ChatScreen: View {
         let now = Date()
         guard now.timeIntervalSince(lastAutoScrollAt) >= 0.18 else { return }
         lastAutoScrollAt = now
-        scrollPosition.scrollTo(edge: .bottom)
+        scrollBox.scrollToBottom()
     }
 
     private func regeneratePreservingDraftImages() {
@@ -1041,7 +1138,7 @@ struct ChatScreen: View {
                     Text(name.count > 8 ? String(name.prefix(7)) + "…" : name).lineLimit(1).fixedSize()
                 }
             }
-            .font(swiss ? TypeScale.mono(11) : TypeScale.serif(15))
+            .font(swiss ? TypeScale.mono(11) : TypeScale.ui(14, weight: .medium))
             .foregroundStyle(current == nil ? Ink.ink2 : Ink.ink)
             .padding(.horizontal, current == nil ? 0 : 14)
             .frame(minWidth: 44, minHeight: 44)
@@ -1191,7 +1288,7 @@ struct ChatScreen: View {
     private func jumpToLatest() {
         clearMessageNavigation()
         followsOutput = true
-        withAnimation(.easeOut(duration: 0.2)) { scrollPosition.scrollTo(edge: .bottom) }
+        scrollBox.scrollToBottom(animated: true)
     }
 
     private func choosePhotos() {
@@ -1545,6 +1642,12 @@ struct ChatScreen: View {
     }
 
     private var composer: some View {
+        ComposerObserverScope {
+            composerBody
+        }
+    }
+
+    private var composerBody: some View {
         VStack(spacing: 8) {
             if let approval = store.pendingApproval {
                 InlineToolApprovalCard(approval: approval) { store.resolveApproval($0) }
@@ -1695,6 +1798,7 @@ struct ChatScreen: View {
                 Group {
                     if usesPreviewKeyboard {
                         PreviewKeyboardField(text: draft, isFocused: previewComposerFocused, focusChanged: { previewComposerFocused = $0 })
+                            .padding(.horizontal, 3)
                     } else {
                         // The suggestion is drawn over the empty field in grey (wrapping like the
                         // reply it is), not as a placeholder, which would stay on one line. A ZStack,
@@ -1721,6 +1825,7 @@ struct ChatScreen: View {
                                 }
                             }
                         }
+                        .padding(.horizontal, 3)
                     }
                 }
                     .disabled(!store.canPersist)
@@ -1867,27 +1972,31 @@ struct ChatScreen: View {
                     .accessibilityLabel(store.isGenerating ? "停止生成" : "发送消息")
                 }
             }
-            .padding(.horizontal, 14).padding(.top, 12).padding(.bottom, 10)
-            .clearGlass(radius: 24)
+            .padding(.horizontal, 11).padding(.top, 12).padding(.bottom, 9)
+            .clearGlass(radius: 26)
             if store.isGenerating && store.generatingThreadID != store.activeThreadID {
                 Text("另一个对话正在生成，右侧按钮可停止。")
                     .font(TypeScale.tiny).foregroundStyle(Ink.ink3)
             }
         }
-        .padding(.horizontal, 14).padding(.top, 6).padding(.bottom, 10)
+        // When idle, `keyboardLayoutGuide.topAnchor` already sits at `safeAreaLayoutGuide.bottomAnchor`
+        // (34pt above screen bottom on iPhone Air), so 0pt extra bottom padding lands the Liquid Glass
+        // card at the exact Claude position; when keyboard is open, add 8pt breathing room above keyboard.
+        .padding(.horizontal, swiss ? 14 : 16)
+        .padding(.top, 4)
+        .padding(.bottom, keyboardVisible ? 8 : 0)
         .background(alignment: .bottom) {
-            // Sheer translucent edge fade so scrolling text visibly drifts behind the liquid-glass composer.
             LinearGradient(
                 stops: [
                     .init(color: Ink.paper.opacity(0), location: 0),
-                    .init(color: Ink.paper.opacity(0.55), location: 0.42),
-                    .init(color: Ink.paper.opacity(0.84), location: 1)
+                    .init(color: Ink.paper.opacity(0.45), location: 0.48),
+                    .init(color: Ink.paper.opacity(0.78), location: 1)
                 ],
                 startPoint: .top,
                 endPoint: .bottom
             )
-            .padding(.top, -12)
-            .ignoresSafeArea(.container, edges: .bottom)
+            .padding(.top, -10)
+            .padding(.bottom, keyboardVisible ? 0 : -bottomInset)
             .allowsHitTesting(false)
         }
         .accessibilityElement(children: .contain).accessibilityIdentifier("chat-composer-panel")
@@ -2437,6 +2546,28 @@ struct MessageView: View, Equatable {
                         }
                         }
                     }
+                } else if let sources = message.webSources, !sources.isEmpty {
+                    // Keep web search sources accessible in iMessage bubble layout too (#43).
+                    Button {
+                        Haptic.tap()
+                        showSourcesSheet = true
+                    } label: {
+                        HStack(spacing: 5) {
+                            Image(systemName: "globe")
+                                .font(.system(size: 12, weight: .regular))
+                            Text("\(sources.count) 个来源")
+                                .font(.system(size: 12, weight: .regular))
+                            Image(systemName: "chevron.right")
+                                .font(.system(size: 9, weight: .medium))
+                                .foregroundStyle(Ink.ink3.opacity(0.7))
+                        }
+                        .foregroundStyle(Ink.ink2)
+                        .padding(.leading, 4)
+                        .padding(.vertical, 2)
+                        .contentShape(Rectangle())
+                    }
+                    .buttonStyle(.pressFeedback)
+                    .accessibilityIdentifier("web-search-sources")
                 }
             }
             trailingParts
@@ -3189,7 +3320,11 @@ struct EditMessageView: View {
                     }
                 }
         }.tint(Ink.ink).presentationDragIndicator(.visible)
-            .onAppear { text = message.content }
+            .onAppear {
+                text = message.role == .user
+                    ? PendingDocumentCodec.extractEditableUserText(message.content)
+                    : message.content
+            }
             .alert("暂时没有完成", isPresented: Binding(get: { store.errorMessage != nil }, set: { if !$0 { store.errorMessage = nil } })) {
                 Button("知道了") { store.errorMessage = nil }
             } message: { Text(store.errorMessage ?? "") }

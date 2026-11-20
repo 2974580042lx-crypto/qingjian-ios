@@ -19,7 +19,7 @@ extension AttributedString {
         let codeInk: Color = InterfaceStyle.isSwiss || InterfaceStyle.isNight ? Ink.seal : Ink.ink
         let codeFill: Color = InterfaceStyle.isSwiss || InterfaceStyle.isNight
             ? Ink.raised
-            : Color.adaptive(light: 0xECEBE6, dark: 0x2A2A27)
+            : Color.adaptive(light: 0xF1F1F0, dark: 0x2A2A29)
         let monoSize = max(13.5, TypeScale.scaled(baseSize - 2, .body))
         let resolvedBoldColor = boldColor ?? (Personal.boldUsesAccent ? Ink.seal : Ink.ink)
 

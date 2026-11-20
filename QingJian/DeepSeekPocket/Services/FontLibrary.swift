@@ -6,10 +6,20 @@ import Observation
 /// Font getters participate in SwiftUI observation. Changing a font redraws
 /// text while preserving view identity, sheets and unsaved settings drafts.
 @Observable
-final class FontAppearance {
+final class FontAppearance: @unchecked Sendable {
     static let shared = FontAppearance()
+    private let lock = NSLock()
     private(set) var revision = 0
-    func invalidate() { revision += 1 }
+    func invalidate() {
+        lock.lock()
+        revision += 1
+        lock.unlock()
+    }
+    func readRevision() -> Int {
+        lock.lock()
+        defer { lock.unlock() }
+        return revision
+    }
 }
 
 // Which typeface the whole app uses: the bundled Noto Serif SC, the system's
@@ -36,7 +46,11 @@ enum FontLibrary {
     static let sizeLimit = 60 * 1024 * 1024
 
     static var choice: FontChoice {
-        _ = FontAppearance.shared.revision
+        if Thread.isMainThread {
+            _ = FontAppearance.shared.revision
+        } else {
+            _ = FontAppearance.shared.readRevision()
+        }
         if let raw = UserDefaults.standard.string(forKey: choiceKey), let value = FontChoice(rawValue: raw) {
             return value == .custom && regularName == nil ? .builtIn : value
         }

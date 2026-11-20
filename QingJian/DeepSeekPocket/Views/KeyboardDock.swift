@@ -11,7 +11,7 @@ struct PreviewKeyboardField: UIViewRepresentable {
     func makeCoordinator() -> Coordinator { Coordinator(self) }
     func makeUIView(context: Context) -> UITextView {
         let field = UITextView()
-        field.font = UIFont(name: "NotoSerifSC-Regular", size: 17) ?? .systemFont(ofSize: 17)
+        field.font = .systemFont(ofSize: 17)
         field.textColor = UIColor(Ink.ink)
         field.backgroundColor = .clear
         field.textContainerInset = .zero

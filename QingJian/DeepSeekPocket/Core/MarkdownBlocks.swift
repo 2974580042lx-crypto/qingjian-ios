@@ -46,7 +46,14 @@ enum MarkdownBlock: Equatable, Sendable {
         var blocks: [MarkdownBlock] = []
         for (index, segment) in content.components(separatedBy: "```").enumerated() {
             if !index.isMultiple(of: 2) { blocks.append(.code(segment)); continue }
-            for (mIndex, mathPart) in segment.components(separatedBy: "$$").enumerated() {
+            var mathParts = segment.components(separatedBy: "$$")
+            // If there is an unpaired trailing "$$" (even part count), merge the dangling tail back into prose
+            // so "$100" typos or mid-stream unclosed "$$" never swallow following paragraphs into a math block.
+            if mathParts.count >= 2 && mathParts.count.isMultiple(of: 2) {
+                let tail = mathParts.removeLast()
+                mathParts[mathParts.count - 1] += "$$" + tail
+            }
+            for (mIndex, mathPart) in mathParts.enumerated() {
                 if !mIndex.isMultiple(of: 2) {
                     let trimmedMath = mathPart.trimmingCharacters(in: .whitespacesAndNewlines)
                     if !trimmedMath.isEmpty { blocks.append(.math(trimmedMath)) }

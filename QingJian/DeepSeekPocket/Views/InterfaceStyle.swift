@@ -111,8 +111,9 @@ struct InterfaceStylePicker: View {
         }
         .disabled(InterfaceStyle(rawValue: stored) == .night)
         .accessibilityIdentifier("appearance-mode")
+        .onChange(of: appearance) { _, _ in InkAppearance.apply() }
         Text((InterfaceStyle(rawValue: stored) ?? .paper).detail + "。切换后整个 App 立刻换样式，对话和设置都不受影响。纸笺和瑞士默认跟着手机的浅色、深色模式自动切换，也可以固定一边；瑞士风格固定使用系统字体；夜江始终是深色。")
-            .font(TypeScale.serif(13)).foregroundStyle(.secondary)
+            .font(TypeScale.caption).foregroundStyle(.secondary)
     }
 }
 
@@ -450,7 +451,7 @@ struct BubbleSwatchRow: View {
                     Swatch(color: Ink.seal.opacity(0.14), selected: selected == "accent")
                 }.buttonStyle(.pressFeedback).accessibilityLabel("你的气泡：强调色淡底")
                 ColorPicker("", selection: Binding(get: {
-                    Personal.hex(raw).map { Color.adaptive(light: $0, dark: $0) } ?? Color.adaptive(light: 0xF0EFEB, dark: 0x292927)
+                    Personal.hex(raw).map { Color.adaptive(light: $0, dark: $0) } ?? Color.adaptive(light: 0xF1F1F0, dark: 0x292928)
                 }, set: { Personal.set(Personal.hexString($0), for: Personal.bubbleKey) }), supportsOpacity: false)
                 .labelsHidden().accessibilityLabel("自选气泡颜色")
             }

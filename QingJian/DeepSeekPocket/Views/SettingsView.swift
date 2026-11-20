@@ -86,7 +86,7 @@ struct SettingsView: View {
                             ClaudeIconBadge(systemName: "key")
                             Text("DeepSeek")
                             Spacer()
-                            Text(draftKey.isEmpty ? "未填写" : "已填写 Key").font(TypeScale.ui(13.5)).foregroundStyle(Ink.ink3)
+                            Text(store.hasKey ? "已填写 Key" : "未填写").font(TypeScale.ui(13.5)).foregroundStyle(Ink.ink3)
                         }
                     }
                     NavigationLink { ColabSettingsView(colab: store.colab) } label: {
@@ -120,7 +120,7 @@ struct SettingsView: View {
                 .claudeCardRow()
 
                 Section {
-                    NavigationLink { UsageDetailsView(ledger: store.enrichedUsageLedger) } label: {
+                    NavigationLink { DeferredUsageDetailsView() } label: {
                         settingsRow("用量明细", symbol: "chart.bar")
                     }
                     NavigationLink { dataPage } label: {
@@ -1040,5 +1040,15 @@ struct UnifiedRestorePreviewSheet: View {
                 Text("恢复前会自动保存一份当前本机安全快照。")
             }
         }
+    }
+}
+
+/// Evaluates `store.enrichedUsageLedger` lazily only when `UsageDetailsView` is actually presented,
+/// preventing `SettingsView` from scanning every thread on initial sheet open.
+@MainActor
+private struct DeferredUsageDetailsView: View {
+    @EnvironmentObject private var store: AppStore
+    var body: some View {
+        UsageDetailsView(ledger: store.enrichedUsageLedger)
     }
 }

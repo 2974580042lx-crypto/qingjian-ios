@@ -828,7 +828,7 @@ private struct ReaderPassageCard: View {
         VStack(alignment: .leading, spacing: 18) {
             HStack(alignment: .top) {
                 VStack(alignment: .leading, spacing: 6) {
-                    Text("原文选段").font(.custom("NotoSerifSC-Regular", size: 22))
+                    Text("原文选段").font(TypeScale.ui(20, weight: .semibold))
                     Text(chapter).font(.system(size: 11)).foregroundStyle(appearance.secondary).lineLimit(1)
                 }
                 Spacer()

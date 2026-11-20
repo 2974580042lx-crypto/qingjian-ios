@@ -2,31 +2,53 @@ import SwiftUI
 import UIKit
 
 /// UIKit owns the keyboard attachment; SwiftUI owns the content. This avoids
-/// safe-area height lag when an input accessory grows and shrinks in one focus.
+/// safe-area height lag when an input accessory grows and shrinks in one focus,
+/// while letting the transcript scroll cleanly behind both the Liquid Glass
+/// composer and the Home Indicator on iPhone Air (420×912pt) and all iPhones.
 @MainActor
 struct KeyboardChatLayout<Transcript: View, Composer: View>: UIViewControllerRepresentable {
+    let layoutSignature: Int
+    let onBottomObstructionChange: (CGFloat) -> Void
     let transcript: Transcript
     let composer: Composer
 
-    init(@ViewBuilder transcript: () -> Transcript, @ViewBuilder composer: () -> Composer) {
+    init(
+        layoutSignature: Int = 0,
+        onBottomObstructionChange: @escaping (CGFloat) -> Void = { _ in },
+        @ViewBuilder transcript: () -> Transcript,
+        @ViewBuilder composer: () -> Composer
+    ) {
+        self.layoutSignature = layoutSignature
+        self.onBottomObstructionChange = onBottomObstructionChange
         self.transcript = transcript()
         self.composer = composer()
     }
 
     func makeUIViewController(context: Context) -> Controller {
-        Controller(transcript: transcript, composer: composer)
+        Controller(
+            layoutSignature: layoutSignature,
+            onBottomObstructionChange: onBottomObstructionChange,
+            transcript: transcript,
+            composer: composer
+        )
     }
 
     func updateUIViewController(_ controller: Controller, context: Context) {
+        controller.onBottomObstructionChange = onBottomObstructionChange
         controller.transcriptHost.rootView = transcript
         controller.composerHost.rootView = composer
         let width = controller.view.bounds.width
         if width > 0 {
-            let fitHeight = controller.composerHost.sizeThatFits(in: CGSize(width: width, height: .greatestFiniteMagnitude)).height
-            if abs(fitHeight - controller.lastComposerFitHeight) > 0.5 {
-                controller.lastComposerFitHeight = fitHeight
-                controller.composerHost.view.invalidateIntrinsicContentSize()
-                controller.view.setNeedsLayout()
+            // Only measure composer intrinsic height when composer layout inputs or width changed (PERF-7).
+            if controller.lastLayoutSignature != layoutSignature || abs(width - controller.lastMeasuredWidth) > 0.5 {
+                controller.lastLayoutSignature = layoutSignature
+                controller.lastMeasuredWidth = width
+                let fitHeight = controller.composerHost.sizeThatFits(in: CGSize(width: width, height: .greatestFiniteMagnitude)).height
+                if abs(fitHeight - controller.lastComposerFitHeight) > 0.5 {
+                    controller.lastComposerFitHeight = fitHeight
+                    controller.composerHost.view.invalidateIntrinsicContentSize()
+                    controller.view.setNeedsLayout()
+                }
             }
         } else {
             controller.composerHost.view.invalidateIntrinsicContentSize()
@@ -37,11 +59,21 @@ struct KeyboardChatLayout<Transcript: View, Composer: View>: UIViewControllerRep
     final class Controller: UIViewController {
         let transcriptHost: UIHostingController<Transcript>
         let composerHost: UIHostingController<Composer>
+        var onBottomObstructionChange: (CGFloat) -> Void
+        fileprivate var lastLayoutSignature: Int
+        fileprivate var lastMeasuredWidth: CGFloat = -1
         fileprivate var lastComposerFitHeight: CGFloat = -1
+        private var lastReportedObstruction: CGFloat = -1
         private var composerBottom: NSLayoutConstraint!
-        private var transcriptBottom: NSLayoutConstraint!
 
-        init(transcript: Transcript, composer: Composer) {
+        init(
+            layoutSignature: Int,
+            onBottomObstructionChange: @escaping (CGFloat) -> Void,
+            transcript: Transcript,
+            composer: Composer
+        ) {
+            self.lastLayoutSignature = layoutSignature
+            self.onBottomObstructionChange = onBottomObstructionChange
             transcriptHost = UIHostingController(rootView: transcript)
             composerHost = UIHostingController(rootView: composer)
             super.init(nibName: nil, bundle: nil)
@@ -51,8 +83,9 @@ struct KeyboardChatLayout<Transcript: View, Composer: View>: UIViewControllerRep
         override func viewDidLoad() {
             super.viewDidLoad()
             view.backgroundColor = .clear
-            // Do not let either hosting controller apply keyboard avoidance a
-            // second time: the constraints below are the sole vertical owner.
+            view.keyboardLayoutGuide.usesBottomSafeArea = true
+            // Do not let either hosting controller apply keyboard/safe-area avoidance a
+            // second time: explicit constraints + reported obstruction own vertical geometry.
             transcriptHost.safeAreaRegions = []
             composerHost.safeAreaRegions = []
             composerHost.sizingOptions = [.intrinsicContentSize]
@@ -65,7 +98,9 @@ struct KeyboardChatLayout<Transcript: View, Composer: View>: UIViewControllerRep
             }
             composerHost.view.setContentHuggingPriority(.required, for: .vertical)
             composerHost.view.setContentCompressionResistancePriority(.required, for: .vertical)
-            transcriptBottom = transcriptHost.view.bottomAnchor.constraint(equalTo: view.keyboardLayoutGuide.topAnchor)
+            // Transcript extends to the true bottom of the screen so scrolled prose gently
+            // passes behind the Liquid Glass composer and Home Indicator; composer sits on
+            // `keyboardLayoutGuide.topAnchor` (= safeAreaLayoutGuide.bottomAnchor when idle).
             composerBottom = composerHost.view.bottomAnchor.constraint(equalTo: view.keyboardLayoutGuide.topAnchor)
             NotificationCenter.default.addObserver(self, selector: #selector(keyboardChanged), name: UIResponder.keyboardWillChangeFrameNotification, object: nil)
             NotificationCenter.default.addObserver(self, selector: #selector(keyboardChanged), name: UIResponder.keyboardDidChangeFrameNotification, object: nil)
@@ -73,7 +108,7 @@ struct KeyboardChatLayout<Transcript: View, Composer: View>: UIViewControllerRep
                 transcriptHost.view.topAnchor.constraint(equalTo: view.topAnchor),
                 transcriptHost.view.leadingAnchor.constraint(equalTo: view.leadingAnchor),
                 transcriptHost.view.trailingAnchor.constraint(equalTo: view.trailingAnchor),
-                transcriptBottom,
+                transcriptHost.view.bottomAnchor.constraint(equalTo: view.bottomAnchor),
                 composerHost.view.leadingAnchor.constraint(equalTo: view.leadingAnchor),
                 composerHost.view.trailingAnchor.constraint(equalTo: view.trailingAnchor),
                 composerBottom
@@ -87,15 +122,13 @@ struct KeyboardChatLayout<Transcript: View, Composer: View>: UIViewControllerRep
             DispatchQueue.main.async { [weak self] in self?.view.layoutIfNeeded() }
         }
 
-        // The navigation bar's iOS 26 edge effect lays a paper-coloured scrim over the
-        // chat under the top buttons. SwiftUI's own switch did not reach it, because the
-        // transcript lives in this separate host, so it is turned off on the scroll view.
         private weak var transcriptScroll: UIScrollView?
         private func configureTranscriptScroll() {
             if transcriptScroll == nil || transcriptScroll?.window == nil {
                 transcriptScroll = firstScrollView(in: transcriptHost.view)
             }
             guard let scroll = transcriptScroll else { return }
+            scroll.contentInsetAdjustmentBehavior = .never
             scroll.topEdgeEffect.isHidden = false
             scroll.topEdgeEffect.style = .soft
             scroll.bottomEdgeEffect.isHidden = false
@@ -120,9 +153,6 @@ struct KeyboardChatLayout<Transcript: View, Composer: View>: UIViewControllerRep
         override func viewDidLayoutSubviews() {
             super.viewDidLayoutSubviews()
             configureTranscriptScroll()
-            // reloadInputViews can leave the keyboard guide below an actual
-            // app-owned accessory. Compare both in THIS view's coordinate space,
-            // never add an offset back to an already-adjusted composer frame.
             var correction: CGFloat = 0
             if let field = firstResponder(in: composerHost.view),
                let accessory = field.inputAccessoryView,
@@ -134,8 +164,17 @@ struct KeyboardChatLayout<Transcript: View, Composer: View>: UIViewControllerRep
             }
             if abs(composerBottom.constant + correction) > 0.5 {
                 composerBottom.constant = -correction
-                transcriptBottom.constant = -correction
                 view.setNeedsLayout()
+            }
+
+            if view.bounds.height > 0 {
+                let guideTop = view.keyboardLayoutGuide.layoutFrame.minY - correction
+                let obstructed = max(0, view.bounds.height - guideTop)
+                if abs(obstructed - lastReportedObstruction) > 0.5 {
+                    lastReportedObstruction = obstructed
+                    let callback = onBottomObstructionChange
+                    DispatchQueue.main.async { callback(obstructed) }
+                }
             }
         }
 

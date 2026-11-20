@@ -61,7 +61,7 @@ struct HistorySidebar: View {
                             } else if night {
                                 Circle().fill(Ink.raised).overlay(Circle().stroke(Ink.line, lineWidth: 0.6))
                             } else {
-                                Circle().fill(Color.adaptive(light: 0xE5E4E0, dark: 0x262624))
+                                Circle().fill(Color.adaptive(light: 0xEBEBEA, dark: 0x262626))
                             }
                         }
                         .contentShape(Circle())

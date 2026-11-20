@@ -386,50 +386,23 @@ struct PhotoGallerySheet: View {
 private struct ZoomablePhotoPage: View {
     let name: String
     @State private var fullImage: UIImage?
-    @State private var scale: CGFloat = 1
-    @State private var baseScale: CGFloat = 1
 
     var body: some View {
         let displayImage = fullImage ?? ImageStore.thumbnail(named: name)
-        GeometryReader { geo in
-            Group {
-                if let displayImage {
-                    Image(uiImage: displayImage)
-                        .resizable()
-                        .scaledToFit()
-                        .scaleEffect(scale)
-                        .frame(width: geo.size.width, height: geo.size.height)
-                        .gesture(
-                            MagnifyGesture()
-                                .onChanged { value in
-                                    scale = min(4.0, max(1.0, baseScale * value.magnification))
-                                }
-                                .onEnded { _ in
-                                    baseScale = scale
-                                }
-                        )
-                        .onTapGesture(count: 2) {
-                            withAnimation(.snappy(duration: 0.24)) {
-                                if scale > 1.2 {
-                                    scale = 1.0
-                                    baseScale = 1.0
-                                } else {
-                                    scale = 2.4
-                                    baseScale = 2.4
-                                }
-                            }
-                        }
-                } else {
-                    VStack(spacing: 10) {
-                        Image(systemName: "photo")
-                            .font(.system(size: 36))
-                            .foregroundStyle(Color.white.opacity(0.5))
-                        Text("图片文件已不在这台手机上")
-                            .font(TypeScale.caption)
-                            .foregroundStyle(Color.white.opacity(0.7))
-                    }
-                    .frame(width: geo.size.width, height: geo.size.height)
+        Group {
+            if let displayImage {
+                NativeZoomableScrollImage(image: displayImage)
+                    .ignoresSafeArea()
+            } else {
+                VStack(spacing: 10) {
+                    Image(systemName: "photo")
+                        .font(.system(size: 36))
+                        .foregroundStyle(Color.white.opacity(0.5))
+                    Text("图片文件已不在这台手机上")
+                        .font(TypeScale.caption)
+                        .foregroundStyle(Color.white.opacity(0.7))
                 }
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
             }
         }
         .task(id: name) {
@@ -439,6 +412,103 @@ private struct ZoomablePhotoPage: View {
             }.value
             if let loaded {
                 fullImage = loaded
+            }
+        }
+    }
+}
+
+/// UIScrollView-backed zoomable & pannable photo view (1x–4x pinch zoom, pan when zoomed, double-tap at point).
+@MainActor
+private struct NativeZoomableScrollImage: UIViewRepresentable {
+    let image: UIImage
+
+    func makeCoordinator() -> Coordinator { Coordinator() }
+
+    func makeUIView(context: Context) -> ZoomContainerScrollView {
+        let scroll = ZoomContainerScrollView()
+        scroll.delegate = context.coordinator
+        scroll.minimumZoomScale = 1.0
+        scroll.maximumZoomScale = 4.0
+        scroll.showsHorizontalScrollIndicator = false
+        scroll.showsVerticalScrollIndicator = false
+        scroll.bouncesZoom = true
+        scroll.backgroundColor = .clear
+        scroll.contentInsetAdjustmentBehavior = .never
+
+        let imageView = UIImageView(image: image)
+        imageView.contentMode = .scaleAspectFit
+        imageView.backgroundColor = .clear
+        scroll.addSubview(imageView)
+        scroll.imageView = imageView
+        context.coordinator.imageView = imageView
+
+        let doubleTap = UITapGestureRecognizer(target: context.coordinator, action: #selector(Coordinator.handleDoubleTap(_:)))
+        doubleTap.numberOfTapsRequired = 2
+        scroll.addGestureRecognizer(doubleTap)
+        return scroll
+    }
+
+    func updateUIView(_ scroll: ZoomContainerScrollView, context: Context) {
+        if scroll.imageView?.image !== image {
+            scroll.imageView?.image = image
+            scroll.setZoomScale(1.0, animated: false)
+            scroll.setNeedsLayout()
+        }
+    }
+
+    final class ZoomContainerScrollView: UIScrollView {
+        weak var imageView: UIImageView?
+        private var lastLaidOutBoundsSize: CGSize = .zero
+
+        override func layoutSubviews() {
+            super.layoutSubviews()
+            guard let imageView, bounds.width > 0, bounds.height > 0 else { return }
+            if lastLaidOutBoundsSize != bounds.size && zoomScale <= 1.01 {
+                lastLaidOutBoundsSize = bounds.size
+                zoomScale = 1.0
+                imageView.frame = bounds
+                contentSize = bounds.size
+                contentInset = .zero
+            } else {
+                centerImageIfNeeded()
+            }
+        }
+
+        func centerImageIfNeeded() {
+            guard let imageView else { return }
+            let offsetX = max((bounds.width - contentSize.width) * 0.5, 0)
+            let offsetY = max((bounds.height - contentSize.height) * 0.5, 0)
+            imageView.center = CGPoint(
+                x: contentSize.width * 0.5 + offsetX,
+                y: contentSize.height * 0.5 + offsetY
+            )
+        }
+    }
+
+    @MainActor
+    final class Coordinator: NSObject, UIScrollViewDelegate {
+        weak var imageView: UIImageView?
+
+        func viewForZooming(in scrollView: UIScrollView) -> UIView? {
+            imageView
+        }
+
+        func scrollViewDidZoom(_ scrollView: UIScrollView) {
+            (scrollView as? ZoomContainerScrollView)?.centerImageIfNeeded()
+        }
+
+        @objc func handleDoubleTap(_ gesture: UITapGestureRecognizer) {
+            guard let scroll = gesture.view as? ZoomContainerScrollView,
+                  let imageView = scroll.imageView else { return }
+            if scroll.zoomScale > 1.15 {
+                scroll.setZoomScale(1.0, animated: true)
+            } else {
+                let point = gesture.location(in: imageView)
+                let targetScale: CGFloat = 2.5
+                let w = scroll.bounds.width / targetScale
+                let h = scroll.bounds.height / targetScale
+                let rect = CGRect(x: point.x - w * 0.5, y: point.y - h * 0.5, width: w, height: h)
+                scroll.zoom(to: rect, animated: true)
             }
         }
     }

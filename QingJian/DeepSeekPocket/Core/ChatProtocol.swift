@@ -69,11 +69,18 @@ struct ChatRequest: Encodable, Sendable {
         let windowed = Array(settled.suffix(config.contextMessageLimit))
         let historyBytes = windowed.reduce(0) { $0 + $1.content.utf8.count }
         let totalBytes = systemPromptBytes + historyBytes
-        // Approx 3 UTF-8 bytes per CJK/mixed token
-        let estimatedTokens = max(0, totalBytes / 3)
+        let estimatedTokens: Int
+        if let lastIdx = windowed.lastIndex(where: { $0.role == .assistant && ($0.usage?.promptTokens ?? 0) > 0 }),
+           let lastUsage = windowed[lastIdx].usage {
+            let tailBytes = windowed[lastIdx...].reduce(0) { $0 + $1.content.utf8.count }
+            estimatedTokens = max(lastUsage.promptTokens, lastUsage.promptTokens + tailBytes / 3)
+        } else {
+            estimatedTokens = max(0, totalBytes / 3)
+        }
+        let tokenCeiling: Double = config.selectedProvider == .colab ? 16_000 : 64_000
         let msgRatio = Double(windowed.count) / Double(max(1, config.contextMessageLimit))
-        let byteRatio = Double(totalBytes) / Double(120_000) // practical active comfort ceiling (~40k tokens)
-        let ratio = min(1.0, max(msgRatio * 0.65, byteRatio))
+        let tokenRatio = Double(estimatedTokens) / tokenCeiling
+        let ratio = min(1.0, max(msgRatio * 0.60, tokenRatio))
         return (ratio: ratio, estimatedTokens: estimatedTokens, messageCount: settled.count, canCompact: settled.count >= 6)
     }
 

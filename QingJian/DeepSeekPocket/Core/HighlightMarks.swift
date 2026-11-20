@@ -6,6 +6,9 @@ import Foundation
 enum HighlightMarks {
     static let perAnswer = 2
 
+    nonisolated(unsafe) private static var inlineCache: [String: AttributedString] = [:]
+    private static let inlineCacheLock = NSLock()
+
     /// Bold ranges in reading order. Neighbouring bold runs (bold split by
     /// italics or a link) are merged, so one phrase is always one mark.
     static func boldRanges(in text: AttributedString) -> [Range<AttributedString.Index>] {
@@ -38,39 +41,74 @@ enum HighlightMarks {
         }
     }
 
-    /// Parses inline Markdown and rescues CJK `**...**` strong emphasis spans that CommonMark's
-    /// flanking rules reject (or cross-pair) when `**` sits between full-width punctuation (`。，、“”‘’（）《》【】；：？！`) and CJK characters.
+    /// Parses inline Markdown with a bounded cache and rescues CJK `**...**` strong emphasis spans
+    /// while respecting both single-backtick and multi-backtick inline code spans.
     static func parseInline(_ text: String) -> AttributedString {
-        guard text.contains("**"), !text.contains("\u{E000}"), !text.contains("\u{E001}") else {
-            return (try? AttributedString(
+        let cacheable = text.utf8.count <= 16_384
+        if cacheable {
+            inlineCacheLock.lock()
+            if let hit = inlineCache[text] {
+                inlineCacheLock.unlock()
+                return hit
+            }
+            inlineCacheLock.unlock()
+        }
+
+        let resolved: AttributedString
+        if !text.contains("**") || text.contains("\u{E000}") || text.contains("\u{E001}") {
+            resolved = (try? AttributedString(
                 markdown: text,
                 options: .init(interpretedSyntax: .inlineOnlyPreservingWhitespace)
             )) ?? AttributedString(text)
+        } else {
+            let prepared = markPairedBoldDelimiters(in: text)
+            let attributed = (try? AttributedString(
+                markdown: prepared,
+                options: .init(interpretedSyntax: .inlineOnlyPreservingWhitespace)
+            )) ?? AttributedString(prepared)
+            resolved = applyMarkedBold(in: attributed)
         }
-        let prepared = markPairedBoldDelimiters(in: text)
-        let attributed = (try? AttributedString(
-            markdown: prepared,
-            options: .init(interpretedSyntax: .inlineOnlyPreservingWhitespace)
-        )) ?? AttributedString(prepared)
-        return applyMarkedBold(in: attributed)
+
+        if cacheable {
+            inlineCacheLock.lock()
+            if inlineCache.count >= 512 {
+                inlineCache.removeAll(keepingCapacity: true)
+            }
+            inlineCache[text] = resolved
+            inlineCacheLock.unlock()
+        }
+        return resolved
     }
 
-    /// Replaces paired `**...**` (excluding `***` and backtick code spans) with `\u{E000}...\u{E001}`
+    /// Replaces paired `**...**` (excluding `***` and single/multi-backtick code spans) with `\u{E000}...\u{E001}`
     /// in reading order before CommonMark runs, preventing CommonMark from rejecting or cross-pairing CJK bold spans.
     private static func markPairedBoldDelimiters(in text: String) -> String {
         let chars = Array(text)
         var result = ""
         result.reserveCapacity(text.count)
         var i = 0
-        var inCode = false
+        var activeCodeFenceTicks: Int?
         var pendingOpenIndex: String.Index?
 
         while i < chars.count {
             let ch = chars[i]
             if ch == "`" {
-                inCode.toggle()
-                result.append(ch)
-                i += 1
+                var ticks = 0
+                while i + ticks < chars.count && chars[i + ticks] == "`" {
+                    ticks += 1
+                }
+                for _ in 0..<ticks { result.append("`") }
+                if let active = activeCodeFenceTicks {
+                    if ticks == active {
+                        activeCodeFenceTicks = nil
+                    }
+                } else {
+                    // Only enter code mode if a matching run of `ticks` backticks exists later on the same line/paragraph.
+                    if hasMatchingBacktickRun(chars, from: i + ticks, length: ticks) {
+                        activeCodeFenceTicks = ticks
+                    }
+                }
+                i += ticks
                 continue
             }
             if ch.isNewline {
@@ -82,7 +120,7 @@ enum HighlightMarks {
                 i += 1
                 continue
             }
-            if !inCode,
+            if activeCodeFenceTicks == nil,
                i + 1 < chars.count,
                chars[i] == "*",
                chars[i + 1] == "*",
@@ -113,6 +151,23 @@ enum HighlightMarks {
             result.replaceSubrange(openIdx...openIdx, with: "**")
         }
         return result
+    }
+
+    private static func hasMatchingBacktickRun(_ chars: [Character], from start: Int, length: Int) -> Bool {
+        var j = start
+        while j < chars.count {
+            if chars[j] == "`" {
+                var run = 0
+                while j + run < chars.count && chars[j + run] == "`" {
+                    run += 1
+                }
+                if run == length { return true }
+                j += run
+                continue
+            }
+            j += 1
+        }
+        return false
     }
 
     private static func applyMarkedBold(in attributed: AttributedString) -> AttributedString {

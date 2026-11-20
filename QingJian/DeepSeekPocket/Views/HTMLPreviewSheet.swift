@@ -3,6 +3,10 @@ import UIKit
 import WebKit
 
 enum HTMLPreviewHelper {
+    private static let titleRegex = try? NSRegularExpression(pattern: #"<title[^>]*>(.*?)</title>"#, options: [.caseInsensitive, .dotMatchesLineSeparators])
+    private static let h1Regex = try? NSRegularExpression(pattern: #"<h1[^>]*>(.*?)</h1>"#, options: [.caseInsensitive, .dotMatchesLineSeparators])
+    private static let tagStripRegex = try? NSRegularExpression(pattern: #"<[^>]+>"#, options: [])
+
     static func isPreviewable(language: String?, body: String) -> Bool {
         if let lang = language?.trimmingCharacters(in: .whitespacesAndNewlines).uppercased(),
            lang == "HTML" || lang == "HTM" || lang == "SVG" {
@@ -12,21 +16,29 @@ enum HTMLPreviewHelper {
         return head.hasPrefix("<!doctype html") || head.hasPrefix("<html") || head.hasPrefix("<svg")
     }
 
+    private static func firstCleanMatch(_ regex: NSRegularExpression?, in text: String) -> String? {
+        guard let regex else { return nil }
+        let nsRange = NSRange(text.startIndex..<text.endIndex, in: text)
+        guard let match = regex.firstMatch(in: text, options: [], range: nsRange),
+              match.numberOfRanges >= 2,
+              let innerRange = Range(match.range(at: 1), in: text) else { return nil }
+        let inner = String(text[innerRange])
+        let stripped: String
+        if let strip = tagStripRegex {
+            stripped = strip.stringByReplacingMatches(in: inner, options: [], range: NSRange(inner.startIndex..<inner.endIndex, in: inner), withTemplate: "")
+        } else {
+            stripped = inner
+        }
+        let clean = stripped.trimmingCharacters(in: .whitespacesAndNewlines)
+        return clean.isEmpty ? nil : String(clean.prefix(40))
+    }
+
     static func extractTitle(code: String, language: String?) -> String {
         let lang = language?.trimmingCharacters(in: .whitespacesAndNewlines).uppercased() ?? ""
         if isPreviewable(language: language, body: code) {
-            if let range = code.range(of: #"<title[^>]*>(.*?)</title>"#, options: [.regularExpression, .caseInsensitive]) {
-                let raw = String(code[range])
-                    .replacingOccurrences(of: #"<[^>]+>"#, with: "", options: .regularExpression)
-                    .trimmingCharacters(in: .whitespacesAndNewlines)
-                if !raw.isEmpty { return String(raw.prefix(40)) }
-            }
-            if let range = code.range(of: #"<h1[^>]*>(.*?)</h1>"#, options: [.regularExpression, .caseInsensitive]) {
-                let raw = String(code[range])
-                    .replacingOccurrences(of: #"<[^>]+>"#, with: "", options: .regularExpression)
-                    .trimmingCharacters(in: .whitespacesAndNewlines)
-                if !raw.isEmpty { return String(raw.prefix(40)) }
-            }
+            let headSlice = String(code.prefix(8192))
+            if let title = firstCleanMatch(titleRegex, in: headSlice) { return title }
+            if let h1 = firstCleanMatch(h1Regex, in: headSlice) { return h1 }
             return lang == "SVG" || code.trimmingCharacters(in: .whitespacesAndNewlines).lowercased().hasPrefix("<svg")
                 ? "矢量图形预览" : "交互网页预览"
         }
@@ -41,9 +53,9 @@ enum HTMLPreviewHelper {
             return code
         }
         let isSVG = language?.uppercased() == "SVG" || lower.hasPrefix("<svg")
-        let bodyStyle = isSVG
-            ? "margin:0;padding:16px;min-height:100vh;display:flex;align-items:center;justify-content:center;background:#F8F8F6;box-sizing:border-box;"
-            : "margin:0;padding:16px;background:#F8F8F6;color:#1A1A18;font-family:-apple-system,BlinkMacSystemFont,sans-serif;box-sizing:border-box;"
+        let layoutRule = isSVG
+            ? "min-height:100vh;display:flex;align-items:center;justify-content:center;"
+            : ""
         return """
         <!DOCTYPE html>
         <html>
@@ -51,7 +63,11 @@ enum HTMLPreviewHelper {
         <meta charset="utf-8">
         <meta name="viewport" content="width=device-width, initial-scale=1.0">
         <style>
-        html, body { \(bodyStyle) }
+        :root { color-scheme: light dark; }
+        html, body { margin:0; padding:16px; background:#FAFAFA; color:#171717; font-family:-apple-system,BlinkMacSystemFont,sans-serif; box-sizing:border-box; \(layoutRule) }
+        @media (prefers-color-scheme: dark) {
+          html, body { background:#171717; color:#EDEDEB; }
+        }
         svg { max-width: 100%; height: auto; display: block; }
         </style>
         </head>

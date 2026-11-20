@@ -669,7 +669,26 @@ enum ConversationExport {
                 lines.append(message.role == .user ? "**\(userName)**" : "**Sermo**")
             }
             lines.append("")
-            lines.append(message.content)
+            if message.role == .user {
+                let docDecoded = PendingDocumentCodec.decode(message.content)
+                let quoteDecoded = MessageQuoteCodec.decode(docDecoded.userText)
+                if let quote = quoteDecoded.quote {
+                    lines.append("> 引用 \(quote.author)：\(quote.excerpt)")
+                    lines.append("")
+                }
+                for item in docDecoded.attachments {
+                    let extSuffix = item.fileExtension.isEmpty ? "" : ".\(item.fileExtension)"
+                    lines.append("📎 附件：《\(item.name)\(extSuffix)》（\(item.characterCount) 字）")
+                }
+                if !docDecoded.attachments.isEmpty && !quoteDecoded.userText.isEmpty {
+                    lines.append("")
+                }
+                if !quoteDecoded.userText.isEmpty {
+                    lines.append(quoteDecoded.userText)
+                }
+            } else {
+                lines.append(message.content)
+            }
             lines.append("")
         }
         return lines.joined(separator: "\n")

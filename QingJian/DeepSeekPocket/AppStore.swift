@@ -1160,11 +1160,15 @@ final class AppStore: ObservableObject {
         if translatingThreadID.map({ family.contains($0) }) ?? false { translationTask?.cancel() }
     }
     func renameThread(_ id: UUID, title: String) {
-        guard let index = threads.firstIndex(where: { $0.id == id }) else { return }
+        guard threads.contains(where: { $0.id == id }) else { return }
         let clean = title.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !clean.isEmpty else { return }
         let old = threads
-        threads[index].title = String(clean.prefix(80))
+        let family = ConversationHistory.memberIDs(for: id, in: threads)
+        let bounded = String(clean.prefix(80))
+        for i in threads.indices where family.contains(threads[i].id) {
+            threads[i].title = bounded
+        }
         if !persistNow() { threads = old }
     }
     func togglePinned(_ id: UUID) {
@@ -1217,7 +1221,7 @@ final class AppStore: ObservableObject {
         draftSaveTask?.cancel()
         draftSaveTask = Task { [weak self] in
             do { try await Task.sleep(nanoseconds: 600_000_000) } catch { return }
-            self?.persistNow()
+            self?.persistInBackground()
         }
     }
     func modelTitle(for provider: AIProvider) -> String {
@@ -1457,7 +1461,13 @@ final class AppStore: ObservableObject {
         guard !isGenerating, compactingThreadID == nil, canPersist, let original = activeThread else { return false }
         if resend && !canChat { errorMessage = chatUnavailableMessage; return false }
         do {
-            let edited = try ConversationEditing.editedCopy(of: original, messageID: id, text: text, resend: resend)
+            let finalContent: String
+            if let existing = original.messages.first(where: { $0.id == id }), existing.role == .user {
+                finalContent = PendingDocumentCodec.replaceEditableUserText(in: existing.content, with: text)
+            } else {
+                finalContent = text
+            }
+            let edited = try ConversationEditing.editedCopy(of: original, messageID: id, text: finalContent, resend: resend)
             return replaceConversation(edited, generate: resend && edited.messages.last?.role == .user)
         } catch { errorMessage = error.localizedDescription; return false }
     }
@@ -1481,7 +1491,10 @@ final class AppStore: ObservableObject {
                 replacement.id = UUID()
                 replacement.parentThreadID = nil
                 replacement.storyCheckpoints = nil
-                replacement.title = String((threads[index].title + " · 重试").prefix(80))
+                let baseStoryTitle = threads[index].title.hasSuffix(" · 重试")
+                    ? String(threads[index].title.dropLast(5))
+                    : threads[index].title
+                replacement.title = String((baseStoryTitle + " · 重试").prefix(80))
                 guard threads.count < 2000 else { errorMessage = "对话数量已达上限。"; return false }
                 let previousID = activeThreadID
                 threads.insert(replacement, at: 0)
@@ -2377,9 +2390,15 @@ final class AppStore: ObservableObject {
             pendingContent = ""
             pendingReasoning = ""
         }
-        if force || Date().timeIntervalSince(lastCommit) >= 1 { commitLive() }
+        if force {
+            commitLive()
+        } else if Date().timeIntervalSince(lastSave) >= 5 {
+            // Save streaming progress off the main thread without mutating `@Published threads`
+            // so `ChatScreen.body` and `HistorySidebar` never re-evaluate mid-stream.
+            persistStreamingCheckpointInBackground()
+        }
     }
-    // Copies the live text into the stored conversation.
+    // Copies the live text into the stored conversation when finishing, pausing, or saving synchronously.
     private func commitLive() {
         guard let id = live.messageID, live.isDirty,
               let ti = threads.firstIndex(where: { $0.messages.contains(where: { $0.id == id }) }),
@@ -2389,8 +2408,28 @@ final class AppStore: ObservableObject {
         threads[ti].messages[mi].content = live.content
         threads[ti].messages[mi].reasoning = live.reasoning
         if let seconds = live.thinkingSeconds { threads[ti].messages[mi].thinkingSeconds = seconds }
-        // Saving every conversation is slow; while text streams it happens off the main thread.
-        if Date().timeIntervalSince(lastSave) >= 5 { persistInBackground() }
+    }
+    private func persistStreamingCheckpointInBackground() {
+        guard !isPreview, canPersist, let persistence else { return }
+        lastSave = Date()
+        var overlaidThreads = threads
+        if let id = live.messageID,
+           let ti = overlaidThreads.firstIndex(where: { $0.messages.contains(where: { $0.id == id }) }),
+           let mi = overlaidThreads[ti].messages.firstIndex(where: { $0.id == id }) {
+            overlaidThreads[ti].messages[mi].content = live.content
+            overlaidThreads[ti].messages[mi].reasoning = live.reasoning
+            if let seconds = live.thinkingSeconds { overlaidThreads[ti].messages[mi].thinkingSeconds = seconds }
+        }
+        let checkpoint = AppSnapshot(
+            settings: settings,
+            threads: overlaidThreads,
+            activeThreadID: activeThreadID,
+            projects: projects,
+            usage: usage,
+            systemPromptPresets: systemPromptPresets,
+            installedStudySubjects: installedStudySubjects
+        )
+        persistence.saveInBackground(checkpoint)
     }
     private func persistInBackground() {
         guard !isPreview, canPersist, let persistence else { return }

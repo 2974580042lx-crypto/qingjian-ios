@@ -51,7 +51,7 @@ enum Ink {
     }
     static var raised: Color {
         if night { return fixed(0x0F1D24) }
-        return swiss ? Color.adaptive(light: 0xFFFFFF, dark: 0x1D1E21) : Color.adaptive(light: 0xEFEEEA, dark: 0x262624)
+        return swiss ? Color.adaptive(light: 0xFFFFFF, dark: 0x1D1E21) : Color.adaptive(light: 0xF2F2F1, dark: 0x262626)
     }
     static var ink: Color {
         if night { return fixed(0xDBEBEF) }
@@ -59,16 +59,16 @@ enum Ink {
     }
     static var ink2: Color {
         if night { return fixed(0xB4C3C9) }
-        return swiss ? Color.adaptive(light: 0x3B3B3B, dark: 0xC6C6C1) : Color.adaptive(light: 0x4A4945, dark: 0xC7C5BE)
+        return swiss ? Color.adaptive(light: 0x3B3B3B, dark: 0xC6C6C1) : Color.adaptive(light: 0x424240, dark: 0xC8C8C4)
     }
     static var ink3: Color {
         if night { return fixed(0x92A1A8) }
-        return swiss ? Color.adaptive(light: 0x5E5E5E, dark: 0x9B9B96) : Color.adaptive(light: 0x7A7872, dark: 0x8E8C85)
+        return swiss ? Color.adaptive(light: 0x5E5E5E, dark: 0x9B9B96) : Color.adaptive(light: 0x757572, dark: 0x969692)
     }
     static var line: Color {
         if night { return fixed(0xDBEBEF, alpha: 0.13) }
         return swiss ? Color.adaptive(light: 0x111111, dark: 0xEDEDE9, lightAlpha: 0.16, darkAlpha: 0.18)
-            : Color.adaptive(light: 0x1A1A18, dark: 0xECEBE7, lightAlpha: 0.09, darkAlpha: 0.11)
+            : Color.adaptive(light: 0x171717, dark: 0xEDEDEB, lightAlpha: 0.075, darkAlpha: 0.10)
     }
     static var seal: Color {
         if night { return fixed(0xECD59F) }
@@ -184,8 +184,24 @@ enum InkAppearance {
             if let bar = view as? UINavigationBar { update(bar) }
             for child in view.subviews { visit(child) }
         }
+        let rawMode = UserDefaults.standard.string(forKey: AppearanceMode.key) ?? AppearanceMode.system.rawValue
+        let targetStyle: UIUserInterfaceStyle
+        if InterfaceStyle.isNight {
+            targetStyle = .dark
+        } else {
+            switch AppearanceMode(rawValue: rawMode) ?? .system {
+            case .system: targetStyle = .unspecified
+            case .light: targetStyle = .light
+            case .dark: targetStyle = .dark
+            }
+        }
         for scene in UIApplication.shared.connectedScenes.compactMap({ $0 as? UIWindowScene }) {
-            for window in scene.windows { visit(window) }
+            for window in scene.windows {
+                if window.overrideUserInterfaceStyle != targetStyle {
+                    window.overrideUserInterfaceStyle = targetStyle
+                }
+                visit(window)
+            }
         }
     }
 }
@@ -680,7 +696,7 @@ enum Personal {
 
     struct Preset: Identifiable { let id: String; let title: String; let light: UInt32; let dark: UInt32 }
     static let textPresets = [
-        Preset(id: "black", title: "近黑", light: 0x1A1A18, dark: 0xECEBE7),
+        Preset(id: "black", title: "近黑", light: 0x171717, dark: 0xEDEDEB),
         Preset(id: "warm", title: "暖深灰", light: 0x2B2925, dark: 0xE8E5DD),
         Preset(id: "brown", title: "深棕", light: 0x382920, dark: 0xEADACE),
     ]
@@ -696,26 +712,26 @@ enum Personal {
         Preset(id: "sky", title: "夜雨蓝", light: 0x2E7DE9, dark: 0x7AA2F7),
     ]
     static let paperPresets = [
-        Preset(id: "ivory", title: "柔白", light: 0xF8F8F6, dark: 0x191918),
+        Preset(id: "ivory", title: "柔白", light: 0xFAFAFA, dark: 0x171717),
         Preset(id: "white", title: "纯白", light: 0xFFFFFF, dark: 0x0C0C0C),
-        Preset(id: "grey", title: "浅灰", light: 0xF3F3F1, dark: 0x1C1C1E),
+        Preset(id: "grey", title: "浅灰", light: 0xF4F4F3, dark: 0x1C1C1E),
         Preset(id: "gruvbox", title: "胶片", light: 0xFBF1C7, dark: 0x1D2021),
         Preset(id: "catppuccin", title: "奶咖", light: 0xEFF1F5, dark: 0x181825),
         Preset(id: "rosepine", title: "松烟", light: 0xFAF4ED, dark: 0x191724),
         Preset(id: "tokyonight", title: "夜雨", light: 0xD5D6DB, dark: 0x16161E),
     ]
     private static let sheetFor: [String: (UInt32, UInt32)] = [
-        "ivory": (0xF3F3F1, 0x121211), "white": (0xF4F4F4, 0x050505), "grey": (0xEAEAE7, 0x141416),
+        "ivory": (0xF4F4F3, 0x121212), "white": (0xF5F5F4, 0x050505), "grey": (0xECECEB, 0x141416),
         "gruvbox": (0xF2E5BC, 0x282828), "catppuccin": (0xE6E9EF, 0x1E1E2E),
         "rosepine": (0xF2E9E1, 0x1F1D2E), "tokyonight": (0xCBCCD1, 0x1A1B26),
     ]
     private static let groupedBgFor: [String: (UInt32, UInt32)] = [
-        "ivory": (0xF4F4F2, 0x141413), "white": (0xF5F5F5, 0x0A0A0A), "grey": (0xEFEFED, 0x141416),
+        "ivory": (0xF5F5F4, 0x141414), "white": (0xF5F5F5, 0x0A0A0A), "grey": (0xEFEFEE, 0x141416),
         "gruvbox": (0xF4E8C1, 0x181A1B), "catppuccin": (0xE8ECF2, 0x141420),
         "rosepine": (0xF4ECE4, 0x151320), "tokyonight": (0xCFD1D8, 0x12131B),
     ]
     private static let cardFor: [String: (UInt32, UInt32)] = [
-        "ivory": (0xFFFFFF, 0x222220), "white": (0xFFFFFF, 0x1A1A1A), "grey": (0xFFFFFF, 0x232326),
+        "ivory": (0xFFFFFF, 0x242424), "white": (0xFFFFFF, 0x1A1A1A), "grey": (0xFFFFFF, 0x232326),
         "gruvbox": (0xFEF9E4, 0x262829), "catppuccin": (0xFFFFFF, 0x232334),
         "rosepine": (0xFFFDFB, 0x242136), "tokyonight": (0xF3F4F7, 0x1F202E),
     ]
@@ -774,20 +790,20 @@ enum Personal {
         let pair = cardFor[raw] ?? cardFor["ivory"]!
         return Color.adaptive(light: pair.0, dark: pair.1)
     }
-    /// Your message bubble: crisp Claude-neutral light stone (#EFEEEA) by default, a wash of the accent, or a picked colour.
+    /// Your message bubble: crisp Claude-neutral light grey (#F1F1F0) by default, a wash of the accent, or a picked colour.
     static var bubble: Color {
         let raw = stored(bubbleKey)
         if InterfaceStyle.isSwiss || InterfaceStyle.isNight { return Ink.raised }
         if raw == "accent" { return accent.opacity(0.14) }
-        if let custom = hex(raw) { return Color.adaptive(light: custom, dark: 0x2A2A27) }
+        if let custom = hex(raw) { return Color.adaptive(light: custom, dark: 0x292928) }
         let darkBubble: UInt32 = switch stored(paperKey) {
         case "gruvbox": 0x3C3836
         case "catppuccin": 0x313244
         case "rosepine": 0x26233A
         case "tokyonight": 0x292E42
-        default: 0x2A2A27
+        default: 0x292928
         }
-        return Color.adaptive(light: 0xEFEEEA, dark: darkBubble)
+        return Color.adaptive(light: 0xF1F1F0, dark: darkBubble)
     }
 
     static var syntaxKeyword: Color {

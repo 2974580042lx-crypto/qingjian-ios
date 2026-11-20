@@ -20,6 +20,7 @@ struct QingJianApp: App {
     var body: some Scene {
         WindowGroup {
             ContentView()
+                .onAppear { InkAppearance.apply() }
                 .onChange(of: fontRevision) { _, _ in FontAppearance.shared.invalidate(); InkAppearance.apply() }
                 .onChange(of: fontChoice) { _, _ in FontAppearance.shared.invalidate(); InkAppearance.apply() }
                 .onChange(of: interfaceStyle) { _, _ in
