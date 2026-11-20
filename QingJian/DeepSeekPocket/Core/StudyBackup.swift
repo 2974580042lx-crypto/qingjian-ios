@@ -360,10 +360,37 @@ enum StudyRestoreEngine {
                 previousImages: previousImages, missingPreviousImages: missing, committed: true)
             try StudyCoding.encode(completed).write(to: journalURL, options: .atomic)
             try FileManager.default.removeItem(at: journalURL)
+            pruneRecoveryDirectory(recoveryDirectory)
             return Outcome(snapshot: next, recoveryBackup: recoveryBackup, missingPreviousImages: missing)
         } catch {
             try recover(store: store, imagesDirectory: imagesDirectory, recoveryDirectory: recoveryDirectory, saveSnapshot: saveSnapshot)
             throw error
+        }
+    }
+
+    static func pruneRecoveryDirectory(_ directory: URL, keepPerPrefix: Int = 5) {
+        let fm = FileManager.default
+        guard let urls = try? fm.contentsOfDirectory(
+            at: directory,
+            includingPropertiesForKeys: [.creationDateKey, .contentModificationDateKey],
+            options: [.skipsHiddenFiles]
+        ) else { return }
+        for prefix in ["before-restore-backup-", "before-restore-", "retained-pending-"] {
+            let matching = urls.filter { url in
+                let name = url.lastPathComponent
+                if prefix == "before-restore-" && name.hasPrefix("before-restore-backup-") { return false }
+                return name.hasPrefix(prefix) && url.pathExtension == "json"
+            }.sorted {
+                let d0 = (try? $0.resourceValues(forKeys: [.creationDateKey, .contentModificationDateKey]))
+                let d1 = (try? $1.resourceValues(forKeys: [.creationDateKey, .contentModificationDateKey]))
+                let t0 = d0?.creationDate ?? d0?.contentModificationDate ?? .distantPast
+                let t1 = d1?.creationDate ?? d1?.contentModificationDate ?? .distantPast
+                if t0 != t1 { return t0 > t1 }
+                return $0.lastPathComponent > $1.lastPathComponent
+            }
+            for stale in matching.dropFirst(max(1, keepPerPrefix)) {
+                try? fm.removeItem(at: stale)
+            }
         }
     }
     @discardableResult static func recover(store: StudyMemoryStore, imagesDirectory: URL, recoveryDirectory: URL,

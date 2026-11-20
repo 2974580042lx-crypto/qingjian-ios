@@ -32,6 +32,9 @@ struct QingJianApp: App {
                     store.reloadAfterUnlockIfNeeded()
                     profile.reloadIfNeeded()
                 }
+                .onReceive(NotificationCenter.default.publisher(for: Notification.Name("sermo.profile.didRestore"))) { _ in
+                    profile.reloadFromDisk()
+                }
                 .onChange(of: scenePhase) { _, phase in
                     store.speech.setForeground(phase == .active)
                     store.studyCloud.setForeground(phase == .active)

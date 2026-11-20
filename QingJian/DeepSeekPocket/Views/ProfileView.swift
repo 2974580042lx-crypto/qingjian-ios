@@ -27,6 +27,11 @@ final class ProfileStore: ObservableObject {
 
     func reloadIfNeeded() {
         guard !preview, file == nil else { return }
+        reloadFromDisk()
+    }
+
+    func reloadFromDisk() {
+        guard !preview else { return }
         do {
             let directory = try FileManager.default.url(for: .applicationSupportDirectory, in: .userDomainMask, appropriateFor: nil, create: true)
                 .appendingPathComponent("QingJian", isDirectory: true)

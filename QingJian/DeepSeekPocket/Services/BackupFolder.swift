@@ -131,4 +131,21 @@ enum IncomingFile {
         }
         return copied ? target : nil
     }
+
+    static func cleanupStaleTempFolders(olderThan age: TimeInterval = 3600) {
+        let tmp = FileManager.default.temporaryDirectory
+        guard let entries = try? FileManager.default.contentsOfDirectory(
+            at: tmp,
+            includingPropertiesForKeys: [.creationDateKey, .contentModificationDateKey],
+            options: [.skipsHiddenFiles]
+        ) else { return }
+        let cutoff = Date().addingTimeInterval(-age)
+        for url in entries where url.lastPathComponent.hasPrefix("Incoming-") {
+            let vals = try? url.resourceValues(forKeys: [.creationDateKey, .contentModificationDateKey])
+            let stamp = vals?.contentModificationDate ?? vals?.creationDate ?? .distantPast
+            if stamp < cutoff {
+                try? FileManager.default.removeItem(at: url)
+            }
+        }
+    }
 }

@@ -127,8 +127,9 @@ struct StudyRestorePreview: Identifiable {
             }
             let pendingURL = try accountDirectory().appendingPathComponent("pending.json")
             if keepLocal {
-                if FileManager.default.fileExists(atPath: pendingURL.path) {
-                    try FileManager.default.copyItem(at: pendingURL, to: accountDirectory().appendingPathComponent("retained-pending-\(UUID().uuidString).json"))
+                if FileManager.default.fileExists(atPath: pendingURL.path), let dir = try? accountDirectory() {
+                    try? FileManager.default.copyItem(at: pendingURL, to: dir.appendingPathComponent("retained-pending-\(UUID().uuidString).json"))
+                    StudyRestoreEngine.pruneRecoveryDirectory(dir, keepPerPrefix: 5)
                 }
                 state.acknowledgedIDs = Set(before.map(\.id)); state.conflict = false; state.upload = nil
                 state.pendingFingerprint = nil; state.pendingGeneration = nil; state.dirty = true; try persist()
@@ -191,18 +192,18 @@ struct StudyRestorePreview: Identifiable {
     }
     func refreshFiles() {
         guard !busy, let app else { return }
+        busy = true
         running = Task {
-            guard !busy else { return }
-            busy = true; defer { busy = false }
+            defer { busy = false }
             do { try refreshAccount(cancelRunning: false); files = try await app.drive.studyBackupClient().listBackups(); issue = nil }
             catch { issue = error.localizedDescription }
         }
     }
     func prepareRestore(_ file: StudyDriveFile) {
         guard !busy, let app, app.canRestoreStudyBackup else { issue = "请先等待当前回答或记忆处理结束。"; return }
+        busy = true
         running = Task {
-            guard !busy else { return }
-            busy = true; defer { busy = false }
+            defer { busy = false }
             do {
                 try refreshAccount(cancelRunning: false); guard let selectedAccount = account else { throw GoogleAuthError.signInRequired }
                 let data = try await app.drive.studyBackupClient().download(file)
@@ -228,9 +229,9 @@ struct StudyRestorePreview: Identifiable {
     }
     func prepareLocalRestore(_ url: URL) {
         guard !busy, let app, app.canRestoreStudyBackup else { issue = "请先等待当前回答或记忆处理结束。"; return }
+        busy = true
         running = Task {
-            guard !busy else { return }
-            busy = true; defer { busy = false }
+            defer { busy = false }
             let copied = await Task.detached(priority: .utility) { IncomingFile.privateCopy(of: url) }.value
             let target = copied ?? url
             defer { if let copied { try? FileManager.default.removeItem(at: copied.deletingLastPathComponent()) } }

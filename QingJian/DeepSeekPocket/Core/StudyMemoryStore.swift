@@ -17,6 +17,7 @@ struct StudyMemoryArchive: Codable, Sendable {
 final class StudyMemoryStore: @unchecked Sendable {
     private var database: OpaquePointer?
     private let lock = NSRecursiveLock()
+    private var transactionDepth = 0
     private let encoderLimit = 32 * 1024 * 1024
     private let transient = unsafeBitCast(-1, to: sqlite3_destructor_type.self)
     private struct CommittedOperation: Codable {
@@ -25,7 +26,11 @@ final class StudyMemoryStore: @unchecked Sendable {
     }
 
     init(url: URL) throws {
-        try FileManager.default.createDirectory(at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
+        let parentDir = url.deletingLastPathComponent()
+        try FileManager.default.createDirectory(at: parentDir, withIntermediateDirectories: true)
+        #if os(iOS)
+        try? FileManager.default.setAttributes([.protectionKey: FileProtectionType.completeUntilFirstUserAuthentication], ofItemAtPath: parentDir.path)
+        #endif
         guard sqlite3_open_v2(url.path, &database, SQLITE_OPEN_CREATE | SQLITE_OPEN_READWRITE | SQLITE_OPEN_FULLMUTEX, nil) == SQLITE_OK else {
             if database != nil { sqlite3_close(database) }; database = nil
             throw StudyMemoryError.unavailable
@@ -47,10 +52,44 @@ final class StudyMemoryStore: @unchecked Sendable {
     }
     func transaction<T>(_ body: () throws -> T) throws -> T {
         try synchronized {
-            try executeSQL("BEGIN IMMEDIATE")
-            do { let result = try body(); try executeSQL("COMMIT"); return result }
-            catch { try? executeSQL("ROLLBACK"); throw error }
+            if transactionDepth == 0 {
+                try executeSQL("BEGIN IMMEDIATE")
+                transactionDepth = 1
+                do {
+                    let result = try body()
+                    transactionDepth = 0
+                    try executeSQL("COMMIT")
+                    return result
+                } catch {
+                    transactionDepth = 0
+                    try? executeSQL("ROLLBACK")
+                    throw error
+                }
+            } else {
+                let sp = "sp_\(transactionDepth)"
+                try executeSQL("SAVEPOINT \(sp)")
+                transactionDepth += 1
+                do {
+                    let result = try body()
+                    transactionDepth -= 1
+                    try executeSQL("RELEASE SAVEPOINT \(sp)")
+                    return result
+                } catch {
+                    transactionDepth -= 1
+                    try? executeSQL("ROLLBACK TO SAVEPOINT \(sp)")
+                    try? executeSQL("RELEASE SAVEPOINT \(sp)")
+                    throw error
+                }
+            }
         }
+    }
+    private static func columnBlob(_ query: OpaquePointer, index: Int32) throws -> Data {
+        let length = Int(sqlite3_column_bytes(query, index))
+        if length == 0 { return Data() }
+        guard length > 0, let bytes = sqlite3_column_blob(query, index) else {
+            throw StudyMemoryError.unavailable
+        }
+        return Data(bytes: bytes, count: length)
     }
     private func executeSQL(_ sql: String) throws {
         guard sqlite3_exec(database, sql, nil, nil, nil) == SQLITE_OK else { throw StudyMemoryError.unavailable }
@@ -74,8 +113,8 @@ final class StudyMemoryStore: @unchecked Sendable {
         while true {
             let status = sqlite3_step(query)
             if status == SQLITE_DONE { return result }
-            guard status == SQLITE_ROW, let bytes = sqlite3_column_blob(query, 0) else { throw StudyMemoryError.unavailable }
-            result.append(Data(bytes: bytes, count: Int(sqlite3_column_bytes(query, 0))))
+            guard status == SQLITE_ROW else { throw StudyMemoryError.unavailable }
+            result.append(try Self.columnBlob(query, index: 0))
         }
     }
     func read<T: Decodable>(_ type: T.Type, projectID: UUID, kind: String, id: String) throws -> T? {
@@ -83,8 +122,8 @@ final class StudyMemoryStore: @unchecked Sendable {
         defer { sqlite3_finalize(query) }
         let status = sqlite3_step(query)
         if status == SQLITE_DONE { return nil }
-        guard status == SQLITE_ROW, let bytes = sqlite3_column_blob(query, 0) else { throw StudyMemoryError.unavailable }
-        return try StudyCoding.decode(type, from: Data(bytes: bytes, count: Int(sqlite3_column_bytes(query, 0))))
+        guard status == SQLITE_ROW else { throw StudyMemoryError.unavailable }
+        return try StudyCoding.decode(type, from: Self.columnBlob(query, index: 0))
     }
     func write<T: Encodable>(_ value: T, projectID: UUID, kind: String, id: String) throws {
         try writeData(StudyCoding.encode(value), projectID: projectID, kind: kind, id: id)
@@ -348,8 +387,8 @@ final class StudyMemoryStore: @unchecked Sendable {
             while true {
                 let status = sqlite3_step(query)
                 if status == SQLITE_DONE { return result.sorted { $0.archivedAt > $1.archivedAt } }
-                guard status == SQLITE_ROW, let bytes = sqlite3_column_blob(query, 0) else { throw StudyMemoryError.unavailable }
-                result.append(try StudyCoding.decode(StudyArchivedProject.self, from: Data(bytes: bytes, count: Int(sqlite3_column_bytes(query, 0)))))
+                guard status == SQLITE_ROW else { throw StudyMemoryError.unavailable }
+                result.append(try StudyCoding.decode(StudyArchivedProject.self, from: Self.columnBlob(query, index: 0)))
             }
         }
     }
@@ -365,8 +404,8 @@ final class StudyMemoryStore: @unchecked Sendable {
                 let status = sqlite3_step(query)
                 if status == SQLITE_DONE { break }
                 guard status == SQLITE_ROW, let project = sqlite3_column_text(query, 0), let id = UUID(uuidString: String(cString: project)),
-                      let kind = sqlite3_column_text(query, 1), let key = sqlite3_column_text(query, 2), let bytes = sqlite3_column_blob(query, 3) else { throw StudyMemoryError.unavailable }
-                result.append(.init(projectID: id, kind: String(cString: kind), id: String(cString: key), payload: Data(bytes: bytes, count: Int(sqlite3_column_bytes(query, 3)))))
+                      let kind = sqlite3_column_text(query, 1), let key = sqlite3_column_text(query, 2) else { throw StudyMemoryError.unavailable }
+                result.append(.init(projectID: id, kind: String(cString: kind), id: String(cString: key), payload: try Self.columnBlob(query, index: 3)))
             }
             return StudyMemoryArchive(version: 1, rows: result)
         }

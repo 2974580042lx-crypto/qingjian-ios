@@ -96,6 +96,8 @@ final class AppStore: ObservableObject {
     @Published var studyIssue: String?
     let studyCloud = StudyBackupController()
     private var studyCloudObserver: AnyCancellable?
+    let driveFullBackup = DriveFullBackupController()
+    private var driveFullBackupObserver: AnyCancellable?
     @Published private(set) var restoringStudyBackup = false
     @Published var unifiedRestorePreview: UnifiedRestorePreview?
     @Published private(set) var unifiedBackupBusy = false
@@ -603,6 +605,9 @@ final class AppStore: ObservableObject {
         initializeStudyMemory(persistIfSeeded: hasExistingLocalStoreFile)
         studyCloudObserver = studyCloud.objectWillChange.sink { [weak self] in self?.objectWillChange.send() }
         studyCloud.configure(self)
+        driveFullBackupObserver = driveFullBackup.objectWillChange.sink { [weak self] in self?.objectWillChange.send() }
+        driveFullBackup.configure(self)
+        IncomingFile.cleanupStaleTempFolders()
         let start = newChatProjectID
         if let blank = threads.first(where: { $0.messages.isEmpty && ($0.draft ?? "").isEmpty && $0.projectID == start }) {
             activeThreadID = blank.id
@@ -2218,61 +2223,92 @@ final class AppStore: ObservableObject {
         backupFolderName = nil
         backupIssue = nil
     }
-    // Once a day when the app comes to the front, or right away with force. Always into
-    // the app's own folder; into the picked folder too when there is one.
-    func autoBackupIfNeeded(force: Bool = false) {
-        guard !isPreview, canPersist, !backupRunning else { return }
-        let hasRealData = threads.contains(where: { !$0.messages.isEmpty }) || !usage.days.isEmpty || !systemPromptPresets.isEmpty || !books.books.isEmpty || operationManual.hasUserChanges
-        if !force && !hasRealData { return }
-        if !force, let last = lastAutoBackup, Calendar.current.isDateInToday(last) { return }
-        let snap = snapshot
-        let learning: StudyMemoryArchive
-        do {
-            learning = try studyMemory?.exportAllStudyData() ?? StudyMemoryArchive(version: 1, rows: [])
-        } catch {
-            backupIssue = "自动备份中止：学习数据库未能读取（\(error.localizedDescription)）"
-            return
+    var hasRealBackupData: Bool {
+        threads.contains(where: { !$0.messages.isEmpty }) ||
+            !usage.days.isEmpty ||
+            !systemPromptPresets.isEmpty ||
+            !books.books.isEmpty ||
+            operationManual.hasUserChanges ||
+            projects.contains(where: { $0.studySubject == nil && $0.id != AppManual.projectID })
+    }
+
+    private static func localProfileURL() throws -> URL {
+        try FileManager.default.url(for: .applicationSupportDirectory, in: .userDomainMask, appropriateFor: nil, create: true)
+            .appendingPathComponent("QingJian/profile.json")
+    }
+
+    private static func readCurrentLocalProfile() -> BackupUserProfile? {
+        guard let url = try? localProfileURL(),
+              FileManager.default.fileExists(atPath: url.path),
+              let data = try? Data(contentsOf: url) else { return nil }
+        return try? JSONDecoder().decode(BackupUserProfile.self, from: data)
+    }
+
+    private static func writeLocalProfile(_ profile: BackupUserProfile) {
+        guard let url = try? localProfileURL() else { return }
+        try? FileManager.default.createDirectory(at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
+        if let encoded = try? JSONEncoder().encode(profile) {
+            try? encoded.write(to: url, options: [.atomic, .completeFileProtectionUntilFirstUserAuthentication])
+            NotificationCenter.default.post(name: Notification.Name("sermo.profile.didRestore"), object: nil)
         }
+    }
+
+    func captureUnifiedBackupData(imageBudgetBytes: Int) async throws -> (data: Data, payload: UnifiedBackupPayload, fingerprint: String) {
+        _ = persistNow()
+        let snap = snapshot
+        let learning = try studyMemory?.exportAllStudyData() ?? StudyMemoryArchive(version: 1, rows: [])
         let booksMeta = books.books
         let personas = books.personas
         let prefs = UnifiedBackupCodec.collectPreferences()
         let manual = operationManual
+        let profile = Self.readCurrentLocalProfile()
         let imagesDir = try? ImageStore.directory()
+        return try await Task.detached(priority: .utility) {
+            let payload = try UnifiedBackupCodec.capture(
+                snapshot: snap,
+                learning: learning,
+                booksMetadata: booksMeta,
+                personas: personas,
+                preferences: prefs,
+                operationManual: manual,
+                localProfile: profile,
+                imageBudgetBytes: imageBudgetBytes,
+                imageSize: { name in
+                    guard let dir = imagesDir else { return -1 }
+                    return (try? dir.appendingPathComponent(name).resourceValues(forKeys: [.fileSizeKey]).fileSize) ?? -1
+                },
+                imageLoader: { name in
+                    guard let dir = imagesDir else { throw CocoaError(.fileNoSuchFile) }
+                    return try Data(contentsOf: dir.appendingPathComponent(name))
+                }
+            )
+            let data = try UnifiedBackupCodec.encode(payload)
+            let fp = try UnifiedBackupCodec.contentFingerprint(of: payload)
+            return (data, payload, fp)
+        }.value
+    }
+
+    // Once a day when the app comes to the front, or right away with force. Always into
+    // the app's own folder; into the picked folder too when there is one, plus Google Drive daily check.
+    func autoBackupIfNeeded(force: Bool = false) {
+        driveFullBackup.checkDailyBackupIfNeeded(force: false)
+        guard !isPreview, canPersist, !backupRunning else { return }
+        if !force && !hasRealBackupData { return }
+        if !force, let last = lastAutoBackup, Calendar.current.isDateInToday(last) { return }
         backupRunning = true
         Task {
-            let outcome = await Task.detached(priority: .utility) { () -> Result<(Date, String?), Error> in
-                do {
-                    let payload = try UnifiedBackupCodec.capture(
-                        snapshot: snap,
-                        learning: learning,
-                        booksMetadata: booksMeta,
-                        personas: personas,
-                        preferences: prefs,
-                        operationManual: manual,
-                        imageBudgetBytes: 24 * 1024 * 1024,
-                        imageSize: { name in
-                            guard let dir = imagesDir else { return -1 }
-                            return (try? dir.appendingPathComponent(name).resourceValues(forKeys: [.fileSizeKey]).fileSize) ?? -1
-                        },
-                        imageLoader: { name in
-                            guard let dir = imagesDir else { throw CocoaError(.fileNoSuchFile) }
-                            return try Data(contentsOf: dir.appendingPathComponent(name))
-                        }
-                    )
-                    let data = try UnifiedBackupCodec.encode(payload)
-                    let extraIssue = try BackupFolder.write(data, ext: "sermobackup")
-                    return .success((Date(), extraIssue))
-                } catch {
-                    return .failure(error)
-                }
-            }.value
-            self.backupRunning = false
-            switch outcome {
-            case .success(let (date, extraIssue)):
+            do {
+                let captured = try await self.captureUnifiedBackupData(imageBudgetBytes: 24 * 1024 * 1024)
+                let extraIssue = try await Task.detached(priority: .utility) {
+                    try BackupFolder.write(captured.data, ext: "sermobackup")
+                }.value
+                let date = Date()
+                self.backupRunning = false
                 BackupFolder.lastBackup = date
                 self.lastAutoBackup = date
                 self.backupIssue = extraIssue.map { "已存进 App 文件夹，但额外文件夹没有存上：\($0)" }
-            case .failure(let error):
+            } catch {
+                self.backupRunning = false
                 self.backupIssue = "自动备份没有完成：\(error.localizedDescription)"
             }
         }
@@ -3488,44 +3524,15 @@ final class AppStore: ObservableObject {
         guard canPersist, !isGenerating, !unifiedBackupBusy else { return nil }
         unifiedBackupBusy = true
         defer { unifiedBackupBusy = false }
-        _ = persistNow()
-        let snap = snapshot
-        let learning: StudyMemoryArchive
         do {
-            learning = try studyMemory?.exportAllStudyData() ?? StudyMemoryArchive(version: 1, rows: [])
-        } catch {
-            errorMessage = "完整备份未能导出：学习数据库读取失败（\(error.localizedDescription)）"
-            return nil
-        }
-        let booksMeta = books.books
-        let personas = books.personas
-        let prefs = UnifiedBackupCodec.collectPreferences()
-        let manual = operationManual
-        do {
-            let imagesDir = try ImageStore.directory()
+            let captured = try await captureUnifiedBackupData(imageBudgetBytes: UnifiedBackupCodec.maximumImageBudgetBytes)
             return try await Task.detached(priority: .userInitiated) {
-                let payload = try UnifiedBackupCodec.capture(
-                    snapshot: snap,
-                    learning: learning,
-                    booksMetadata: booksMeta,
-                    personas: personas,
-                    preferences: prefs,
-                    operationManual: manual,
-                    imageBudgetBytes: UnifiedBackupCodec.maximumImageBudgetBytes,
-                    imageSize: { name in
-                        (try? imagesDir.appendingPathComponent(name).resourceValues(forKeys: [.fileSizeKey]).fileSize) ?? -1
-                    },
-                    imageLoader: { name in
-                        try Data(contentsOf: imagesDir.appendingPathComponent(name))
-                    }
-                )
-                let data = try UnifiedBackupCodec.encode(payload)
                 let formatter = DateFormatter()
                 formatter.locale = Locale(identifier: "en_US_POSIX")
                 formatter.dateFormat = "yyyyMMdd-HHmmss"
                 let url = FileManager.default.temporaryDirectory
                     .appendingPathComponent("Sermo完整备份-\(formatter.string(from: Date())).sermobackup")
-                try data.write(to: url, options: [.atomic, .completeFileProtectionUntilFirstUserAuthentication])
+                try captured.data.write(to: url, options: [.atomic, .completeFileProtectionUntilFirstUserAuthentication])
                 return url
             }.value
         } catch {
@@ -3551,7 +3558,7 @@ final class AppStore: ObservableObject {
                     let scoped = url.startAccessingSecurityScopedResource()
                     defer { if scoped { url.stopAccessingSecurityScopedResource() } }
                     let size = Int64((try? url.resourceValues(forKeys: [.fileSizeKey]).fileSize) ?? 0)
-                    guard size <= UnifiedBackupCodec.maximumUncompressedBytes else {
+                    guard size <= UnifiedBackupCodec.maximumUncompressedBytes + 1024 else {
                         throw ChatError.invalidBackup("备份文件过大，请选择有效的 Sermo 备份文件。")
                     }
                     let data = try Data(contentsOf: url)
@@ -3677,14 +3684,21 @@ final class AppStore: ObservableObject {
         unifiedBackupBusy = true
         defer { unifiedBackupBusy = false }
         let oldThreads = threads, oldProjects = projects, oldUsage = usage, oldPresets = systemPromptPresets, oldSettings = settings, oldActive = activeThreadID, oldInstalled = installedStudySubjects, oldManual = operationManual
+        let oldBooks = books.books, oldPersonas = books.personas
+        let oldPrefs = UnifiedBackupCodec.collectPreferences()
+        let oldProfile = Self.readCurrentLocalProfile()
+        let oldStudyArchive = try? studyMemory?.exportAllStudyData()
+        var addedImagePaths: [URL] = []
         do {
-            _ = try persistence?.createSafetyCopy(prefix: "before-restore")
+            try UnifiedBackupCodec.validate(payload)
+            _ = try persistence?.createSafetyCopy(prefix: "before-restore", keep: 5)
             let imagesDir = try ImageStore.directory()
             try FileManager.default.createDirectory(at: imagesDir, withIntermediateDirectories: true)
             for image in payload.images {
                 let target = imagesDir.appendingPathComponent(image.name)
                 if !FileManager.default.fileExists(atPath: target.path) {
                     try image.data.write(to: target, options: [.atomic, .completeFileProtectionUntilFirstUserAuthentication])
+                    addedImagePaths.append(target)
                 }
             }
             ImageStore.clearThumbnails()
@@ -3698,6 +3712,9 @@ final class AppStore: ObservableObject {
             }
             if mode == .replace {
                 UnifiedBackupCodec.applyPreferences(payload.preferences)
+                if let incomingProfile = payload.localProfile {
+                    Self.writeLocalProfile(incomingProfile)
+                }
                 var incoming = payload.snapshot
                 ChatModelSelection.migrate(&incoming.threads, projects: incoming.projects ?? [], settings: incoming.settings)
                 applyLoadedSnapshot(incoming)
@@ -3711,13 +3728,14 @@ final class AppStore: ObservableObject {
                     if persistOperationManual(nextManual) { operationManual = nextManual }
                 }
                 guard persistNow(allowShrink: true) else {
-                    threads = oldThreads; projects = oldProjects; usage = oldUsage; systemPromptPresets = oldPresets; settings = oldSettings; activeThreadID = oldActive; installedStudySubjects = oldInstalled
-                    if operationManual != oldManual { _ = persistOperationManual(oldManual); operationManual = oldManual }
-                    throw ChatError.invalidBackup("恢复后写入本机文件失败，已回退。")
+                    throw ChatError.invalidBackup("恢复后写入本机文件失败，已自动回滚。")
                 }
                 let omittedNote = payload.isComplete ? "" : "（另有 \(payload.omittedImages?.count ?? 0) 张超额图片未包含在备份包中）"
                 noticeMessage = "已完整恢复 \(threads.count) 条对话、\(projects.count) 个项目、\(payload.booksMetadata.count) 本书架档案及学习进度\(omittedNote)。恢复前数据已保存在「安全快照」中。"
             } else {
+                if oldProfile == nil, let incomingProfile = payload.localProfile {
+                    Self.writeLocalProfile(incomingProfile)
+                }
                 var incoming = payload.snapshot
                 ChatModelSelection.migrate(&incoming.threads, projects: incoming.projects ?? [], settings: incoming.settings)
                 let studyProjectIDs = Set((incoming.projects ?? []).filter { $0.studySubject != nil }.map(\.id))
@@ -3762,14 +3780,28 @@ final class AppStore: ObservableObject {
                     if persistOperationManual(nextManual) { operationManual = nextManual }
                 }
                 guard persistNow(allowShrink: true) else {
-                    threads = oldThreads; projects = oldProjects; usage = oldUsage; systemPromptPresets = oldPresets; settings = oldSettings; activeThreadID = oldActive; installedStudySubjects = oldInstalled
-                    if operationManual != oldManual { _ = persistOperationManual(oldManual); operationManual = oldManual }
-                    throw ChatError.invalidBackup("合并保存失败，已回退。")
+                    throw ChatError.invalidBackup("合并保存失败，已自动回滚。")
                 }
                 noticeMessage = "已合并恢复备份中的对话、项目、学习库、图片与 \(payload.booksMetadata.count) 本书架档案；恢复前状态已另存安全快照。"
             }
         } catch {
-            errorMessage = "恢复没有完成：\(error.localizedDescription)"
+            // Full automatic rollback on any failure so local state is never half-mutated
+            for added in addedImagePaths { try? FileManager.default.removeItem(at: added) }
+            ImageStore.clearThumbnails()
+            try? books.restoreMetadata(oldBooks, personas: oldPersonas, overwriteExisting: true)
+            if let studyMemory, let oldStudyArchive {
+                let allIDs = Set(oldStudyArchive.rows.map(\.projectID)).union(
+                    (payload.snapshot.projects ?? []).filter { $0.studySubject != nil }.map(\.id)
+                ).union(payload.learning.rows.map(\.projectID))
+                try? studyMemory.replaceStudyData(oldStudyArchive, projectIDs: allIDs, trustedRecovery: true)
+            }
+            UnifiedBackupCodec.applyPreferences(oldPrefs)
+            if let oldProfile { Self.writeLocalProfile(oldProfile) }
+            threads = oldThreads; projects = oldProjects; usage = oldUsage; systemPromptPresets = oldPresets
+            settings = oldSettings; activeThreadID = oldActive; installedStudySubjects = oldInstalled
+            if operationManual != oldManual { _ = persistOperationManual(oldManual); operationManual = oldManual }
+            _ = persistNow(allowShrink: true)
+            errorMessage = "恢复未完成，已自动回退到恢复前状态：\(error.localizedDescription)"
         }
     }
 

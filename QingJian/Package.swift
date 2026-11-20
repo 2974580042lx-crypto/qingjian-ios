@@ -12,7 +12,7 @@ let package = Package(
     ],
     targets: [
         .target(name: "DeepSeekCore", dependencies: [.product(name: "JWTKit", package: "jwt-kit"), .product(name: "FSRS", package: "swift-fsrs")], path: "DeepSeekPocket",
-                exclude: ["AppStore.swift", "QingJianApp.swift", "Info.plist", "Views", "Assets.xcassets", "Resources", "Services/ColabStore.swift", "Services/CompatibleEndpointStore.swift", "Services/KeychainStore.swift", "Services/ImageStore.swift", "Services/SubscriptionStore.swift", "Services/GoogleDrive.swift", "Services/GitHubClient.swift", "Services/FontLibrary.swift", "Services/StudyBackupController.swift"],
+                exclude: ["AppStore.swift", "QingJianApp.swift", "Info.plist", "Views", "Assets.xcassets", "Resources", "Services/ColabStore.swift", "Services/CompatibleEndpointStore.swift", "Services/KeychainStore.swift", "Services/ImageStore.swift", "Services/SubscriptionStore.swift", "Services/GoogleDrive.swift", "Services/GitHubClient.swift", "Services/FontLibrary.swift", "Services/StudyBackupController.swift", "Services/DriveFullBackupController.swift"],
                 sources: ["Core", "Services/AppPersistence.swift", "Services/ColabClient.swift", "Services/DeepSeekClient.swift", "Services/SubscriptionHTTP.swift", "Services/SubscriptionLoopback.swift", "Services/BackupFolder.swift"],
                 linkerSettings: [.linkedLibrary("sqlite3")]),
         .testTarget(name: "DeepSeekCoreTests", dependencies: ["DeepSeekCore"], path: "Tests")

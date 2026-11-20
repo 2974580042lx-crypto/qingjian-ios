@@ -35,6 +35,8 @@ struct UnifiedBackupPayload: Codable, Sendable {
     var omittedImages: [StudyOmittedImage]? = nil
     var preferences: [String: String]? = nil
     var operationManual: OperationManualBook? = nil
+    var localProfile: BackupUserProfile? = nil
+    var deliverablesManifest: [String: Data]? = nil
 
     var isComplete: Bool { omittedImages?.isEmpty != false }
 }
@@ -256,6 +258,8 @@ enum UnifiedBackupCodec {
         personas: [PersonaCard],
         preferences: [String: String]? = nil,
         operationManual: OperationManualBook? = nil,
+        localProfile: BackupUserProfile? = nil,
+        deliverablesManifest: [String: Data]? = nil,
         imageBudgetBytes: Int = maximumImageBudgetBytes,
         imageSize: (String) throws -> Int,
         imageLoader: (String) throws -> Data
@@ -305,8 +309,46 @@ enum UnifiedBackupCodec {
             images: images,
             omittedImages: omitted.isEmpty ? nil : omitted,
             preferences: preferences,
-            operationManual: operationManual
+            operationManual: operationManual,
+            localProfile: localProfile,
+            deliverablesManifest: deliverablesManifest
         )
+    }
+
+    static func contentFingerprint(of payload: UnifiedBackupPayload) throws -> String {
+        struct Canonical: Encodable {
+            var settings: AppSettings
+            var threads: [ChatThread]
+            var projects: [ChatProject]?
+            var usage: UsageLedger?
+            var presets: [SystemPromptPreset]?
+            var studySubjects: [StudySubject]?
+            var learning: StudyMemoryArchive
+            var books: [Book]
+            var personas: [PersonaCard]
+            var imageHashes: [String]
+            var preferences: [String: String]?
+            var manual: OperationManualBook?
+            var profile: BackupUserProfile?
+            var deliverables: [String: Data]?
+        }
+        let canonical = Canonical(
+            settings: payload.snapshot.settings,
+            threads: payload.snapshot.threads,
+            projects: payload.snapshot.projects,
+            usage: payload.snapshot.usage,
+            presets: payload.snapshot.systemPromptPresets,
+            studySubjects: payload.snapshot.installedStudySubjects,
+            learning: payload.learning,
+            books: payload.booksMetadata,
+            personas: payload.personas,
+            imageHashes: payload.images.map { "\($0.name):\($0.sha256)" },
+            preferences: payload.preferences,
+            manual: payload.operationManual,
+            profile: payload.localProfile,
+            deliverables: payload.deliverablesManifest
+        )
+        return StudyCoding.hash(try StudyCoding.encode(canonical))
     }
 
     static func encode(_ payload: UnifiedBackupPayload) throws -> Data {
@@ -403,6 +445,17 @@ enum UnifiedBackupCodec {
         }
         guard payload.booksMetadata.count <= 500, payload.personas.count <= 500 else {
             throw ChatError.invalidBackup("备份中的书架或人物卡数量超出上限。")
+        }
+        if let profile = payload.localProfile {
+            guard profile.name.count <= 100, profile.handle.count <= 100, (profile.avatar?.count ?? 0) <= 8 * 1024 * 1024 else {
+                throw ChatError.invalidBackup("备份中的个人资料数据异常。")
+            }
+        }
+        if let deliverables = payload.deliverablesManifest {
+            let totalDeliverableBytes = deliverables.values.reduce(0) { $0 + $1.count }
+            guard deliverables.count <= 2_000, totalDeliverableBytes <= maximumImageBudgetBytes else {
+                throw ChatError.invalidBackup("备份中的项目成果附件超出体积上限。")
+            }
         }
         for image in payload.images {
             guard StudyBackupCodec.safeImageName(image.name),

@@ -394,6 +394,7 @@ struct SettingsView: View {
 
     private var dataPage: some View {
         page("备份与数据") {
+                    DriveFullBackupSection(backup: store.driveFullBackup, drive: store.drive)
                     Section {
                         NavigationLink {
                             LocalDataStatusView()

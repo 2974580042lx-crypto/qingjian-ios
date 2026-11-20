@@ -116,6 +116,15 @@ struct GoogleCredentials: Codable, Equatable, Sendable {
     }
 
     var isFresh: Bool { expiresAt.timeIntervalSinceNow > 60 }
+
+    /// Stable account identifier for Drive backup state isolation even when the Google OAuth token omits an email claim.
+    var derivedBackupAccountID: String {
+        if let clean = email?.trimmingCharacters(in: .whitespacesAndNewlines).lowercased(), !clean.isEmpty {
+            return clean
+        }
+        let digest = StudyCoding.hash(Data(refreshToken.utf8))
+        return "google-\(digest.prefix(16))"
+    }
 }
 
 enum GoogleAuthError: LocalizedError, Equatable {

@@ -22,7 +22,11 @@ private enum GoogleKeychain {
     }
     static func save(_ credentials: GoogleCredentials) throws {
         let data = try JSONEncoder().encode(credentials)
-        let status = SecItemUpdate(query as CFDictionary, [kSecValueData as String: data] as CFDictionary)
+        let updateAttrs: [String: Any] = [
+            kSecValueData as String: data,
+            kSecAttrAccessible as String: kSecAttrAccessibleAfterFirstUnlockThisDeviceOnly
+        ]
+        let status = SecItemUpdate(query as CFDictionary, updateAttrs as CFDictionary)
         if status == errSecItemNotFound {
             var item = query
             item[kSecValueData as String] = data
@@ -206,10 +210,17 @@ final class GoogleDriveStore: NSObject, ObservableObject, ASWebAuthenticationPre
         needsSignIn = true
         publish()
     }
-    var backupAccountID: String? { credentials?.email?.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() }
+    var backupAccountID: String? { credentials?.derivedBackupAccountID }
     func studyBackupClient() throws -> StudyDriveBackupClient {
         guard let account = backupAccountID, !account.isEmpty else { throw GoogleAuthError.signInRequired }
         return StudyDriveBackupClient { [weak self] request in
+            guard let self else { throw GoogleAuthError.signInRequired }
+            return try await self.sendStudyBackup(request, account: account)
+        }
+    }
+    func fullBackupClient() throws -> DriveFullBackupClient {
+        guard let account = backupAccountID, !account.isEmpty else { throw GoogleAuthError.signInRequired }
+        return DriveFullBackupClient { [weak self] request in
             guard let self else { throw GoogleAuthError.signInRequired }
             return try await self.sendStudyBackup(request, account: account)
         }
