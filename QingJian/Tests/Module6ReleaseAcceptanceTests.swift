@@ -64,6 +64,7 @@ final class Module6ReleaseAcceptanceTests: XCTestCase {
         let legacyJSON = """
         {
           "version": 1,
+          "exportedAt": "2026-05-01T08:00:00Z",
           "settings": {
             "model": "deepseek-flash",
             "thinkingEnabled": true,
