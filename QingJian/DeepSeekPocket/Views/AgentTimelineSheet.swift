@@ -26,7 +26,7 @@ struct AgentWorkingSummaryRow: View {
         toolItems.compactMap(\.studyReport)
     }
 
-    private var studyExcerpts: [StudyExcerpt] {
+    private var studyExcerpts: [StudyReadingExcerpt] {
         toolItems.filter { $0.status == .done }.flatMap { $0.studyExcerpts ?? [] }
     }
 
