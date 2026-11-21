@@ -48,7 +48,7 @@ final class DocumentGenerationEndToEndTests: XCTestCase {
         XCTAssertNil(docxTool["namespace"])
 
         // 3. Verify ResponsesStreamDecoder handles ALL SSE function_call argument variants (including `.arguments.done` & `output_item.done`)
-        let argsJSON = #"{"title":"周一早操汇报稿.docx","markdown":"# 周一早操汇报稿\n\n第一段：本周一早晨全班按时到操场集合，队列整齐，精神面貌良好。\n\n第二段：本次早操重点完成了热身拉伸与八百米集体慢跑，全员达标。\n\n第三段：下一步将继续加强早起考勤与体能训练，保持稳定节奏。"}"#
+        let argsJSON = ##"{"title":"周一早操汇报稿.docx","markdown":"# 周一早操汇报稿\n\n第一段：本周一早晨全班按时到操场集合，队列整齐，精神面貌良好。\n\n第二段：本次早操重点完成了热身拉伸与八百米集体慢跑，全员达标。\n\n第三段：下一步将继续加强早起考勤与体能训练，保持稳定节奏。"}"##
         let escapedArgs = String(data: try JSONSerialization.data(withJSONObject: argsJSON, options: [.fragmentsAllowed]), encoding: .utf8)!
         let sse = """
         data: {"type":"response.output_item.added","output_index":0,"item":{"type":"function_call","call_id":"call_doc_1","name":"document_create_docx","arguments":""}}
@@ -122,7 +122,7 @@ final class DocumentGenerationEndToEndTests: XCTestCase {
         let createV1 = ToolCall(
             id: "c2",
             name: "document_create_docx",
-            arguments: #"{"title":"宋代红白契考辨","content":"# 宋代红白契考辨\n\n据《名公书判清明集》载，民间典卖田宅投税印契者谓之红契[^1]。\n\n[^1]: 《名公书判清明集》卷四，第118页。"}"#
+            arguments: ##"{"title":"宋代红白契考辨","content":"# 宋代红白契考辨\n\n据《名公书判清明集》载，民间典卖田宅投税印契者谓之红契[^1]。\n\n[^1]: 《名公书判清明集》卷四，第118页。"}"##
         )
         let res1 = try DocumentStudioTools.execute(createV1, projectID: projectID, threadID: thread1, messageID: msg1, store: deliverables)
         let v1 = try XCTUnwrap(res1.created)
@@ -177,7 +177,7 @@ final class DocumentGenerationEndToEndTests: XCTestCase {
         let pdfCall = ToolCall(
             id: "p1",
             name: "document_create_pdf",
-            arguments: #"{"title":"复习提纲","content":"# 313 历史学复习提纲\n\n第一部分：两税法与宋代土地制度。\n\n第二部分：明清一条鞭法与摊丁入亩。"}"#
+            arguments: ##"{"title":"复习提纲","content":"# 313 历史学复习提纲\n\n第一部分：两税法与宋代土地制度。\n\n第二部分：明清一条鞭法与摊丁入亩。"}"##
         )
         let pdfRes = try DocumentStudioTools.execute(pdfCall, projectID: nil, threadID: UUID(), messageID: UUID(), store: store)
         let pdfItem = try XCTUnwrap(pdfRes.created)
