@@ -1,40 +1,59 @@
-name: Build Sermo 1.36.0 IPA - compile only
+name: Build Sermo
+
+# Builds on every push that touches the app, on any branch, so work branches get a build too.
+# Two jobs run side by side:
+#   - ipa:   compiles Release and uploads an unsigned IPA named with the real version.
+#   - tests: runs the offline unit tests. A red tests job does NOT block the IPA;
+#            it shows up as a red X on the commit so problems are visible before installing.
 
 on:
   workflow_dispatch:
   push:
-    branches: ['main']
     paths:
-      - 'QingJian-iOS-source.zip'
-      - 'source-manifest.json'
-      - 'apply-source-overlay.py'
+      - 'QingJian/**'
+      - '.github/workflows/build-ios.yml'
 
 permissions:
   contents: read
 concurrency:
-  group: qingjian-build-${{ github.ref }}
+  group: sermo-build-${{ github.ref }}
   cancel-in-progress: true
 
 jobs:
-  build:
+  ipa:
     runs-on: macos-15-intel
-    timeout-minutes: 30
+    timeout-minutes: 35
     steps:
-      - name: Checkout supplied source
+      - name: Checkout
         uses: actions/checkout@v6
-      - name: Verify archive and reconstruct exact source
-        run: python3 apply-source-overlay.py
-      - name: Compile Release and package unsigned IPA (no tests or previews)
+        with:
+          persist-credentials: false
+      - name: Select Xcode
         shell: bash
         run: |
-          set -euo pipefail
-          exec > >(tee qingjian-build.log) 2>&1
           for candidate in /Applications/Xcode_26.3.app /Applications/Xcode_26.2.app /Applications/Xcode_26.1.1.app /Applications/Xcode_26.0.1.app; do
             if [[ -d "$candidate/Contents/Developer" ]]; then
-              export DEVELOPER_DIR="$candidate/Contents/Developer"
+              echo "DEVELOPER_DIR=$candidate/Contents/Developer" >> "$GITHUB_ENV"
               break
             fi
           done
+      - name: Read version
+        id: version
+        shell: bash
+        run: |
+          set -euo pipefail
+          marketing=$(grep -m1 -o 'MARKETING_VERSION = [^;]*' QingJian/QingJian.xcodeproj/project.pbxproj | sed 's/.*= //; s/"//g')
+          build=$(grep -m1 -o 'CURRENT_PROJECT_VERSION = [^;]*' QingJian/QingJian.xcodeproj/project.pbxproj | sed 's/.*= //; s/"//g')
+          name="Sermo-${marketing}-build${build}-unsigned"
+          echo "name=$name" >> "$GITHUB_OUTPUT"
+          echo "Building $name"
+      - name: Check project structure
+        run: python3 QingJian/scripts/check-project.py
+      - name: Compile Release and package unsigned IPA
+        shell: bash
+        run: |
+          set -euo pipefail
+          exec > >(tee sermo-build.log) 2>&1
           xcodebuild -version
           cd QingJian
           mkdir -p build
@@ -43,22 +62,52 @@ jobs:
           test -d "$APP_PATH"
           mkdir -p build/Payload
           ditto "$APP_PATH" build/Payload/DeepSeekPocket.app
-          ditto -c -k --keepParent build/Payload build/Sermo-1.36.0-build66-unsigned.ipa
-          shasum -a 256 build/Sermo-1.36.0-build66-unsigned.ipa
-          echo "Compilation completed. Functional checks, unit tests, UI tests, and screenshots were not run, as requested."
+          ditto -c -k --keepParent build/Payload "build/${{ steps.version.outputs.name }}.ipa"
+          shasum -a 256 "build/${{ steps.version.outputs.name }}.ipa"
       - name: Downloadable IPA
         uses: actions/upload-artifact@v4
         with:
-          name: Sermo-1.36.0-build66-unsigned-IPA
-          path: QingJian/build/Sermo-1.36.0-build66-unsigned.ipa
+          name: ${{ steps.version.outputs.name }}-IPA
+          path: QingJian/build/${{ steps.version.outputs.name }}.ipa
           if-no-files-found: error
-          retention-days: 7
+          retention-days: 14
       - name: Build log
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: Sermo-1.36.0-build66-build-log
-          path: qingjian-build.log
+          name: build-log
+          path: sermo-build.log
           if-no-files-found: ignore
-          retention-days: 7
+          retention-days: 14
 
+  tests:
+    runs-on: macos-15
+    timeout-minutes: 35
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+        with:
+          persist-credentials: false
+      - name: Select Xcode
+        shell: bash
+        run: |
+          for candidate in /Applications/Xcode_26.3.app /Applications/Xcode_26.2.app /Applications/Xcode_26.1.1.app /Applications/Xcode_26.0.1.app; do
+            if [[ -d "$candidate/Contents/Developer" ]]; then
+              echo "DEVELOPER_DIR=$candidate/Contents/Developer" >> "$GITHUB_ENV"
+              break
+            fi
+          done
+      - name: Offline unit tests (live-model tests skipped, they need API keys)
+        shell: bash
+        run: |
+          set -euo pipefail
+          cd QingJian
+          swift test --skip StudyLiveModelTests 2>&1 | tee ../swift-tests.log
+      - name: Test log
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: test-log
+          path: swift-tests.log
+          if-no-files-found: ignore
+          retention-days: 14
