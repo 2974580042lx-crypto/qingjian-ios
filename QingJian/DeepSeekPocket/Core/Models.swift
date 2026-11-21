@@ -182,6 +182,13 @@ struct AppSettings: Codable, Equatable, Sendable {
     var subscriptionEffort: SubscriptionEffort?
     var colab: ColabOptions?
     var auxiliaryProviderPolicy: AuxiliaryProviderPolicy?
+    // 1.46: before an everyday DeepSeek answer, a helper decides whether it needs a web search,
+    // project material or the full tools, so most answers go out without tools. nil means on.
+    var turnRouter: Bool?
+    var routesTurns: Bool { turnRouter != false }
+    // 1.46: offer to compact a chat that is getting long. nil means on.
+    var compactionOffer: Bool?
+    var offersCompaction: Bool { compactionOffer != false }
     var colabOptions: ColabOptions { colab ?? ColabOptions() }
     var selectedProvider: AIProvider { provider ?? .deepSeek }
     var subscriptionModel: String { subscriptionModelID ?? SubscriptionModel.fallbackSlug }

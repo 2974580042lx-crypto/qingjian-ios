@@ -6,10 +6,26 @@ struct ColabOptions: Codable, Equatable, Sendable {
     var tools = false
 }
 
+// Which service runs the small helper requests: deciding what a message needs, memory,
+// compaction, titles and reply suggestions. A setting left empty means DeepSeek Flash first.
+// Whatever is chosen, a service that is not set up or has run out of balance is skipped.
 enum AuxiliaryProviderPolicy: String, Codable, CaseIterable, Identifiable, Sendable {
-    case follow, deepSeek
+    case deepSeek, chatGPT, follow
     var id: String { rawValue }
-    var title: String { self == .follow ? "跟随当前聊天模型" : "固定用 DeepSeek" }
+    var title: String {
+        switch self {
+        case .deepSeek: return "DeepSeek Flash"
+        case .chatGPT: return "ChatGPT 订阅"
+        case .follow: return "跟随当前聊天"
+        }
+    }
+    var detail: String {
+        switch self {
+        case .deepSeek: return "便宜、快。DeepSeek 没有余额时自动改用 ChatGPT 订阅。"
+        case .chatGPT: return "用订阅额度，不花 DeepSeek 的钱。订阅不可用时改用 DeepSeek Flash。"
+        case .follow: return "和当前对话用同一个服务，用不了时换另一个。"
+        }
+    }
 }
 
 // Credentials are decoded from Drive, but only the non-secret configuration is persisted.

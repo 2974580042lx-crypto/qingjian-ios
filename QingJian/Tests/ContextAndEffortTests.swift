@@ -3,16 +3,26 @@ import XCTest
 @testable import DeepSeekCore
 
 final class ContextAndEffortTests: XCTestCase {
-    func testNewDefaultKeepsOneHundredRounds() {
+    func testNewDefaultKeepsUpToOneHundredRoundsAndDropsInSteps() {
         var messages: [ChatMessage] = []
-        for index in 0..<110 {
+        for index in 0..<100 {
             messages.append(ChatMessage(role: .user, content: "Question \(index)"))
             messages.append(ChatMessage(role: .assistant, content: "Answer \(index)"))
         }
+        XCTAssertEqual(ChatRequest(settings: AppSettings(), messages: messages).messages.count, 201)
+        for index in 100..<110 {
+            messages.append(ChatMessage(role: .user, content: "Question \(index)"))
+            messages.append(ChatMessage(role: .assistant, content: "Answer \(index)"))
+        }
+        // 1.46: past the limit the oldest quarter goes at once, so the start of the history
+        // stays put for the next 25 rounds and the context cache keeps matching it.
         let request = ChatRequest(settings: AppSettings(), messages: messages)
-        XCTAssertEqual(request.messages.count, 201)
-        XCTAssertEqual(request.messages[1].content, "Question 10")
+        XCTAssertEqual(request.messages.count, 171)
+        XCTAssertEqual(request.messages[1].content, "Question 25")
         XCTAssertEqual(request.messages.last?.content, "Answer 109")
+        messages.append(ChatMessage(role: .user, content: "Question 110"))
+        messages.append(ChatMessage(role: .assistant, content: "Answer 110"))
+        XCTAssertEqual(ChatRequest(settings: AppSettings(), messages: messages).messages[1].content, "Question 25")
     }
 
     func testLongContextRetainsRecentWholeMessagesAndSystemPrompt() {

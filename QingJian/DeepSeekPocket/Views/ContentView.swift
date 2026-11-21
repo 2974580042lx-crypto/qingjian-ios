@@ -1749,6 +1749,19 @@ struct ChatScreen: View {
         return trimmed.hasPrefix("/") || trimmed.hasPrefix("／")
     }
 
+    @ViewBuilder private func composerNoticeBar(_ notice: ComposerNotice) -> some View {
+        let close = { withAnimation(.snappy(duration: 0.2)) { store.dismissComposerNotice() } }
+        switch notice.kind {
+        case .compactOffer:
+            ComposerNoticeBar(text: "这段对话已经很长了，浓缩后每次回答更省钱。",
+                              actionTitle: "浓缩",
+                              action: { withAnimation(.snappy(duration: 0.2)) { store.acceptCompactionOffer() } },
+                              dismiss: close)
+        case .memoryIssue(let text):
+            ComposerNoticeBar(text: text, dismiss: close)
+        }
+    }
+
     // Context usage moved into the top-right 「⋯」 menu (see `contextSummaryText`); only the
     // compaction progress still shows above the composer, because it is a live task.
     @ViewBuilder private var contextStatusBar: some View {
@@ -1886,6 +1899,10 @@ struct ChatScreen: View {
                     }
                     .buttonStyle(.pressFeedback)
                 }
+            }
+            if let notice = store.composerNotice,
+               notice.threadID == nil || notice.threadID == store.activeThreadID {
+                composerNoticeBar(notice)
             }
             contextStatusBar
             slashCommandBar
@@ -2803,7 +2820,6 @@ struct MessageView: View, Equatable {
                                 .disabled(isGenerating || !canRegenerate).accessibilityLabel("重新生成")
                             }
                             Spacer(minLength: 4)
-                            // Tokens and cost live in the long-press menu, keeping this row as quiet as Claude's.
                         }
                         .foregroundStyle(Ink.ink2.opacity(0.72))
                         .buttonStyle(.pressFeedback)
@@ -2854,6 +2870,16 @@ struct MessageView: View, Equatable {
                                 }
                                 Spacer(minLength: 0)
                             }
+                        }
+                        // What this answer cost, as one faint line at the very bottom — where Claude
+                        // puts 「Claude 是 AI，可能会出错」.
+                        if let usage = message.usage {
+                            Text(usageLabel(usage))
+                                .font(TypeScale.ui(11.5, relativeTo: .caption2))
+                                .foregroundStyle(Ink.ink3.opacity(0.8))
+                                .monospacedDigit()
+                                .lineLimit(1)
+                                .accessibilityLabel("这条回答的用量：\(usageLabel(usage))")
                         }
                         }
                     }

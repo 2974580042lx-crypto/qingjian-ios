@@ -102,6 +102,47 @@ struct ChatRequest: Encodable, Sendable {
         }
         return result
     }
+    /// Where the sent history starts. The start only moves in steps — a quarter of the message
+    /// limit, or a quarter of the byte budget — so the beginning of the conversation stays the same
+    /// for many turns and DeepSeek's context cache keeps matching it. Sliding by one message every
+    /// turn (the behaviour before 1.46) changed the very first message each time, and nothing after
+    /// it could be read from the cache.
+    static func windowStart(sizes: [Int], messageLimit: Int, byteBudget: Int) -> Int {
+        let count = sizes.count
+        guard count > 1 else { return 0 }
+        let limit = max(1, messageLimit)
+        var start = 0
+        if count > limit {
+            let step = limit >= 8 ? limit / 4 : 1
+            let needed = count - limit
+            start = ((needed + step - 1) / step) * step
+        }
+        let budget = max(1, byteBudget)
+        var total = sizes.dropFirst(start).reduce(0, +)
+        if total > budget {
+            // The fewest messages to drop, then forward to the next checkpoint. Checkpoints sit where
+            // the running total of the whole history passes each quarter of the budget, so they do
+            // not move as new messages arrive.
+            var needed = start
+            while total > budget && needed < count - 1 {
+                total -= sizes[needed]
+                needed += 1
+            }
+            let quarter = max(1, Self.contextByteBudget / 4)
+            var running = 0, mark = quarter, snapped = needed
+            for (index, size) in sizes.enumerated() {
+                if running >= mark {
+                    if index >= needed { snapped = index; break }
+                    while running >= mark { mark += quarter }
+                }
+                running += size
+                snapped = needed
+            }
+            start = max(start, min(snapped, count - 1))
+        }
+        return min(start, count - 1)
+    }
+
     let model: String
     private(set) var messages: [APIMessage]
     let stream = true
@@ -204,16 +245,14 @@ struct ChatRequest: Encodable, Sendable {
         var history = messages.filter {
             !$0.content.isEmpty && ($0.role == .user || $0.state == .complete)
         }
-        history = Array(history.suffix(config.contextMessageLimit))
         func reasoning(of message: ChatMessage) -> String? {
             guard includeReasoning, message.role == .assistant, message.provider != .chatGPT, !message.reasoning.isEmpty else { return nil }
             return message.reasoning
         }
         func bytes(of message: ChatMessage) -> Int { message.content.utf8.count + (reasoning(of: message)?.utf8.count ?? 0) }
-        var contentBytes = config.systemPrompt.utf8.count + history.reduce(0) { $0 + bytes(of: $1) }
-        while contentBytes > Self.contextByteBudget && history.count > 1 {
-            contentBytes -= bytes(of: history.removeFirst())
-        }
+        let start = Self.windowStart(sizes: history.map(bytes(of:)), messageLimit: config.contextMessageLimit,
+                                     byteBudget: Self.contextByteBudget - config.systemPrompt.utf8.count)
+        history = Array(history.dropFirst(start))
         while history.first?.role == .assistant { history.removeFirst() }
         var outgoing: [APIMessage] = []
         if !config.systemPrompt.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {

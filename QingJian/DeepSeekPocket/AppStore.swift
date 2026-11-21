@@ -105,6 +105,10 @@ final class AppStore: ObservableObject {
     private var backupRunning = false
     private var subscriptionObserver: AnyCancellable?
     @Published private(set) var memorizingProjectID: UUID?
+    // 1.46: one quiet line above the composer, like Claude's 「记忆已更新。查看记忆 ×」.
+    @Published var composerNotice: ComposerNotice?
+    // Message counts at which you said no to compacting a chat; asked again 40 messages later.
+    var compactionOfferDeclined: [UUID: Int] = [:]
     @Published private(set) var compactingThreadID: UUID?
     private var memoryTask: Task<Void, Never>?
     private var studyMemory: StudyMemoryStore?
@@ -1043,7 +1047,7 @@ final class AppStore: ObservableObject {
         guard !isPreview else { throw ChatError.server("预览模式不连接模型。") }
         let request = try ProjectDesigner.request(wish, base: base)
         let buffer = DesignBufferBox()
-        let provider = settings.auxiliaryProviderPolicy == .deepSeek ? AIProvider.deepSeek : (base?.sourceProvider ?? activeProvider)
+        let provider = settings.auxiliaryProviderPolicy == .follow ? (base?.sourceProvider ?? activeProvider) : auxiliaryProvider()
         guard isReady(provider) else { throw ChatError.server(chatUnavailableMessage) }
         try await streamModel(request, provider: provider, requestTimeout: 120, resourceTimeout: 240,
             onRestart: { buffer.value = BookTextAccumulator(limit: 60000) }) { buffer.value.consume($0) }
@@ -1409,7 +1413,7 @@ final class AppStore: ObservableObject {
         } catch { errorMessage = "无法导出这个对话：\(error.localizedDescription)"; return nil }
     }
 
-    private func recordUsage(_ value: TokenUsage?, model: DeepSeekModel?, at date: Date, provider: AIProvider? = nil) {
+    func recordUsage(_ value: TokenUsage?, model: DeepSeekModel?, at date: Date, provider: AIProvider? = nil) {
         guard let value else { return }
         usage.record(value, model: provider == .colab ? nil : model, at: date, provider: provider)
     }
@@ -1562,8 +1566,9 @@ final class AppStore: ObservableObject {
             return true
         } catch { colab.issue = error.localizedDescription; return false }
     }
+    /// The first service a helper request should use; see `auxiliaryCandidates(for:)`.
     private func auxiliaryProvider(for thread: ChatThread? = nil) -> AIProvider {
-        settings.auxiliaryProviderPolicy == .deepSeek ? .deepSeek : provider(for: thread ?? activeThread)
+        auxiliaryCandidates(for: thread).first ?? provider(for: thread ?? activeThread)
     }
     func setWebSearchChannel(_ channel: WebSearchChannel, for provider: AIProvider) {
         WebSearchRouting.set(channel, for: provider)
@@ -1619,7 +1624,7 @@ final class AppStore: ObservableObject {
         UIApplication.shared.endBackgroundTask(id)
     }
 
-    private func streamModel(_ request: ChatRequest, provider: AIProvider,
+    func streamModel(_ request: ChatRequest, provider: AIProvider,
                              subscriptionModel: String? = nil, effort: SubscriptionEffort = .low,
                              colabOptions: ColabOptions? = nil,
                              summary: Bool = false,
@@ -2033,8 +2038,11 @@ final class AppStore: ObservableObject {
         let useGitHub = canRunTools && (chatProject?.githubTools ?? sessionPrefs.githubEnabled ?? github.connected)
         let useWeb = canRunTools && (chatProject?.webTools ?? sessionPrefs.webEnabled ?? true)
         let chatGPTBuiltInWebSearch = useNativeOpenAIWebSearch && (webSearchEnabled || researchModeOn || useWeb)
+        // The study context depends on the latest question, so it travels with that question
+        // instead of changing the system prompt (and breaking the context cache) every turn.
+        var studyNote: String?
         if chatProject?.studySubject != nil {
-            do { notes.append(try studyContext(for: threads[ti])) }
+            do { studyNote = try studyContext(for: threads[ti]) }
             catch { studyIssue = error.localizedDescription; errorMessage = error.localizedDescription; return false }
             if hasStudyTools {
                 specs += StudyTools.specs
@@ -2096,12 +2104,13 @@ final class AppStore: ObservableObject {
             if manualBundle.includeTools { specs += OperationManualTools.specs }
             notes.append(manualBundle.note)
         }
+        var turnNotes: [String] = []
         if permPolicy != .chatOnly && ToolCapabilityRegistry.shouldUseAgentResearchPrompt(
             userText: searchQuery,
             explicitResearchMode: researchModeOn,
             hasTools: !specs.isEmpty || chatGPTBuiltInWebSearch
         ) {
-            notes.append(ToolCapabilityRegistry.researchAgentSystemNote)
+            turnNotes.append(ToolCapabilityRegistry.researchAgentSystemNote)
         }
         let usesTools = !specs.isEmpty
         // {{时间}} and the other placeholders are filled in here, for this request only.
@@ -2130,16 +2139,42 @@ final class AppStore: ObservableObject {
                                 imageNoteResolver: cachedVisionResolver, systemPrompt: systemPrompt,
                                 includeReasoning: usesTools)
             .withTools(specs)
+        var timeText: String?
         if discussion == nil && story == nil && chatProject?.timeAwareness != false,
            let last = threads[ti].messages.lastIndex(where: { $0.role == .user }) {
             let previous = last > 0 ? threads[ti].messages[last - 1].createdAt : nil
             let timeNote = PromptVariables.currentTimeNote(variables)
-            if let elapsed = PromptVariables.elapsedNote(since: previous, context: variables) {
-                built = built.prefixingLastUserMessage(timeNote + "\n" + elapsed)
-            } else {
-                built = built.prefixingLastUserMessage(timeNote)
-            }
+            let text = PromptVariables.elapsedNote(since: previous, context: variables).map { timeNote + "\n" + $0 } ?? timeNote
+            timeText = text
+            built = built.prefixingLastUserMessage(text)
         }
+        if let studyNote, !studyNote.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            built = built.prefixingLastUserMessage(studyNote)
+        }
+        // The same request without tools, for messages the router finds need none of them.
+        var routingDraft: TurnRouting?
+        if provider == .deepSeek, settings.routesTurns, canRunTools, !hasStudyTools, !researchModeOn,
+           requestedDeliverable == nil, !armImageGen {
+            var plain = ChatRequest(settings: settings, messages: history, imageLoader: loader,
+                                    imageNoteResolver: cachedVisionResolver, systemPrompt: basePrompt,
+                                    includeReasoning: false)
+            if let timeText { plain = plain.prefixingLastUserMessage(timeText) }
+            let recent = history.filter { !$0.content.isEmpty && ($0.role == .user || $0.state == .complete) }
+                .dropLast().suffix(4)
+                .map { TurnRouter.Line(role: $0.role == .user ? "用户" : "助手", text: $0.content) }
+            let looseDocs = chatProject.map { projectLibrary.hasDatabase(for: $0.id) || $0.documents.contains { !$0.isIncluded } } ?? false
+            routingDraft = TurnRouting(
+                context: TurnRouter.Context(
+                    latest: PendingDocumentCodec.extractEditableUserText(searchQuery),
+                    recent: Array(recent),
+                    webAllowed: useWeb && (webChannel != .directLinksOnly || directURLsPresent),
+                    hasDocs: looseDocs,
+                    hasChats: false,
+                    skills: []),
+                plain: plain)
+        }
+        let routing = routingDraft
+        for note in turnNotes { built = built.prefixingLastUserMessage(note) }
         if let requestedDeliverable, canRunTools {
             built = built.prefixingLastUserMessage(
                 DocumentDeliverableRouter.turnLevelDirective(
@@ -2173,6 +2208,25 @@ final class AppStore: ObservableObject {
             defer { self.endBackgroundGenerationTask() }
             do {
                 var outgoing = request
+                var runsTools = usesTools
+                var routedWebQuery: String?
+                if let routing {
+                    let plan = await self.planTurn(routing.context, thread: self.threads.first(where: { $0.id == threadID }))
+                    try Task.checkCancellation()
+                    if !plan.tools {
+                        outgoing = routing.plain
+                        runsTools = false
+                        if plan.web { routedWebQuery = plan.webQuery ?? searchQuery }
+                        if let query = plan.docsQuery, let proj = chatProject {
+                            if let note = await self.projectMaterialNote(query, project: proj) {
+                                outgoing = outgoing.prefixingLastUserMessage(note)
+                                self.record(ToolActivity(id: "route-docs-\(answerID.uuidString.prefix(6))",
+                                    title: "查阅项目资料：\(String(query.prefix(24)))", status: .done, detail: nil, kind: "library"),
+                                    threadID: threadID, answerID: answerID)
+                            }
+                        }
+                    }
+                }
                 // Original passages about what was just said, for this request only.
                 if let story, let note = await self.storyNote(story, threadID: threadID) {
                     outgoing = outgoing.prefixingLastUserMessage(note)
@@ -2195,48 +2249,61 @@ final class AppStore: ObservableObject {
                         try Task.checkCancellation()
                     }
                 }
-                if searchRequested {
+                if searchRequested || routedWebQuery != nil {
                     try await self.waitIfAgentPaused()
                     self.searchingThreadID = threadID
                     let deepSearchID = "web-deep-\(answerID.uuidString.prefix(6))"
+                    let query = routedWebQuery ?? searchQuery
                     self.record(ToolActivity(
                         id: deepSearchID,
                         title: webChannel == .nativeChatGPT ? "正在进行 ChatGPT 联网检索" : "正在深度联网探索与核对网页",
                         status: .running,
-                        detail: nil,
+                        detail: routedWebQuery == nil ? nil : "检索词：\(query)",
                         kind: "web"
                     ), threadID: threadID, answerID: answerID)
-                    let result: WebSearchResult
-                    if webChannel == .nativeChatGPT && self.subscription.ready && !directURLsPresent {
-                        result = try await self.subscription.quickWebSearch(query: searchQuery, model: subscriptionModel)
-                    } else {
-                        let effectiveKey = (webChannel == .directLinksOnly) ? "" : key
-                        result = try await WebSearchClient().searchOrReadDirectURLs(
-                            query: searchQuery,
-                            contextHint: searchContextHint,
-                            key: effectiveKey,
-                            githubToken: ghToken
-                        )
+                    var found: WebSearchResult?
+                    do {
+                        if webChannel == .nativeChatGPT && self.subscription.ready && !directURLsPresent {
+                            found = try await self.subscription.quickWebSearch(query: query, model: subscriptionModel)
+                        } else {
+                            let effectiveKey = (webChannel == .directLinksOnly) ? "" : key
+                            found = try await WebSearchClient().searchOrReadDirectURLs(
+                                query: query,
+                                contextHint: searchContextHint,
+                                key: effectiveKey,
+                                githubToken: ghToken
+                            )
+                        }
+                    } catch {
+                        self.searchingThreadID = nil
+                        // A search you switched on yourself fails the answer as before; one the
+                        // router asked for is skipped and the answer goes on without it.
+                        if searchRequested || error is CancellationError || Task.isCancelled { throw error }
+                        self.record(ToolActivity(id: deepSearchID, title: "联网检索没有完成，先不带网页回答",
+                            status: .failed, detail: error.localizedDescription, kind: "web"),
+                            threadID: threadID, answerID: answerID)
                     }
                     self.searchingThreadID = nil
-                    if let ti = self.threads.firstIndex(where: { $0.id == threadID }),
-                       let mi = self.threads[ti].messages.firstIndex(where: { $0.id == answerID }) {
-                        self.threads[ti].messages[mi].webSources = result.sources
-                        self.threads[ti].messages[mi].searchUsage = result.usage
+                    if let result = found {
+                        if let ti = self.threads.firstIndex(where: { $0.id == threadID }),
+                           let mi = self.threads[ti].messages.firstIndex(where: { $0.id == answerID }) {
+                            self.threads[ti].messages[mi].webSources = result.sources
+                            self.threads[ti].messages[mi].searchUsage = result.usage
+                        }
+                        self.record(ToolActivity(
+                            id: deepSearchID,
+                            title: webChannel == .nativeChatGPT
+                                ? "ChatGPT 联网检索 · \(result.sources.count) 篇来源"
+                                : "深度联网探索 · 已核对 \(result.sources.count) 篇网页",
+                            status: .done,
+                            detail: result.searchLog.isEmpty ? nil : result.searchLog,
+                            kind: "web"
+                        ), threadID: threadID, answerID: answerID)
+                        self.recordUsage(result.usage, model: nil, at: Date(), provider: webChannel == .nativeChatGPT ? .chatGPT : nil)
+                        self.persistNow()
+                        try Task.checkCancellation()
+                        outgoing = outgoing.addingWebContext(result.context)
                     }
-                    self.record(ToolActivity(
-                        id: deepSearchID,
-                        title: webChannel == .nativeChatGPT
-                            ? "ChatGPT 联网检索 · \(result.sources.count) 篇来源"
-                            : "深度联网探索 · 已核对 \(result.sources.count) 篇网页",
-                        status: .done,
-                        detail: result.searchLog.isEmpty ? nil : result.searchLog,
-                        kind: "web"
-                    ), threadID: threadID, answerID: answerID)
-                    self.recordUsage(result.usage, model: nil, at: Date(), provider: webChannel == .nativeChatGPT ? .chatGPT : nil)
-                    self.persistNow()
-                    try Task.checkCancellation()
-                    outgoing = outgoing.addingWebContext(result.context)
                 }
                 let onProgress: @MainActor (ChatStreamProgress) -> Void = { [weak self] update in
                     self?.generationProgress = update
@@ -2245,7 +2312,7 @@ final class AppStore: ObservableObject {
                 let onEvent: @MainActor (StreamEvent) -> Void = { [weak self] event in
                     self?.receive(event, threadID: threadID, messageID: answerID)
                 }
-                if usesTools {
+                if runsTools {
                     let total = try await self.runToolLoop(outgoing, key: key, threadID: threadID, answerID: answerID,
                         subscriptionModel: subscriptionModel, subscriptionEffort: subscriptionEffort,
                         nativeWebSearch: chatGPTBuiltInWebSearch, nativeImageGeneration: armImageGen,
@@ -2294,6 +2361,7 @@ final class AppStore: ObservableObject {
             self.persistNow()
             self.refreshStoryMemory(threadID: threadID, force: false)
             self.updateMemoryAfterAnswer(threadID: threadID)
+            self.considerCompactionOffer(threadID: threadID)
             if self.settings.shouldSuggestReplies, self.activeThreadID == threadID,
                !self.isStudyThread(self.threads.first(where: { $0.id == threadID })) {
                 self.generateReplySuggestions(threadID: threadID, messageID: answerID)
@@ -3435,14 +3503,13 @@ final class AppStore: ObservableObject {
         guard memoryTask == nil, !isPreview, canPersist, let threadID, threadID != generatingThreadID,
               let thread = threads.first(where: { $0.id == threadID }), let project = project(thread.projectID),
               project.remembers else { return }
-        let provider = auxiliaryProvider(for: thread)
-        guard isReady(provider) else { return }
+        guard !auxiliaryCandidates(for: thread).isEmpty else { return }
         let fresh = ProjectMemory.pending(thread, in: project)
         guard fresh.count >= max(minimum, ProjectMemory.minimumNewMessages),
               let request = try? ProjectMemory.request(project: project, thread: thread, new: fresh) else { return }
         let batchCount = min(fresh.count, 40)
         let settled = (project.memorizedCounts?[threadID.uuidString] ?? 0) + batchCount
-        let model = project.subscriptionModel ?? settings.subscriptionModel, before = project.memory, key = apiKey
+        let model = project.subscriptionModel ?? settings.subscriptionModel, before = project.memory
         memorizingProjectID = project.id
         // Leaving for the background must not cut the request off halfway; end cleanly if lease expires.
         let lease = BackgroundTaskLease(name: "project-memory")
@@ -3450,13 +3517,9 @@ final class AppStore: ObservableObject {
             defer { lease.end() }
             guard let self else { return }
             defer { self.memoryTask = nil; self.memorizingProjectID = nil }
-            let buffer = MemoryBuffer()
             do {
-                try await self.streamModel(request, provider: provider, subscriptionModel: model,
-                    requestTimeout: 90, resourceTimeout: 150,
-                    onRestart: { buffer.value = MemoryAccumulator() }) { buffer.value.consume($0) }
-                self.recordUsage(buffer.value.usage, model: provider == .deepSeek ? .flash : nil, at: Date(), provider: provider)
-                let text = try buffer.value.result()
+                let reply = try await self.runAuxiliary(request, thread: thread, subscriptionModel: model, timeout: 90)
+                let text = try ProjectMemory.parse(reply.text)
                 // You may have edited the memory meanwhile; your version wins.
                 guard var latest = self.project(project.id), latest.memory == before else { return }
                 latest.memory = text.isEmpty ? nil : text
@@ -3465,7 +3528,13 @@ final class AppStore: ObservableObject {
                 counts[threadID.uuidString] = settled
                 latest.memorizedCounts = counts
                 self.storeQuietly(latest)
-            } catch { }
+            } catch {
+                // Said once, quietly: nothing is lost, the same messages are tried next time.
+                if !(error is CancellationError), !Task.isCancelled {
+                    self.composerNotice = ComposerNotice(threadID: nil,
+                        kind: .memoryIssue("记忆这次没有更新：\(error.localizedDescription)"))
+                }
+            }
         }
         lease.bind(worker)
         memoryTask = worker

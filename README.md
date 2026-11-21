@@ -2,7 +2,7 @@
 
 自用的 iOS 聊天 App（DeepSeek / ChatGPT 订阅通道 / 兼容端点），SwiftUI，自签安装。
 
-- 当前版本：**1.45.0（build 88）**
+- 当前版本：**1.46.0（build 89）**
 - 源码：[`QingJian/`](QingJian/)（Xcode 工程由脚本生成，不手改）
 - 旧的开发日志和审阅文档：[`docs/archive/`](docs/archive/)
 

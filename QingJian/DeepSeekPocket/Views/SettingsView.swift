@@ -293,13 +293,21 @@ struct SettingsView: View {
     private var chatPage: some View {
         page("聊天与指令", saves: true) {
                     Section {
-                        Picker("辅助调用", selection: Binding(get: { draftSettings.auxiliaryProviderPolicy ?? .follow }, set: { draftSettings.auxiliaryProviderPolicy = $0 })) {
+                        Picker("辅助调用", selection: Binding(get: { draftSettings.auxiliaryProviderPolicy ?? .deepSeek }, set: { draftSettings.auxiliaryProviderPolicy = $0 })) {
                             ForEach(AuxiliaryProviderPolicy.allCases) { Text($0.title).tag($0) }
                         }
+                        Toggle("先判断再取用", isOn: Binding(get: { draftSettings.routesTurns },
+                            set: { draftSettings.turnRouter = $0 })).tint(Ink.seal)
+                        Toggle("长对话提醒浓缩", isOn: Binding(get: { draftSettings.offersCompaction },
+                            set: { draftSettings.compactionOffer = $0 })).tint(Ink.seal)
+                    } header: { Text("省钱") } footer: {
+                        Text("\((draftSettings.auxiliaryProviderPolicy ?? .deepSeek).detail)\n「先判断再取用」：DeepSeek 回答前，先用辅助调用判断这句话要不要联网、查项目资料或翻以前的对话，取到的内容直接附上，回答本身不带工具，上下文缓存更容易命中。要生成文件、跑代码、动 GitHub 时照常用工具。")
+                    }
+                    Section {
                         Toggle("猜你回复", isOn: Binding(get: { draftSettings.shouldSuggestReplies },
                             set: { draftSettings.replySuggestionsEnabled = $0 })).tint(Ink.seal)
                     } header: { Text("回复建议") } footer: {
-                        Text("回答完成后，生成 1～3 条回复草稿。点选后可在输入框修改，再自己发送。使用 V4 Pro 关闭思考的额外短请求，已保存建议的用量计入花费；只参考当前对话。")
+                        Text("回答完成后，生成 1～3 条回复草稿。点选后可在输入框修改，再自己发送。只参考当前对话。")
                     }
                     Section {
                         NavigationLink {
