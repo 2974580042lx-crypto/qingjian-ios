@@ -159,6 +159,7 @@ struct ProjectPageView: View {
     let opened: () -> Void
     @State private var editingInstructions = false
     @State private var showingFiles = false
+    @State private var showingWorkspace = false
     @State private var adjusting = false
     @State private var renaming = false
     @State private var renameText = ""
@@ -167,11 +168,14 @@ struct ProjectPageView: View {
 
     var body: some View {
         let threads = store.threads(in: projectID)
+        let libraryDocs = store.libraryDocuments(for: projectID)
+        let deliverablesCount = store.workspaceDeliverables(projectID: projectID, threadID: nil).count
+        let totalFileCount = (project?.documents.count ?? 0) + libraryDocs.count
         List {
             Section {
                 HStack(spacing: 10) {
                     Button { showingFiles = true } label: {
-                        pill((project?.documents.isEmpty ?? true) ? "添加文件" : "文件 · \(project?.documents.count ?? 0)", symbol: "doc.text")
+                        pill(totalFileCount == 0 ? "添加文件" : "文件 · \(totalFileCount)", symbol: "doc.text")
                     }
                     .accessibilityIdentifier("project-files")
                     Button { editingInstructions = true } label: {
@@ -187,6 +191,25 @@ struct ProjectPageView: View {
             // Every service can use manually written project memory.
             if project != nil {
                 Section {
+                    Button { showingWorkspace = true } label: {
+                        HStack(spacing: 12) {
+                            ClaudeIconBadge(systemName: "doc.on.doc", color: Ink.ink2)
+                            Text("项目成果与文献检索")
+                                .font(TypeScale.ui(15.5))
+                                .foregroundStyle(Ink.ink)
+                            Spacer(minLength: 8)
+                            Text(workspaceSummary(deliverablesCount: deliverablesCount, libraryCount: libraryDocs.count))
+                                .font(TypeScale.ui(12.5))
+                                .foregroundStyle(Ink.ink3)
+                                .lineLimit(1)
+                            Image(systemName: "chevron.right")
+                                .font(.system(size: 11, weight: .medium))
+                                .foregroundStyle(Ink.ink3.opacity(0.6))
+                        }
+                    }
+                    .buttonStyle(.plain)
+                    .accessibilityIdentifier("project-workspace")
+
                     NavigationLink {
                         if project?.studySubject != nil { StudyMemoryView(projectID: projectID) }
                         else { ProjectMemoryView(projectID: projectID) }
@@ -292,6 +315,10 @@ struct ProjectPageView: View {
         }
         .navigationDestination(isPresented: $showingFiles) {
             ProjectFilesView(projectID: projectID)
+        }
+        .sheet(isPresented: $showingWorkspace) {
+            ProjectWorkspaceSheet(projectID: projectID, threadID: nil, initialTab: .deliverables)
+                .environmentObject(store)
         }
         .sheet(isPresented: $editingInstructions) {
             ProjectInstructionsView(projectID: projectID).environmentObject(store)
@@ -474,6 +501,16 @@ struct ProjectPageView: View {
         return "\(count) 条"
     }
 
+    private func workspaceSummary(deliverablesCount: Int, libraryCount: Int) -> String {
+        if deliverablesCount == 0 && libraryCount == 0 {
+            return "成品归档 · 百万字检索"
+        }
+        var parts: [String] = []
+        if deliverablesCount > 0 { parts.append("\(deliverablesCount) 份成果") }
+        if libraryCount > 0 { parts.append("\(libraryCount) 本文献") }
+        return parts.joined(separator: " · ")
+    }
+
     private func pill(_ title: String, symbol: String) -> some View {
         HStack(spacing: 7) {
             Image(systemName: symbol).font(.system(size: 14.5, weight: .light)).foregroundStyle(Ink.ink2)
@@ -579,8 +616,18 @@ struct ProjectFilesView: View {
     @State private var importReport: String?
     @State private var search = ""
     @State private var editingDocument: ProjectDocument?
+    @State private var importingLibrary = false
+    @State private var libraryProgress = ""
+    @State private var libraryReport: String?
+    @State private var libraryTask: Task<Void, Never>?
+    @State private var previewingLibraryDoc: ProjectWorkspaceSheet.LibrarySectionPreview?
     private var project: ChatProject? { store.isLocked(projectID) ? nil : store.project(projectID) }
     private var query: String { search.trimmingCharacters(in: .whitespacesAndNewlines) }
+    private var visibleLibraryDocuments: [ProjectLibraryDocument] {
+        store.libraryDocuments(for: projectID).filter {
+            query.isEmpty || $0.name.localizedCaseInsensitiveContains(query)
+        }
+    }
     private var visibleDocuments: [ProjectDocument] {
         (project?.documents ?? []).filter {
             query.isEmpty || $0.name.localizedCaseInsensitiveContains(query) || $0.text.localizedCaseInsensitiveContains(query)
@@ -606,8 +653,58 @@ struct ProjectFilesView: View {
                 }
             }
             Section {
+                if visibleLibraryDocuments.isEmpty {
+                    Text(query.isEmpty ? "还没有入库的大文献。把专著、史料 PDF、Word 或 EPUB 导入这里，AI 会按需秒级检索原文与页码，不占平时聊天上下文。" : "百万字文献库中没有匹配此关键词的文件名。")
+                        .font(TypeScale.caption)
+                        .foregroundStyle(Ink.ink3)
+                } else {
+                    ForEach(visibleLibraryDocuments) { doc in
+                        Button {
+                            let content = store.readLibrarySection(projectID: projectID, documentID: doc.id, chunkIndex: 0, window: 3)
+                            previewingLibraryDoc = ProjectWorkspaceSheet.LibrarySectionPreview(id: doc.id, title: doc.name, content: content)
+                        } label: {
+                            HStack(spacing: 10) {
+                                VStack(alignment: .leading, spacing: 3) {
+                                    Text(doc.name).foregroundStyle(Ink.ink).lineLimit(1)
+                                    Text("\(doc.characterCount.formatted()) 字 · \(doc.chunkCount) 段全文索引 · \(doc.fileExtension.uppercased())")
+                                        .font(TypeScale.tiny).foregroundStyle(Ink.ink3)
+                                }
+                                Spacer(minLength: 4)
+                                Image(systemName: "chevron.right").font(TypeScale.tiny).foregroundStyle(Ink.ink3)
+                            }
+                        }
+                        .buttonStyle(.plain)
+                    }
+                    .onDelete { offsets in
+                        let targets = offsets.map { visibleLibraryDocuments[$0] }
+                        for doc in targets {
+                            store.deleteLibraryDocument(projectID: projectID, documentID: doc.id)
+                        }
+                    }
+                }
+                Button { chooseLibraryFiles() } label: {
+                    Label(importingLibrary ? "正在建库导入…" : "导入大文献到按需检索库", systemImage: "books.vertical")
+                }
+                .disabled(project == nil || !store.canPersist || importingLibrary)
+                if importingLibrary {
+                    HStack(spacing: 10) {
+                        ProgressView()
+                        Text(libraryProgress).font(TypeScale.label).lineLimit(2)
+                    }
+                    Button("取消剩余建库", role: .cancel) { libraryTask?.cancel() }
+                }
+                if let libraryReport {
+                    Text(libraryReport).font(TypeScale.label).textSelection(.enabled)
+                    Button("收起结果") { self.libraryReport = nil }
+                }
+            } header: {
+                Text("百万字按需检索文献库（推荐 · \(store.libraryDocuments(for: projectID).count) 份）")
+            } footer: {
+                Text("存在独立本地全文数据库里，不挤占聊天记录和每次提问额度。支持 PDF（最高 80 MB / 3000 页，保留物理页码）、Word、Excel、EPUB、ZIP 与纯文本。左滑可移除。")
+            }
+            Section {
                 if visibleDocuments.isEmpty {
-                    Text(query.isEmpty ? "还没有资料，可以导入文件或粘贴文字。" : "没有匹配的资料，试试名称或正文中的其他关键词。")
+                    Text(query.isEmpty ? "还没有随提问整篇发送的资料，可以导入文件或粘贴文字。" : "没有匹配的资料，试试名称或正文中的其他关键词。")
                         .foregroundStyle(Ink.ink3)
                 }
                 ForEach(visibleDocuments) { document in
@@ -635,7 +732,7 @@ struct ProjectFilesView: View {
                 }
                 .onDelete(perform: removeDocuments)
             } header: {
-                Text(query.isEmpty ? "资料 · \(project?.documents.count ?? 0) / 50" : "搜索结果 · \(visibleDocuments.count)")
+                Text(query.isEmpty ? "随提问整篇发送的资料 · \(project?.documents.count ?? 0) / 50" : "搜索结果 · \(visibleDocuments.count)")
             } footer: {
                 Text("启用的资料每次提问都会发给模型，会增加 token 用量。已启用 \((project?.includedCharacters ?? 0).formatted()) / \(ChatProject.documentCharacterLimit.formatted()) 字。左滑可删除。")
             }
@@ -675,9 +772,78 @@ struct ProjectFilesView: View {
         .sheet(item: $editingDocument) { document in
             ProjectDocumentEditor(projectID: projectID, document: document).environmentObject(store)
         }
-        .onDisappear { importTask?.cancel() }
-        .onChange(of: store.isLocked(projectID)) { _, locked in if locked { importTask?.cancel() } }
+        .sheet(item: $previewingLibraryDoc) { item in
+            NavigationStack {
+                ScrollView {
+                    Text(item.content.isEmpty ? "（暂无内容）" : item.content)
+                        .font(TypeScale.ui(14.5))
+                        .foregroundStyle(Ink.ink)
+                        .lineSpacing(5)
+                        .textSelection(.enabled)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .padding(16)
+                }
+                .background(Ink.paper.ignoresSafeArea())
+                .navigationTitle(item.title)
+                .navigationBarTitleDisplayMode(.inline)
+                .toolbar {
+                    ToolbarItem(placement: .topBarLeading) {
+                        ClaudeSheetCloseButton(label: "关闭") { previewingLibraryDoc = nil }
+                    }
+                }
+            }
+            .tint(Ink.ink)
+        }
+        .onDisappear {
+            importTask?.cancel()
+            libraryTask?.cancel()
+        }
+        .onChange(of: store.isLocked(projectID)) { _, locked in
+            if locked {
+                importTask?.cancel()
+                libraryTask?.cancel()
+            }
+        }
         .errorAlert(store)
+    }
+
+    private func chooseLibraryFiles() {
+        guard !importingLibrary, project != nil, store.canPersist else { return }
+        libraryReport = nil
+        DocumentPicker.presentMany(
+            DocumentTextImporter.allowedContentTypes,
+            asCopy: true,
+            onError: { msg in libraryReport = msg }
+        ) { urls in
+            guard !urls.isEmpty else { return }
+            importingLibrary = true
+            libraryTask = Task { @MainActor in
+                var importedCount = 0
+                var lines: [String] = []
+                defer {
+                    importingLibrary = false
+                    libraryTask = nil
+                    libraryProgress = ""
+                    libraryReport = "已建库导入 \(importedCount) / \(urls.count) 份大文献。\n\n" + lines.joined(separator: "\n")
+                }
+                for (index, url) in urls.enumerated() {
+                    if Task.isCancelled { break }
+                    libraryProgress = "\(index + 1) / \(urls.count) · 建库中：\(url.lastPathComponent)"
+                    do {
+                        let res = try await store.importLibraryDocument(projectID: projectID, url: url)
+                        importedCount += 1
+                        var note = "✓ \(res.doc.name) · \(res.doc.characterCount.formatted()) 字（\(res.doc.chunkCount) 段索引）"
+                        if !res.warnings.isEmpty { note += "\n" + res.warnings.joined(separator: "\n") }
+                        lines.append(note)
+                    } catch is CancellationError {
+                        lines.append("已取消剩余导入。")
+                        break
+                    } catch {
+                        lines.append("× \(url.lastPathComponent)：\(error.localizedDescription)")
+                    }
+                }
+            }
+        }
     }
 
     private func chooseFiles() {

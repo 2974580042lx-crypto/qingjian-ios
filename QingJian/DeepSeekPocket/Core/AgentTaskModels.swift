@@ -55,6 +55,12 @@ struct AgentTimelineStep: Codable, Equatable, Identifiable, Sendable {
             return .task
         case "study":
             return .task
+        case "library":
+            return title.contains("核对") || title.contains("读取") ? .doc : .search
+        case "studio":
+            return title.contains("读取") ? .doc : .task
+        case "sandbox":
+            return .task
         case "image":
             return .task
         default:

@@ -266,10 +266,13 @@ struct ImportFailure: LocalizedError, Sendable {
 
 enum DocumentTextImporter {
     static let maximumPDFBytes = 30 * 1024 * 1024
+    static let maximumLibraryPDFBytes = 80 * 1024 * 1024
     static let maximumTextBytes = 15 * 1024 * 1024
+    static let maximumLibraryTextBytes = 30 * 1024 * 1024
     static let maximumZipBytes = ZipProjectExtractor.maximumZipBytes
     static let maximumIPABytes = StreamZipReader.maximumArchiveBytes
     static let maximumPDFPages = 1000
+    static let maximumLibraryPDFPages = 3000
     static var allowedContentTypes: [UTType] {
         var types: [UTType] = [.data, .text, .sourceCode, .archive, .pdf, .plainText, .json, .xml, .rtf]
         let extraExts = ["ipa", "ips", "crash", "docx", "xlsx", "pptx", "epub", "md", "plist", "pbxproj", "xcconfig", "xcstrings", "yaml", "yml", "toml", "log"]
@@ -331,6 +334,10 @@ enum DocumentTextImporter {
         let name = String((originalName.isEmpty ? "导入的资料" : originalName).prefix(200))
         var warnings: [String] = originalName.count > 200 ? ["资料名称超过200字，已缩短名称；正文未截断。"] : []
 
+        let isLibraryMode = maxCharacters > ChatProject.documentCharacterLimit
+        let textLimitBytes = isLibraryMode ? maximumLibraryTextBytes : maximumTextBytes
+        let pdfLimitBytes = isLibraryMode ? maximumLibraryPDFBytes : maximumPDFBytes
+
         // Streaming path for .ipa and .zip so large archives never load completely into memory.
         if isIPA || isZIP {
             let limit = isIPA ? maximumIPABytes : maximumZipBytes
@@ -347,7 +354,8 @@ enum DocumentTextImporter {
                     if isIPA {
                         return try IPAAnalyzer.analyze(url: local)
                     } else {
-                        return try ZipProjectExtractor.extract(url: local, maxCharacters: min(maxCharacters, ZipProjectExtractor.defaultCharacterBudget))
+                        let zipBudget = isLibraryMode ? min(maxCharacters, 2_000_000) : min(maxCharacters, ZipProjectExtractor.defaultCharacterBudget)
+                        return try ZipProjectExtractor.extract(url: local, maxCharacters: zipBudget)
                     }
                 }
             }
@@ -368,7 +376,7 @@ enum DocumentTextImporter {
                     guard info.isDirectory != true else { throw ImportFailure("请选择文件，不能导入文件夹。") }
                     let size = info.fileSize ?? 0
                     guard size > 0 else { throw ImportFailure("这个文件是空的。") }
-                    guard size <= maximumTextBytes else { throw oversized(false) }
+                    guard size <= textLimitBytes else { throw oversized(false, bytes: textLimitBytes) }
                     switch ext {
                     case "docx": return try OfficeAndDocumentExtractor.extractDOCX(url: local)
                     case "xlsx": return try OfficeAndDocumentExtractor.extractXLSX(url: local)
@@ -386,7 +394,7 @@ enum DocumentTextImporter {
             return ImportedTextDocument(name: name, text: finalText, warnings: warnings)
         }
 
-        let limit = isPDF ? maximumPDFBytes : maximumTextBytes
+        let limit = isPDF ? pdfLimitBytes : textLimitBytes
         var coordinatedError: NSError?
         var result: Result<Data, Error>?
         // File-provider URLs may still need to download. Coordinate off the main thread.
@@ -394,9 +402,9 @@ enum DocumentTextImporter {
             result = Result {
                 let info = try local.resourceValues(forKeys: [.fileSizeKey, .isDirectoryKey])
                 guard info.isDirectory != true else { throw ImportFailure("请选择文件，不能导入文件夹。") }
-                guard (info.fileSize ?? 0) <= limit else { throw oversized(isPDF) }
+                guard (info.fileSize ?? 0) <= limit else { throw oversized(isPDF, bytes: limit) }
                 let data = try Data(contentsOf: local, options: .mappedIfSafe)
-                guard data.count <= limit else { throw oversized(isPDF) }
+                guard data.count <= limit else { throw oversized(isPDF, bytes: limit) }
                 return data
             }
         }
@@ -478,7 +486,8 @@ enum DocumentTextImporter {
         guard !pdf.isLocked else { throw ImportFailure("这个PDF需要密码。请先解锁并另存一份可打开的PDF，再导入。") }
         guard pdf.allowsCopying else { throw ImportFailure("这个PDF限制文字复制，无法提取正文；请使用允许提取文字的版本。") }
         guard pdf.pageCount > 0 else { throw ImportFailure("这个PDF没有页面。") }
-        guard pdf.pageCount <= maximumPDFPages else { throw ImportFailure("PDF超过1000页，请先按所需章节拆分后导入。") }
+        let pageLimit = maxCharacters > ChatProject.documentCharacterLimit ? maximumLibraryPDFPages : maximumPDFPages
+        guard pdf.pageCount <= pageLimit else { throw ImportFailure("PDF超过\(pageLimit)页，请先按所需章节拆分后导入。") }
 
         var pageTexts: [String?] = Array(repeating: nil, count: pdf.pageCount)
         var emptyPages: [Int] = []
@@ -568,8 +577,9 @@ enum DocumentTextImporter {
         return (parts.joined(separator: "\n\n"), warnings)
     }
 
-    private static func oversized(_ isPDF: Bool) -> ImportFailure {
-        ImportFailure(isPDF ? "PDF超过30 MB，请压缩或拆分后导入。" : "文件超过15 MB，请按所需章节拆分后导入。")
+    private static func oversized(_ isPDF: Bool, bytes: Int? = nil) -> ImportFailure {
+        let mb = (bytes ?? (isPDF ? maximumPDFBytes : maximumTextBytes)) / (1024 * 1024)
+        return ImportFailure(isPDF ? "PDF超过\(mb) MB，请压缩或拆分后导入。" : "文件超过\(mb) MB，请按所需章节拆分后导入。")
     }
     private static func tooLong(_ limit: Int) -> ImportFailure {
         ImportFailure("提取内容超过可导入的\(limit.formatted())字，请拆分或缩短后重试；内容没有被截断。")

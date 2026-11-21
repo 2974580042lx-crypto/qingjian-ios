@@ -62,8 +62,12 @@ final class AppStore: ObservableObject {
     private var compatibleObserver: AnyCancellable?
     let agentRunStore = AgentRunStore()
     let sessionAgentPrefs = SessionAgentPreferencesStore()
+    let projectLibrary = ProjectLibraryStore()
+    let deliverables = ProjectDeliverableStore()
+    let sandboxVerifier = SandboxedJSAndWebVerifier()
     private let visionCache = VisionDescriptionCache()
     @Published private(set) var agentRunRevision = 0
+    @Published private(set) var workspaceRevision = 0
     @Published private(set) var isAgentPaused = false
     private var agentPauseContinuation: CheckedContinuation<Void, Never>?
     private var pendingSteeringNotes: [String] = []
@@ -439,6 +443,120 @@ final class AppStore: ObservableObject {
             }
         }
         agentRunRevision += 1
+    }
+
+    // MARK: Project Literature Library & Deliverable Studio (Module 4)
+
+    func libraryDocuments(for projectID: UUID) -> [ProjectLibraryDocument] {
+        _ = workspaceRevision
+        guard !isLocked(projectID) else { return [] }
+        return (try? projectLibrary.listDocuments(projectID: projectID)) ?? []
+    }
+
+    func importLibraryDocument(projectID: UUID, url: URL) async throws -> (doc: ProjectLibraryDocument, warnings: [String]) {
+        guard !isLocked(projectID), canPersist, project(projectID) != nil else {
+            throw ProjectLibraryError.unavailable("项目已上锁或暂时不可修改")
+        }
+        let ext = url.pathExtension.lowercased()
+        let imported = try await DocumentTextImporter.load(
+            url,
+            maxCharacters: ProjectLibraryStore.maxLibraryCharactersPerDocument,
+            apiKey: apiKey
+        )
+        try Task.checkCancellation()
+        let library = self.projectLibrary
+        let doc = try await Task.detached(priority: .userInitiated) {
+            try library.ingestDocument(
+                projectID: projectID,
+                name: imported.name,
+                fileExtension: ext,
+                text: imported.text
+            )
+        }.value
+        workspaceRevision += 1
+        return (doc, imported.warnings)
+    }
+
+    func importLibraryText(projectID: UUID, name: String, text: String) throws -> ProjectLibraryDocument {
+        guard !isLocked(projectID), canPersist, project(projectID) != nil else {
+            throw ProjectLibraryError.unavailable("项目已上锁或暂时不可修改")
+        }
+        let doc = try projectLibrary.ingestDocument(projectID: projectID, name: name, fileExtension: "txt", text: text)
+        workspaceRevision += 1
+        return doc
+    }
+
+    func deleteLibraryDocument(projectID: UUID, documentID: String) {
+        guard !isLocked(projectID) else { return }
+        try? projectLibrary.deleteDocument(projectID: projectID, documentID: documentID)
+        workspaceRevision += 1
+    }
+
+    func searchLibraryDocuments(projectID: UUID, query: String, limit: Int = 10) -> [ProjectLibraryHit] {
+        guard !isLocked(projectID) else { return [] }
+        return (try? projectLibrary.search(projectID: projectID, query: query, limit: limit)) ?? []
+    }
+
+    func deliverables(forMessage messageID: UUID) -> [ProjectDeliverable] {
+        _ = workspaceRevision
+        return deliverables.deliverables(forMessage: messageID)
+    }
+
+    func workspaceDeliverables(projectID: UUID?, threadID: UUID?) -> [ProjectDeliverable] {
+        _ = workspaceRevision
+        if let projectID, isLocked(projectID) { return [] }
+        return deliverables.latestDeliverablesByGroup(projectID: projectID, threadID: threadID)
+    }
+
+    func deliverableVersions(inGroup groupID: UUID) -> [ProjectDeliverable] {
+        _ = workspaceRevision
+        return deliverables.versions(inGroup: groupID)
+    }
+
+    func deleteDeliverable(_ id: UUID) {
+        deliverables.deleteDeliverable(id)
+        workspaceRevision += 1
+    }
+
+    func deliverableTextContent(for item: ProjectDeliverable) -> String {
+        let url = deliverables.fileURL(for: item)
+        if let data = try? Data(contentsOf: url), let decoded = String(data: data, encoding: .utf8), !decoded.isEmpty {
+            return decoded
+        }
+        return item.sourcePreview
+    }
+
+    /// Creates a clean temporary copy using the deliverable's human-readable `fileName`
+    /// so iOS QuickLook preview titles and Share/Word/WPS handoff show the real filename.
+    func exportableDeliverableURL(for item: ProjectDeliverable) -> URL? {
+        let source = deliverables.fileURL(for: item)
+        guard FileManager.default.fileExists(atPath: source.path) else { return nil }
+        let safeDir = FileManager.default.temporaryDirectory
+            .appendingPathComponent("SermoDeliverablePreview-\(item.id.uuidString)", isDirectory: true)
+        try? FileManager.default.createDirectory(at: safeDir, withIntermediateDirectories: true)
+        let safeName = item.fileName
+            .replacingOccurrences(of: "/", with: "_")
+            .replacingOccurrences(of: ":", with: "_")
+        let destination = safeDir.appendingPathComponent(safeName.isEmpty ? "Sermo成果.\(item.format.fileExtension)" : safeName)
+        try? FileManager.default.removeItem(at: destination)
+        do {
+            try FileManager.default.copyItem(at: source, to: destination)
+            return destination
+        } catch {
+            return source
+        }
+    }
+
+    func readLibrarySection(projectID: UUID, documentID: String, chunkIndex: Int = 0, window: Int = 2) -> String {
+        guard !isLocked(projectID) else { return "" }
+        return (try? projectLibrary.readSection(projectID: projectID, documentID: documentID, chunkIndex: chunkIndex, window: window)) ?? ""
+    }
+
+    func hasWorkspaceItems(projectID: UUID?, threadID: UUID?) -> Bool {
+        _ = workspaceRevision
+        if !workspaceDeliverables(projectID: projectID, threadID: threadID).isEmpty { return true }
+        if let projectID, !isLocked(projectID), projectLibrary.hasDatabase(for: projectID) { return true }
+        return false
     }
     func agentRunRecord(for message: ChatMessage, threadID: UUID?) -> AgentRunRecord? {
         _ = agentRunRevision
@@ -984,6 +1102,8 @@ final class AppStore: ObservableObject {
         projects.removeAll { $0.id == id }
         unlockedProjectIDs.remove(id)
         if !persistNow(allowShrink: true) { threads = old; projects = oldProjects; activeThreadID = oldID; return }
+        projectLibrary.removeProjectDatabase(id)
+        workspaceRevision += 1
         if !removedPictures.isEmpty {
             let remainingPictures = Set(threads.flatMap { thread in
                 (thread.messages + (thread.storyCheckpoints ?? []).flatMap(\.messages)).flatMap { $0.images ?? [] }
@@ -1902,6 +2022,17 @@ final class AppStore: ObservableObject {
                 notes.append(WebTools.systemNote)
             }
         }
+        if canRunTools {
+            if let proj = chatProject,
+               projectLibrary.hasDatabase(for: proj.id) || !proj.documents.isEmpty {
+                specs += ProjectLibraryTools.specs
+                notes.append(ProjectLibraryTools.systemNote)
+            }
+            specs += DocumentStudioTools.specs
+            notes.append(DocumentStudioTools.systemNote)
+            specs += SandboxTools.specs
+            notes.append(SandboxTools.systemNote)
+        }
         if armImageGen {
             notes.append("用户已在本次对话中开启生图功能。请根据用户描述直接调用内置 image_generation 工具绘制高清图片，并用简短中文说明画面亮点。")
         }
@@ -2410,6 +2541,44 @@ final class AppStore: ObservableObject {
                 return try self.performStudyAction(action, threadID: threadID, answerID: answerID)
             })
         }
+        if ProjectLibraryTools.names.contains(call.name) {
+            guard let thread = threads.first(where: { $0.id == threadID }),
+                  let proj = project(thread.projectID) else {
+                throw ToolError.disabledTool(call.name)
+            }
+            let library = self.projectLibrary
+            let inlineDocs = proj.documents
+            let projID = proj.id
+            return PreparedTool(title: ProjectLibraryTools.activityTitle(for: call), kind: "library", confirm: nil, perform: {
+                try await Task.detached(priority: .userInitiated) {
+                    try ProjectLibraryTools.execute(call, projectID: projID, inlineDocuments: inlineDocs, store: library)
+                }.value
+            })
+        }
+        if DocumentStudioTools.names.contains(call.name) {
+            let thread = threads.first(where: { $0.id == threadID })
+            let projID = thread?.projectID
+            let storeRef = self.deliverables
+            return PreparedTool(title: DocumentStudioTools.activityTitle(for: call), kind: "studio", confirm: nil, perform: { [weak self] in
+                let result = try await Task.detached(priority: .userInitiated) {
+                    try DocumentStudioTools.execute(call, projectID: projID, threadID: threadID, messageID: answerID, store: storeRef)
+                }.value
+                if result.created != nil {
+                    await MainActor.run {
+                        self?.workspaceRevision += 1
+                    }
+                }
+                return result.output
+            })
+        }
+        if SandboxTools.names.contains(call.name) {
+            let action = try SandboxAction(call)
+            return PreparedTool(title: action.activityTitle, kind: "sandbox", confirm: nil, perform: { [weak self] in
+                guard let self else { throw ToolError.disabledTool(call.name) }
+                let report = await self.sandboxVerifier.run(action)
+                return report.formattedForModel()
+            })
+        }
         if call.name.hasPrefix("web_") {
             let action = try WebAction(call)
             let key = apiKey
@@ -2566,6 +2735,7 @@ final class AppStore: ObservableObject {
             !usage.days.isEmpty ||
             !systemPromptPresets.isEmpty ||
             !books.books.isEmpty ||
+            !deliverables.allDeliverables().isEmpty ||
             operationManual.hasUserChanges ||
             projects.contains(where: { $0.studySubject == nil && $0.id != AppManual.projectID })
     }
@@ -2600,8 +2770,10 @@ final class AppStore: ObservableObject {
         let prefs = UnifiedBackupCodec.collectPreferences()
         let manual = operationManual
         let profile = Self.readCurrentLocalProfile()
+        let deliverablesRef = self.deliverables
         let imagesDir = try? ImageStore.directory()
         return try await Task.detached(priority: .utility) {
+            let deliverablesBundle = deliverablesRef.exportBackupBundle()
             let payload = try UnifiedBackupCodec.capture(
                 snapshot: snap,
                 learning: learning,
@@ -2610,6 +2782,7 @@ final class AppStore: ObservableObject {
                 preferences: prefs,
                 operationManual: manual,
                 localProfile: profile,
+                deliverablesManifest: deliverablesBundle.isEmpty ? nil : deliverablesBundle,
                 imageBudgetBytes: imageBudgetBytes,
                 imageSize: { name in
                     guard let dir = imagesDir else { return -1 }
@@ -4066,6 +4239,7 @@ final class AppStore: ObservableObject {
         let oldPrefs = UnifiedBackupCodec.collectPreferences()
         let oldProfile = Self.readCurrentLocalProfile()
         let oldStudyArchive = try? studyMemory?.exportAllStudyData()
+        let oldDeliverablesBundle = deliverables.exportBackupBundle()
         var addedImagePaths: [URL] = []
         do {
             try UnifiedBackupCodec.validate(payload)
@@ -4081,6 +4255,10 @@ final class AppStore: ObservableObject {
             }
             ImageStore.clearThumbnails()
             try books.restoreMetadata(payload.booksMetadata, personas: payload.personas, overwriteExisting: mode == .replace)
+            if let incomingDeliverables = payload.deliverablesManifest, !incomingDeliverables.isEmpty {
+                try deliverables.restoreBackupBundle(incomingDeliverables, mode: mode)
+                workspaceRevision += 1
+            }
             if let studyMemory, !payload.learning.rows.isEmpty {
                 let studyProjectIDs = Set(payload.learning.rows.map(\.projectID)).union(
                     (payload.snapshot.projects ?? []).filter { $0.studySubject != nil }.map(\.id)
@@ -4167,6 +4345,10 @@ final class AppStore: ObservableObject {
             for added in addedImagePaths { try? FileManager.default.removeItem(at: added) }
             ImageStore.clearThumbnails()
             try? books.restoreMetadata(oldBooks, personas: oldPersonas, overwriteExisting: true)
+            if !oldDeliverablesBundle.isEmpty {
+                try? deliverables.restoreBackupBundle(oldDeliverablesBundle, mode: .replace)
+                workspaceRevision += 1
+            }
             if let studyMemory, let oldStudyArchive {
                 let allIDs = Set(oldStudyArchive.rows.map(\.projectID)).union(
                     (payload.snapshot.projects ?? []).filter { $0.studySubject != nil }.map(\.id)

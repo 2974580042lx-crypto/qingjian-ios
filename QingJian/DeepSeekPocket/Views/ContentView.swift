@@ -335,6 +335,8 @@ struct ChatScreen: View {
     @State private var attachmentReport: String?
     @State private var showAddToChatSheet = false
     @State private var agentTimelineTarget: AgentTimelineTarget?
+    @State private var showWorkspaceSheet = false
+    @State private var selectedDeliverable: ProjectDeliverable?
     private var loadingPhotos: Bool { photoLoadThreadID == store.activeThreadID && photoLoadThreadID != nil }
     private var attachmentBusy: Bool { choosingFiles || choosingPhotos || fileImportThreadID != nil || photoLoadThreadID != nil }
     private var pendingImages: [PendingImage] {
@@ -754,9 +756,19 @@ struct ChatScreen: View {
                 if let thread = store.activeThread, thread.story != nil { StoryDirectionMenu(threadID: thread.id) }
                 else if night { MoonDisc(size: 22, glow: store.isGenerating).accessibilityLabel("Sermo") }
             }
-            // Like the Claude app: no title in the bar, only the two glass controls.
-            // In a conversation the right one holds new-page and a "⋯" menu with the title.
+            // Like the Claude app: no title in the bar, only the floating glass controls.
+            // In a conversation the right one holds optional workspace/deliverables, new-page and a "⋯" menu.
             ToolbarItemGroup(placement: .topBarTrailing) {
+                if store.activeThread?.projectID != nil || store.hasWorkspaceItems(projectID: store.activeThread?.projectID, threadID: store.activeThreadID) {
+                    Button {
+                        focusComposer(false)
+                        showWorkspaceSheet = true
+                    } label: {
+                        Image(systemName: "doc.text").font(.system(size: 15.5, weight: .regular))
+                    }
+                    .accessibilityLabel("项目成果与资料库")
+                    .accessibilityIdentifier("workspace-sheet-button")
+                }
                 // A new page stays in the project you are in.
                 Button { store.createThread(in: store.activeThread?.projectID); followsOutput = true } label: {
                     Image(systemName: "square.and.pencil").font(.system(size: 16, weight: .regular))
@@ -895,6 +907,27 @@ struct ChatScreen: View {
         .sheet(item: $thinkingTarget) { target in ThinkingSheet(target: target).environmentObject(store) }
         .sheet(item: $agentTimelineTarget) { target in
             AgentWorkingTimelineSheet(target: target).environmentObject(store)
+        }
+        .sheet(item: $selectedDeliverable) { item in
+            DeliverableDetailSheet(deliverable: item) { target in
+                selectedDeliverable = nil
+                localDraft = "请基于《\(target.fileName)》（ID: \(target.id.uuidString)）继续修改："
+                scheduleDraftPush()
+                focusComposer(true)
+            }
+            .environmentObject(store)
+        }
+        .sheet(isPresented: $showWorkspaceSheet) {
+            ProjectWorkspaceSheet(
+                projectID: store.activeThread?.projectID,
+                threadID: store.activeThreadID
+            ) { target in
+                showWorkspaceSheet = false
+                localDraft = "请基于《\(target.fileName)》（ID: \(target.id.uuidString)）继续修改："
+                scheduleDraftPush()
+                focusComposer(true)
+            }
+            .environmentObject(store)
         }
         .sheet(isPresented: $showAddToChatSheet) {
             let activeID = store.activeThreadID ?? store.threads.first?.id ?? UUID()
@@ -1112,6 +1145,11 @@ struct ChatScreen: View {
                     openAgentTimeline: {
                         focusComposer(false)
                         agentTimelineTarget = AgentTimelineTarget(threadID: threadID, messageID: message.id)
+                    },
+                    deliverables: message.role == .assistant ? store.deliverables(forMessage: message.id) : [],
+                    openDeliverable: { item in
+                        focusComposer(false)
+                        selectedDeliverable = item
                     })
             .equatable()
     }
@@ -2384,6 +2422,8 @@ struct MessageView: View, Equatable {
     var generatedImages: [URL] = []
     var agentRecord: AgentRunRecord? = nil
     var openAgentTimeline: () -> Void = {}
+    var deliverables: [ProjectDeliverable] = []
+    var openDeliverable: (ProjectDeliverable) -> Void = { _ in }
     @State private var copied = false
     @State private var selecting = false
     @State private var showSourcesSheet = false
@@ -2396,6 +2436,7 @@ struct MessageView: View, Equatable {
             && lhs.style == rhs.style && lhs.layoutMode == rhs.layoutMode
             && lhs.generatedImages == rhs.generatedImages
             && lhs.agentRecord == rhs.agentRecord
+            && lhs.deliverables == rhs.deliverables
     }
 
     private var documentArtifactTitle: String {
@@ -2789,6 +2830,9 @@ struct MessageView: View, Equatable {
         }
         if !generatedImages.isEmpty {
             GeneratedImagesGalleryView(urls: generatedImages, swiss: style == .swiss)
+        }
+        if !deliverables.isEmpty {
+            DeliverableFileRowList(deliverables: deliverables, swiss: style == .swiss, open: openDeliverable)
         }
         if !message.content.isEmpty {
             let isImessage = (layoutMode == .imessage && style != .swiss)

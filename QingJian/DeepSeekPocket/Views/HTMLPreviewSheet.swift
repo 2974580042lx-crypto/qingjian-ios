@@ -500,7 +500,7 @@ struct GeneratedImagesGalleryView: View {
 }
 
 @MainActor
-private struct HTMLWebView: UIViewRepresentable {
+struct HTMLWebView: UIViewRepresentable {
     let html: String
     let reloadToken: UUID
 

@@ -176,6 +176,9 @@ struct ProjectToolAccess {
             if project?.driveTools ?? driveDefault { specs += DriveTools.specs }
             if project?.githubTools ?? githubDefault { specs += GitHubTools.specs }
             if project?.webTools ?? webDefault { specs += WebTools.specs }
+            if project != nil { specs += ProjectLibraryTools.specs }
+            specs += DocumentStudioTools.specs
+            specs += SandboxTools.specs
         }
         names = Set(specs.map(\.name))
     }
