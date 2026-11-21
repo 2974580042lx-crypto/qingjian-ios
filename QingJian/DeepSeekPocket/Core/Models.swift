@@ -161,6 +161,11 @@ struct ChatThread: Identifiable, Codable, Equatable, Sendable {
     // 1.46 「不进记忆」: the project's memory never reads this conversation and later conversations
     // never find it when looking back. Set when the chat is started as 无痕 or switched off by hand.
     var keepsOutOfMemory: Bool?
+    // 1.46: the memory entries this conversation carries in its system prompt, fixed when it
+    // starts (like Claude Code reading CLAUDE.md once per session) so the prompt — and the context
+    // cache — stays the same. Renewed after six hours, or at once when you edit the memory.
+    var memorySnapshot: String?
+    var memorySnapshotAt: Date?
     var preview: String {
         messages.last(where: { !$0.content.isEmpty })?.content.replacingOccurrences(of: "\n", with: " ") ?? "暂无消息"
     }

@@ -604,13 +604,6 @@ struct ProjectMemorySheet: View {
         store.isLocked(projectID) ? nil : store.project(projectID)
     }
 
-    private var memoryLines: [String] {
-        (project?.memory ?? "")
-            .components(separatedBy: .newlines)
-            .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
-            .filter { !$0.isEmpty }
-    }
-
     var body: some View {
         NavigationStack {
             Group {
@@ -618,7 +611,7 @@ struct ProjectMemorySheet: View {
                     if proj.studySubject != nil {
                         StudyMemoryView(projectID: projectID)
                     } else {
-                        ordinaryMemoryBody(proj)
+                        ProjectMemoryEntriesView(projectID: projectID)
                     }
                 } else {
                     Text("项目已上锁或不存在，请返回后重新打开。")
@@ -641,121 +634,6 @@ struct ProjectMemorySheet: View {
         .presentationDragIndicator(.visible)
     }
 
-    private func ordinaryMemoryBody(_ proj: ChatProject) -> some View {
-        ScrollView {
-            VStack(spacing: 22) {
-                if memoryLines.isEmpty {
-                    VStack(spacing: 10) {
-                        Circle()
-                            .fill(Ink.raised)
-                            .frame(width: 52, height: 52)
-                            .overlay {
-                                Image(systemName: "doc.on.doc")
-                                    .font(.system(size: 19, weight: .light))
-                                    .foregroundStyle(Ink.ink2)
-                            }
-                        Text("暂无记忆")
-                            .font(TypeScale.ui(16, weight: .medium))
-                            .foregroundStyle(Ink.ink)
-                        Text("进行几次会话后，项目记忆将显示在这里。")
-                            .font(TypeScale.ui(14))
-                            .foregroundStyle(Ink.ink3)
-                    }
-                    .frame(maxWidth: .infinity)
-                    .padding(.top, 26)
-                    .padding(.bottom, 6)
-                } else {
-                    VStack(alignment: .leading, spacing: 10) {
-                        HStack {
-                            Text("项目记忆 · \(memoryLines.count) 条")
-                                .font(TypeScale.tiny)
-                                .foregroundStyle(Ink.ink3)
-                            Spacer()
-                            if let updated = proj.memoryUpdatedAt {
-                                Text("更新于 \(updated.formatted(date: .abbreviated, time: .shortened))")
-                                    .font(TypeScale.tiny)
-                                    .foregroundStyle(Ink.ink3)
-                            }
-                        }
-                        ForEach(Array(memoryLines.enumerated()), id: \.offset) { _, line in
-                            HStack(alignment: .top, spacing: 8) {
-                                Text("•")
-                                    .foregroundStyle(Ink.ink3)
-                                Text(line.trimmingCharacters(in: CharacterSet(charactersIn: "-• ")))
-                                    .font(TypeScale.ui(14.5))
-                                    .foregroundStyle(Ink.ink)
-                                    .lineSpacing(4)
-                                    .frame(maxWidth: .infinity, alignment: .leading)
-                            }
-                        }
-                    }
-                    .padding(.horizontal, 4)
-                    .padding(.top, 8)
-                }
-
-                // Single clean card matching Claude's memory settings layout (wired to 100% real Sermo features)
-                VStack(spacing: 0) {
-                    HStack(alignment: .center, spacing: 12) {
-                        VStack(alignment: .leading, spacing: 4) {
-                            Text("自动整理项目记忆")
-                                .font(TypeScale.ui(15.5, weight: .medium))
-                                .foregroundStyle(Ink.ink)
-                            Text("允许 Sermo 在「\(proj.name)」的不同对话间自动沉淀与共享长期要点。")
-                                .font(TypeScale.caption)
-                                .foregroundStyle(Ink.ink3)
-                                .lineSpacing(3)
-                        }
-                        Spacer(minLength: 8)
-                        Toggle("", isOn: Binding(
-                            get: { proj.remembers },
-                            set: { value in
-                                guard var updated = store.project(projectID) else { return }
-                                updated.autoMemory = value
-                                _ = store.updateProject(updated)
-                            }
-                        ))
-                        .labelsHidden()
-                        .tint(Ink.seal)
-                    }
-                    .padding(.horizontal, 16)
-                    .padding(.vertical, 14)
-
-                    Divider()
-                        .overlay(Ink.line)
-                        .padding(.leading, 16)
-
-                    NavigationLink {
-                        ProjectMemoryView(projectID: projectID)
-                    } label: {
-                        HStack {
-                            Text(memoryLines.isEmpty ? "手动填写项目记忆" : "查看与编辑全部记忆")
-                                .font(TypeScale.ui(15.5, weight: .medium))
-                                .foregroundStyle(Ink.ink)
-                            Spacer()
-                            Image(systemName: "chevron.right")
-                                .font(.system(size: 13, weight: .medium))
-                                .foregroundStyle(Ink.ink3.opacity(0.75))
-                        }
-                        .padding(.horizontal, 16)
-                        .padding(.vertical, 14)
-                        .contentShape(Rectangle())
-                    }
-                    .buttonStyle(.plain)
-                }
-                .background(Ink.card, in: RoundedRectangle(cornerRadius: 18, style: .continuous))
-                .overlay(RoundedRectangle(cornerRadius: 18, style: .continuous).stroke(Ink.line, lineWidth: 0.7))
-
-                Text("项目记忆仅在当前项目内共享，与原始文献库和生成的文件成果彼此独立。")
-                    .font(TypeScale.tiny)
-                    .foregroundStyle(Ink.ink3)
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                    .padding(.horizontal, 4)
-            }
-            .padding(.horizontal, 18)
-            .padding(.bottom, 28)
-        }
-        .background(Ink.paper.ignoresSafeArea())
-    }
 }
 
 /// Clean native grouped Form sheet opened from the Project `⋯ → 编辑详情` menu.

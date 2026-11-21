@@ -406,6 +406,7 @@ struct ChatScreen: View {
     @State private var exportURL: URL?
     @State private var systemPromptTarget: ConversationPanelTarget?
     @State private var skillDraftTarget: ProjectSkillTarget?
+    @State private var memorySheetTarget: ProjectMemoryTarget?
     @State private var versionsTarget: ConversationPanelTarget?
     @State private var storySettingsFor: UUID?
     @State private var storyPlayFor: UUID?
@@ -910,6 +911,9 @@ struct ChatScreen: View {
         }
         .sheet(item: $skillDraftTarget) { target in
             ProjectSkillEditor(projectID: target.projectID, draft: target.draft).environmentObject(store)
+        }
+        .sheet(item: $memorySheetTarget) { target in
+            ProjectMemorySheet(projectID: target.id).environmentObject(store)
         }
     }
 
@@ -1771,6 +1775,17 @@ struct ChatScreen: View {
                               dismiss: close)
         case .memoryIssue(let text):
             ComposerNoticeBar(text: text, dismiss: close)
+        case let .memoryUpdated(projectID, batchID):
+            ComposerNoticeBar(text: "记忆已更新。",
+                              actionTitle: "查看记忆",
+                              action: {
+                                  store.composerNotice = nil
+                                  focusComposer(false)
+                                  memorySheetTarget = ProjectMemoryTarget(id: projectID)
+                              },
+                              secondTitle: "撤回",
+                              second: { withAnimation(.snappy(duration: 0.2)) { store.undoMemoryChange(batchID, in: projectID) } },
+                              dismiss: close)
         }
     }
 
@@ -1945,7 +1960,8 @@ struct ChatScreen: View {
                 }
             }
             if let notice = store.composerNotice,
-               notice.threadID == nil || notice.threadID == store.activeThreadID {
+               notice.threadID == nil || notice.threadID == store.activeThreadID,
+               notice.projectID == nil || notice.projectID == store.activeThread?.projectID {
                 composerNoticeBar(notice)
             }
             contextStatusBar
@@ -3830,4 +3846,9 @@ struct ProjectSkillTarget: Identifiable {
     let projectID: UUID
     let draft: ProjectSkillDraft
     var id: UUID { draft.id }
+}
+
+/// Opens a project's memory from the 「记忆已更新」 line.
+struct ProjectMemoryTarget: Identifiable {
+    let id: UUID
 }

@@ -519,15 +519,11 @@ struct ProjectMemoryView: View {
         if store.memorizingProjectID == projectID { parts.append("正在整理刚才的对话…") }
         if let date = project?.memoryUpdatedAt { parts.append("上次更新：\(date.formatted(date: .abbreviated, time: .shortened))。") }
         if project?.remembers == true {
-            parts.append(project?.service == .chatGPT ?
-                "离开这个项目里的对话时，ChatGPT 会把新内容整理进来，用的是订阅额度。每条一行，可以直接改。" :
-                "离开对话、切到后台、长对话每聊约20条，或你说「记住……」「忘掉……」时，DeepSeek Flash 会把新内容整理进来，每次花费很少。本项目新开的对话都会带上这些记忆。每条一行，可以直接改。")
+            parts.append("离开对话、切到后台、长对话每聊约 20 条，或你说「记住……」「忘掉……」时，会把你说过、以后还用得上的事整理进来（默认用 DeepSeek Flash，没有余额时改用 ChatGPT 订阅）。每条一行，可以直接改；改动可以在记忆页「最近的变化」里撤回。")
         } else {
-            parts.append(project?.service == .chatGPT ?
-                "可以手动写下长期要求和已确认的结论。这里不自动整理，记忆会随本项目的每次提问发给模型。" :
-                "可以手动写下长期要求和已确认的结论，记忆会随本项目的每次提问发给模型。想让它自动整理，在项目选项里打开「跨对话记忆」。")
+            parts.append("可以手动写下长期要求和已确认的结论。想让它自动整理，在项目设置里打开「跨对话记忆」。")
         }
-        parts.append("上限 \(ChatProject.memoryCharacterLimit) 字。")
+        parts.append("最多 \(ProjectMemoryItem.countLimit) 条，每条 \(ProjectMemoryItem.textLimit) 字以内。")
         return parts.joined(separator: " ")
     }
 }

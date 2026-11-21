@@ -622,7 +622,17 @@ struct ChatProject: Identifiable, Codable, Equatable, Sendable {
     var memoryUpdatedAt: Date?
     // Thread id → number of messages already folded into the memory.
     var memorizedCounts: [String: Int]?
-    static let memoryCharacterLimit = 4000
+    // 1.46: the entries are the memory; `memory` above is kept as their 「- 」 text so older code
+    // and backups still read it. See ProjectMemoryBook.
+    var memoryItems: [ProjectMemoryItem]?
+    var memoryLog: [ProjectMemoryChange]?
+    // The 1.45 memory text exactly as it was when it was split into entries.
+    var memoryLegacyText: String?
+    // When you last changed the memory yourself; chats started earlier pick the change up at once.
+    var memoryUserEditedAt: Date?
+    // nil means private things are remembered too.
+    var memoryKeepsPrivate: Bool?
+    static let memoryCharacterLimit = 12_000
     // Google Drive tools (1.5.8). Off unless switched on; DeepSeek projects only.
     var driveTools: Bool?
     // GitHub tools and noticing time passing (1.6.0), both off unless switched on.
@@ -645,7 +655,8 @@ struct ChatProject: Identifiable, Codable, Equatable, Sendable {
     var usesGitHubTools: Bool { githubTools == true }
     var usesWebTools: Bool { webTools == true }
     var isPureRoleplay: Bool { studySubject == nil && id != AppManual.projectID && pureRoleplay == true }
-    var remembers: Bool { studySubject == nil && (service == .chatGPT ? autoMemory != false : autoMemory == true) }
+    // 1.46: every ordinary project remembers unless switched off (before, DeepSeek projects had to opt in).
+    var remembers: Bool { studySubject == nil && autoMemory != false }
     var includedCharacters: Int { documents.filter(\.isIncluded).reduce(0) { $0 + $1.text.count } }
 
     // Conversations in a project use only this, never the global prompt.
@@ -659,7 +670,14 @@ struct ChatProject: Identifiable, Codable, Equatable, Sendable {
         composedPrompt(instructions: PromptVariables.apply(instructionsOverride ?? instructions, context))
     }
 
-    private func composedPrompt(instructions: String) -> String {
+    /// 1.46: the same, with the memory part chosen by the caller (the entries this conversation
+    /// carries) instead of the whole memory text.
+    func systemPrompt(resolving context: PromptVariables.Context, instructionsOverride: String? = nil,
+                      memoryBlock: String?) -> String {
+        composedPrompt(instructions: PromptVariables.apply(instructionsOverride ?? instructions, context), memoryBlock: .some(memoryBlock))
+    }
+
+    private func composedPrompt(instructions: String, memoryBlock: String?? = nil) -> String {
         var parts: [String] = []
         let clean = instructions.trimmingCharacters(in: .whitespacesAndNewlines)
         if !clean.isEmpty { parts.append(clean) }
@@ -668,8 +686,12 @@ struct ChatProject: Identifiable, Codable, Equatable, Sendable {
             parts.append("以下是这个项目的资料，回答时可以参考：")
             for document in included { parts.append("《\(document.name)》\n\(document.text)") }
         }
-        if studySubject == nil, let memory = memory?.trimmingCharacters(in: .whitespacesAndNewlines), !memory.isEmpty {
-            parts.append("以下是这个项目以往对话里记下的要点，回答时可以参考，不必复述：\n\(memory)")
+        if studySubject == nil {
+            if let chosen = memoryBlock {
+                if let block = chosen, !block.isEmpty { parts.append(block) }
+            } else if let memory = memory?.trimmingCharacters(in: .whitespacesAndNewlines), !memory.isEmpty {
+                parts.append("以下是这个项目以往对话里记下的要点，回答时可以参考，不必复述：\n\(memory)")
+            }
         }
         return parts.joined(separator: "\n\n")
     }
@@ -681,6 +703,9 @@ struct ChatProject: Identifiable, Codable, Equatable, Sendable {
               Set(documents.map(\.id)).count == documents.count,
               documents.allSatisfy({ $0.name.count <= 200 && $0.text.count <= Self.documentCharacterLimit }),
               includedCharacters <= Self.documentCharacterLimit,
+              (memoryItems ?? []).count <= ProjectMemoryItem.countLimit,
+              (memoryItems ?? []).allSatisfy({ !$0.text.isEmpty && $0.text.count <= ProjectMemoryItem.textLimit }),
+              (memoryLog ?? []).count <= ProjectMemoryChange.logLimit,
               (skills ?? []).count <= ProjectSkill.countLimit,
               (skills ?? []).allSatisfy(\.isValid),
               Set((skills ?? []).map { $0.name.lowercased() }).count == (skills ?? []).count else {

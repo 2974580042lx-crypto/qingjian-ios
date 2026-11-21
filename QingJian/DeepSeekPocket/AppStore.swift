@@ -147,6 +147,7 @@ final class AppStore: ObservableObject {
             let restored = try StudyRestoreEngine.restore(backup, current: snapshot, store: studyMemory,
                 imagesDirectory: ImageStore.directory(), recoveryDirectory: recovery, saveSnapshot: { try persistence.save($0) })
             projects = restored.snapshot.projects ?? []; threads = restored.snapshot.threads
+            for index in projects.indices { _ = projects[index].migrateMemoryIfNeeded() }
             activeThreadID = restored.snapshot.activeThreadID; installedStudySubjects = restored.snapshot.installedStudySubjects ?? []
             unlockedProjectIDs.subtract(backup.projectIDs); ImageStore.clearThumbnails(); studyRevision += 1
             noticeMessage = restored.missingPreviousImages.isEmpty ? "学习备份已恢复；恢复前本机版本已另存。" : "学习备份已恢复。恢复前有\(restored.missingPreviousImages.count)张图片已缺失，其余记录和可读取图片已保留。"
@@ -988,6 +989,8 @@ final class AppStore: ObservableObject {
         threads = snapshot.threads
         activeThreadID = snapshot.activeThreadID
         projects = snapshot.projects ?? []
+        // 1.46: memory text becomes entries once; the original text is kept on the project.
+        for index in projects.indices { _ = projects[index].migrateMemoryIfNeeded() }
         installedStudySubjects = snapshot.installedStudySubjects ?? []
         systemPromptPresets = snapshot.systemPromptPresets ?? []
         usage = snapshot.usage ?? UsageLedger.rebuilt(from: snapshot.threads)
@@ -1159,12 +1162,15 @@ final class AppStore: ObservableObject {
             if project.id != AppManual.projectID && (project.pureRoleplay != nil || draft.pureRoleplay) {
                 project.pureRoleplay = draft.pureRoleplay
             }
-            // ChatGPT projects remember unless switched off; DeepSeek ones only once switched on.
+            // 1.46: every ordinary project remembers unless switched off.
             project.autoMemory = draft.autoMemory
             if includingMemory {
                 let memory = draft.memory.trimmingCharacters(in: .whitespacesAndNewlines)
-                project.memory = memory.isEmpty ? nil : memory
-                project.memoryUpdatedAt = Date()
+                _ = project.migrateMemoryIfNeeded()
+                if memory != (project.memory ?? "") {
+                    let result = ProjectMemoryBook.reconcile(project.currentMemoryItems, with: memory, byUser: true)
+                    project.recordMemory(result.items, changes: result.changes)
+                }
             }
         }
     }
@@ -1378,8 +1384,14 @@ final class AppStore: ObservableObject {
         return true
     }
 
-    private func normalSystemPrompt(for thread: ChatThread, resolving variables: PromptVariables.Context) -> String {
+    /// `memoryBlock` (1.46) is the memory part a conversation carries; leave it out for the whole text.
+    private func normalSystemPrompt(for thread: ChatThread, resolving variables: PromptVariables.Context,
+                                    memoryBlock: String?? = nil) -> String {
         if let project = project(thread.projectID) {
+            if let memoryBlock {
+                return project.systemPrompt(resolving: variables, instructionsOverride: thread.systemPromptPreset?.content,
+                                            memoryBlock: memoryBlock)
+            }
             return project.systemPrompt(resolving: variables, instructionsOverride: thread.systemPromptPreset?.content)
         }
         return PromptVariables.apply(thread.systemPromptPreset?.content ?? settings.systemPrompt, variables)
@@ -2196,9 +2208,23 @@ final class AppStore: ObservableObject {
         let variables = PromptVariables.Context(now: now, userName: userName,
                                                 modelName: modelTitle(for: provider))
         let discussionCharacter = discussion == nil ? nil : threads[ti].messages.last(where: { $0.role == .user })?.discussionCharacter
+        // 1.46: the memory part of the system prompt is fixed per conversation; entries that only
+        // matter for this question ride along with it.
+        var memoryBlock: String?? = nil
+        var memoryNote: String?
+        if discussion == nil, story == nil, let proj = chatProject, proj.studySubject == nil {
+            let parts = memoryParts(for: threads[ti], project: proj,
+                                    query: PendingDocumentCodec.extractEditableUserText(searchQuery), now: now)
+            memoryBlock = .some(parts.block)
+            memoryNote = parts.note
+            if parts.renewed {
+                threads[ti].memorySnapshot = parts.block ?? ""
+                threads[ti].memorySnapshotAt = now
+            }
+        }
         let basePrompt = discussion.map { BookDiscussion.prompt($0, book: books.book($0.bookID), character: discussionCharacter) }
             ?? story.map { storyPrompt($0) }
-            ?? normalSystemPrompt(for: threads[ti], resolving: variables)
+            ?? normalSystemPrompt(for: threads[ti], resolving: variables, memoryBlock: memoryBlock)
         let systemPrompt = ([basePrompt] + notes).filter { !$0.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }.joined(separator: "\n\n")
         let history = discussion == nil ? threads[ti].messages : BookDiscussion.history(threads[ti].messages)
         let latestUserID = history.last(where: { $0.role == .user })?.id
@@ -2227,6 +2253,7 @@ final class AppStore: ObservableObject {
         if let studyNote, !studyNote.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
             built = built.prefixingLastUserMessage(studyNote)
         }
+        if let memoryNote { built = built.prefixingLastUserMessage(memoryNote) }
         // 1.46 先判断再取用. Routines and looking back work with every service; going out without
         // tools is for DeepSeek, where a request with tools bills every earlier turn's reasoning.
         let latestText = PendingDocumentCodec.extractEditableUserText(searchQuery)
@@ -2249,6 +2276,7 @@ final class AppStore: ObservableObject {
                                               imageNoteResolver: cachedVisionResolver, systemPrompt: basePrompt,
                                               includeReasoning: false)
                     if let timeText { request = request.prefixingLastUserMessage(timeText) }
+                    if let memoryNote { request = request.prefixingLastUserMessage(memoryNote) }
                     if let explicitSkill { request = request.prefixingLastUserMessage(ProjectSkills.note(explicitSkill)) }
                     plain = request
                 }
@@ -3609,16 +3637,18 @@ final class AppStore: ObservableObject {
     // anything skipped is picked up the next time, since counts are kept.
     func updateMemory(leaving threadID: UUID?, minimum: Int = ProjectMemory.minimumNewMessages) {
         guard memoryTask == nil, !isPreview, canPersist, let threadID, threadID != generatingThreadID,
-              let thread = threads.first(where: { $0.id == threadID }), let project = project(thread.projectID),
-              project.remembers else { return }
+              let thread = threads.first(where: { $0.id == threadID }), var project = project(thread.projectID),
+              project.remembers, thread.keepsOutOfMemory != true else { return }
         guard !auxiliaryCandidates(for: thread).isEmpty else { return }
         let fresh = ProjectMemory.pending(thread, in: project)
-        guard fresh.count >= max(minimum, ProjectMemory.minimumNewMessages),
-              let request = try? ProjectMemory.request(project: project, thread: thread, new: fresh) else { return }
+        guard fresh.count >= max(minimum, ProjectMemory.minimumNewMessages) else { return }
+        if project.migrateMemoryIfNeeded() { storeQuietly(project) }
+        let items = project.currentMemoryItems
+        guard let built = try? ProjectMemoryBook.request(project: project, items: items, thread: thread, new: fresh) else { return }
         let batchCount = min(fresh.count, 40)
         let settled = (project.memorizedCounts?[threadID.uuidString] ?? 0) + batchCount
-        let model = project.subscriptionModel ?? settings.subscriptionModel, before = project.memory
-        memorizingProjectID = project.id
+        let model = project.subscriptionModel ?? settings.subscriptionModel, projectID = project.id
+        memorizingProjectID = projectID
         // Leaving for the background must not cut the request off halfway; end cleanly if lease expires.
         let lease = BackgroundTaskLease(name: "project-memory")
         let worker = Task { @MainActor [weak self] in
@@ -3626,20 +3656,24 @@ final class AppStore: ObservableObject {
             guard let self else { return }
             defer { self.memoryTask = nil; self.memorizingProjectID = nil }
             do {
-                let reply = try await self.runAuxiliary(request, thread: thread, subscriptionModel: model, timeout: 90)
-                let text = try ProjectMemory.parse(reply.text)
+                let reply = try await self.runAuxiliary(built.request, thread: thread, subscriptionModel: model, timeout: 90)
+                let ops = try ProjectMemoryBook.parseOps(reply.text, ids: built.ids)
                 // You may have edited the memory meanwhile; your version wins.
-                guard var latest = self.project(project.id), latest.memory == before else { return }
-                latest.memory = text.isEmpty ? nil : text
-                latest.memoryUpdatedAt = Date()
+                guard var latest = self.project(projectID), latest.currentMemoryItems == items else { return }
+                let result = ProjectMemoryBook.apply(ops, to: items, threadID: threadID)
                 var counts = latest.memorizedCounts ?? [:]
                 counts[threadID.uuidString] = settled
                 latest.memorizedCounts = counts
+                if !result.changes.isEmpty { latest.recordMemory(result.items, changes: result.changes) }
                 self.storeQuietly(latest)
+                if let batch = result.changes.first?.batchID {
+                    self.composerNotice = ComposerNotice(threadID: nil, projectID: projectID,
+                        kind: .memoryUpdated(projectID: projectID, batchID: batch))
+                }
             } catch {
                 // Said once, quietly: nothing is lost, the same messages are tried next time.
                 if !(error is CancellationError), !Task.isCancelled {
-                    self.composerNotice = ComposerNotice(threadID: nil,
+                    self.composerNotice = ComposerNotice(threadID: nil, projectID: projectID,
                         kind: .memoryIssue("记忆这次没有更新：\(error.localizedDescription)"))
                 }
             }
@@ -3661,11 +3695,14 @@ final class AppStore: ObservableObject {
         projects[index] = project
         if !persistNow() { projects = old }
     }
+    /// Saves the memory edited as text: kept lines keep their entry, the rest is logged as one
+    /// change you can undo.
     func setMemory(_ text: String?, for projectID: UUID) -> Bool {
         guard var project = project(projectID) else { return false }
-        let clean = text?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
-        project.memory = clean.isEmpty ? nil : String(clean.prefix(ChatProject.memoryCharacterLimit))
-        project.memoryUpdatedAt = Date()
+        _ = project.migrateMemoryIfNeeded()
+        let clean = String((text ?? "").trimmingCharacters(in: .whitespacesAndNewlines).prefix(ChatProject.memoryCharacterLimit))
+        let result = ProjectMemoryBook.reconcile(project.currentMemoryItems, with: clean, byUser: true)
+        project.recordMemory(result.items, changes: result.changes)
         return updateProject(project)
     }
 
@@ -3784,7 +3821,7 @@ final class AppStore: ObservableObject {
             errorMessage = "请先配置可用的模型服务后再执行记忆整合。"
             return
         }
-        let projectThreads = Array(self.threads(in: proj.id).prefix(5))
+        let projectThreads = Array(self.threads(in: proj.id).filter { $0.keepsOutOfMemory != true }.prefix(5))
         let request: ChatRequest
         do {
             request = try ProjectMemory.dreamRequest(project: proj, recentThreads: projectThreads)
@@ -3817,15 +3854,21 @@ final class AppStore: ObservableObject {
                 self.recordUsage(buffer.value.usage, model: provider == .deepSeek ? .flash : nil, at: Date(), provider: provider)
                 let cleaned = try buffer.value.result()
                 guard !cleaned.isEmpty, var latest = self.project(proj.id), latest.memory == before else { return }
-                latest.memory = cleaned
-                latest.memoryUpdatedAt = Date()
+                _ = latest.migrateMemoryIfNeeded()
+                let result = ProjectMemoryBook.reconcile(latest.currentMemoryItems, with: cleaned, byUser: false)
+                latest.recordMemory(result.items, changes: result.changes)
                 var counts = latest.memorizedCounts ?? [:]
                 for (tid, count) in settledCountsByThread {
                     counts[tid] = max(counts[tid] ?? 0, count)
                 }
                 latest.memorizedCounts = counts
                 self.storeQuietly(latest)
-                self.noticeMessage = "已完成「\(proj.name)」的 Auto-Dream 睡眠记忆整合（已去重、消歧并合并近期重点）。"
+                if let batch = result.changes.first?.batchID {
+                    self.composerNotice = ComposerNotice(threadID: nil, projectID: proj.id,
+                        kind: .memoryUpdated(projectID: proj.id, batchID: batch))
+                } else {
+                    self.noticeMessage = "「\(proj.name)」的记忆已经很整齐，没有要改的。"
+                }
             } catch is CancellationError {
                 // Cancelled cleanly on background expiration
             } catch {

@@ -90,19 +90,25 @@ struct ComposerNotice: Equatable, Identifiable {
         case compactOffer
         /// A memory update did not go through; nothing was lost.
         case memoryIssue(String)
+        /// 「记忆已更新。查看记忆 · 撤回」 — one update, undone as a whole.
+        case memoryUpdated(projectID: UUID, batchID: UUID)
     }
     var id = UUID()
     /// The conversation it belongs to; nil shows it wherever you are.
     var threadID: UUID?
+    /// Shown only in chats of this project, when set.
+    var projectID: UUID? = nil
     var kind: Kind
 }
 
 extension AppStore {
     /// After an answer: offers to compact a chat that has grown long. Asks, never does it alone.
     func considerCompactionOffer(threadID: UUID) {
-        guard settings.offersCompaction, activeThreadID == threadID, composerNotice == nil, compactingThreadID == nil,
+        guard settings.offersCompaction, activeThreadID == threadID, compactingThreadID == nil,
               let thread = threads.first(where: { $0.id == threadID }), thread.story == nil,
               thread.bookDiscussion == nil else { return }
+        // A line already showing here stays; one meant for another project gives way.
+        if let shown = composerNotice, shown.projectID == nil || shown.projectID == thread.projectID { return }
         let config = settings(for: thread)
         let estimate = ChatRequest.estimateContextUsage(settings: config, messages: thread.messages)
         guard estimate.canCompact,
@@ -137,5 +143,69 @@ extension AppStore {
             guard let note = ProjectRecall.note(hits, query: query) else { return nil }
             return (note, hits.map { $0.title })
         }.value
+    }
+}
+
+// MARK: Project memory entries (1.46)
+
+extension AppStore {
+    /// The memory a conversation carries: the fixed part for its system prompt (renewed after six
+    /// hours or when you edit the memory) and a note for this question with the other entries
+    /// that match it.
+    func memoryParts(for thread: ChatThread, project: ChatProject, query: String,
+                     now: Date = Date()) -> (block: String?, note: String?, renewed: Bool) {
+        let pick = ProjectMemoryBook.select(project.currentMemoryItems, query: query, now: now)
+        let edited = project.memoryUserEditedAt ?? .distantPast
+        if let snapshot = thread.memorySnapshot, let at = thread.memorySnapshotAt,
+           now.timeIntervalSince(at) < 6 * 3600, edited < at {
+            let extra = pick.relevant.filter { !snapshot.contains($0.text) }
+            return (snapshot.isEmpty ? nil : snapshot, ProjectMemoryBook.relevantNote(extra), false)
+        }
+        return (ProjectMemoryBook.alwaysBlock(pick.always), ProjectMemoryBook.relevantNote(pick.relevant), true)
+    }
+
+    /// Splits an older project's memory text into entries before it is shown or edited.
+    func ensureMemoryEntries(_ projectID: UUID) {
+        guard var project = project(projectID), project.migrateMemoryIfNeeded() else { return }
+        _ = updateProject(project)
+    }
+
+    /// Adds, edits or deletes entries by hand; logged as one change you can undo.
+    @discardableResult
+    func changeMemory(_ ops: [ProjectMemoryOp], in projectID: UUID) -> Bool {
+        guard var project = project(projectID) else { return false }
+        _ = project.migrateMemoryIfNeeded()
+        let result = ProjectMemoryBook.apply(ops, to: project.currentMemoryItems, threadID: nil, byUser: true)
+        guard !result.changes.isEmpty else { return true }
+        project.recordMemory(result.items, changes: result.changes)
+        return updateProject(project)
+    }
+
+    func setMemoryPinned(_ pinned: Bool, itemID: UUID, in projectID: UUID) {
+        guard var project = project(projectID) else { return }
+        _ = project.migrateMemoryIfNeeded()
+        guard var items = project.memoryItems, let index = items.firstIndex(where: { $0.id == itemID }) else { return }
+        items[index].pinned = pinned ? true : nil
+        project.memoryItems = items
+        project.memoryUserEditedAt = Date()
+        _ = updateProject(project)
+    }
+
+    func setMemoryKeepsPrivate(_ value: Bool, in projectID: UUID) {
+        guard var project = project(projectID) else { return }
+        project.memoryKeepsPrivate = value ? nil : false
+        _ = updateProject(project)
+    }
+
+    /// Puts back what one update changed.
+    func undoMemoryChange(_ batchID: UUID, in projectID: UUID) {
+        if case let .memoryUpdated(_, shown)? = composerNotice?.kind, shown == batchID { composerNotice = nil }
+        guard var project = project(projectID),
+              let result = ProjectMemoryBook.undo(batch: batchID, items: project.currentMemoryItems, log: project.memoryLog ?? []) else {
+            errorMessage = "这次的改动已经撤不回了（相关条目后来又改过）。"
+            return
+        }
+        project.recordMemory(result.items, changes: result.changes)
+        _ = updateProject(project)
     }
 }

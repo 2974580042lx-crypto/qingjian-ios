@@ -115,20 +115,23 @@ final class SubscriptionTests: XCTestCase {
         XCTAssertEqual(decoded.selectedSubscriptionEffort, .automatic)
         let project = #"{"id":"6F9619FF-8B86-D011-B42D-00CF4FC964FF","name":"明史研读","instructions":"","documents":[],"isLocked":false,"createdAt":0,"updatedAt":0,"isPinned":true}"#
         let old = try JSONDecoder().decode(ChatProject.self, from: Data(project.utf8))
-        XCTAssertEqual(old.service, .deepSeek); XCTAssertFalse(old.remembers); XCTAssertNil(old.memory)
+        // 1.46: ordinary projects remember unless switched off, whichever service they use.
+        XCTAssertEqual(old.service, .deepSeek); XCTAssertTrue(old.remembers); XCTAssertNil(old.memory)
     }
-    func testOnlyChatGPTProjectsRememberAndMemoryJoinsThePrompt() throws {
+    func testProjectsRememberUnlessSwitchedOffAndMemoryJoinsThePrompt() throws {
         var project = ChatProject(name: "论文")
-        XCTAssertFalse(project.remembers)
+        XCTAssertTrue(project.remembers)
         project.provider = .chatGPT
         XCTAssertTrue(project.remembers)
         project.autoMemory = false
         XCTAssertFalse(project.remembers)
-        // DeepSeek projects remember only once switched on.
         project.provider = .deepSeek
         XCTAssertFalse(project.remembers)
         project.autoMemory = true
         XCTAssertTrue(project.remembers)
+        project.studySubject = .history
+        XCTAssertFalse(project.remembers, "study projects keep their own records")
+        project.studySubject = nil
         XCTAssertTrue(ProjectMemory.isExplicitCommand("记住：每天学到晚上十点"))
         XCTAssertTrue(ProjectMemory.isExplicitCommand("  忘掉刚才那条"))
         XCTAssertFalse(ProjectMemory.isExplicitCommand("我忘了昨天背到哪"))
