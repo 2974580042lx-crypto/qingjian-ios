@@ -634,6 +634,11 @@ struct ChatProject: Identifiable, Codable, Equatable, Sendable {
     // Pure role-play mode (1.37): keeps persona instructions, documents, memory, and time awareness,
     // while omitting external tools, built-in manual notes, and historical reasoning echo.
     var pureRoleplay: Bool?
+    // 1.46 固定做法: saved routines, picked by the router or typed as 「/名字」.
+    var skills: [ProjectSkill]?
+    // 1.46: files up to this many characters in all go with every message; longer ones go to the
+    // on-demand library and are looked up when a question needs them.
+    static let wholeDocumentBudget = 30_000
 
     var service: AIProvider { provider ?? .deepSeek }
     var usesDriveTools: Bool { driveTools == true }
@@ -675,7 +680,10 @@ struct ChatProject: Identifiable, Codable, Equatable, Sendable {
               (memory ?? "").count <= Self.memoryCharacterLimit,
               Set(documents.map(\.id)).count == documents.count,
               documents.allSatisfy({ $0.name.count <= 200 && $0.text.count <= Self.documentCharacterLimit }),
-              includedCharacters <= Self.documentCharacterLimit else {
+              includedCharacters <= Self.documentCharacterLimit,
+              (skills ?? []).count <= ProjectSkill.countLimit,
+              (skills ?? []).allSatisfy(\.isValid),
+              Set((skills ?? []).map { $0.name.lowercased() }).count == (skills ?? []).count else {
             throw ChatError.invalidBackup("备份中有项目的名称、指令或资料不符合要求。")
         }
     }

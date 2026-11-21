@@ -24,11 +24,12 @@ struct TurnPlan: Equatable, Sendable {
     static let fullTools = TurnPlan(tools: true)
 }
 
-/// A message that may go out without tools: what the router is shown, and the request to send
-/// if it finds nothing that needs them.
+/// What the router is shown for one message and, for a DeepSeek chat that may go out without
+/// tools, the request to send if it finds nothing that needs them. Without `plain` (ChatGPT, pure
+/// role-play) the router only fetches project material, earlier chats and routines.
 struct TurnRouting: Sendable {
     let context: TurnRouter.Context
-    let plain: ChatRequest
+    let plain: ChatRequest?
 }
 
 enum TurnRouter {
@@ -47,6 +48,8 @@ enum TurnRouter {
         var hasDocs = false
         var hasChats = false
         var skills: [SkillHint] = []
+        /// Whether the answer could use the full tools instead (DeepSeek chats with tools on).
+        var offersTools = true
     }
 
     /// Words that clearly ask for the agent tools; no model call is needed to see it.
@@ -94,7 +97,9 @@ enum TurnRouter {
             let list = context.skills.map { "「\($0.name)」：\($0.hint)" }.joined(separator: "；")
             abilities.append("skill：用户想做的事正好对应某个固定做法时，填它的名字，否则留空。可选：\(list)")
         }
-        abilities.append("tools：需要生成文件（Word/Excel/PDF/网页）、运行代码、操作 GitHub 或云盘时为 true")
+        if context.offersTools {
+            abilities.append("tools：需要生成文件（Word/Excel/PDF/网页）、运行代码、操作 GitHub 或云盘时为 true")
+        }
         var config = AppSettings()
         config.model = .flash
         config.thinkingEnabled = false
@@ -118,7 +123,7 @@ enum TurnRouter {
             return String(value.prefix(200))
         }
         var plan = TurnPlan()
-        plan.tools = (object["tools"] as? Bool) ?? false
+        plan.tools = context.offersTools && ((object["tools"] as? Bool) ?? false)
         if context.webAllowed, (object["web"] as? Bool) == true {
             plan.web = true
             plan.webQuery = string("web_query")

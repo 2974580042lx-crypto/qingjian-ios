@@ -405,6 +405,7 @@ struct ChatScreen: View {
     @State private var renameText = ""
     @State private var exportURL: URL?
     @State private var systemPromptTarget: ConversationPanelTarget?
+    @State private var skillDraftTarget: ProjectSkillTarget?
     @State private var versionsTarget: ConversationPanelTarget?
     @State private var storySettingsFor: UUID?
     @State private var storyPlayFor: UUID?
@@ -659,7 +660,8 @@ struct ChatScreen: View {
                     if let discussion = store.activeThread?.bookDiscussion {
                         BookDiscussionWelcome(session: discussion).environmentObject(store).id(store.activeThreadID)
                     } else {
-                        WelcomeView(name: profile.name, page: store.activeThreadID ?? UUID(), projectName: store.activeProject?.name)
+                        WelcomeView(name: profile.name, page: store.activeThreadID ?? UUID(), projectName: store.activeProject?.name,
+                                    incognito: store.activeThread?.keepsOutOfMemory == true)
                             .id(store.activeThreadID)
                     }
                     Spacer(minLength: 12)
@@ -905,6 +907,9 @@ struct ChatScreen: View {
         }
         .sheet(item: $versionsTarget) { target in
             ConversationVersionsSheet(threadID: target.threadID).environmentObject(store)
+        }
+        .sheet(item: $skillDraftTarget) { target in
+            ProjectSkillEditor(projectID: target.projectID, draft: target.draft).environmentObject(store)
         }
     }
 
@@ -1435,6 +1440,13 @@ struct ChatScreen: View {
                         store.dreamConsolidateActiveProject()
                     }
                     .disabled(store.isGenerating || store.memorizingProjectID != nil)
+                    // 1.46: one conversation the project's memory leaves alone.
+                    Toggle(isOn: Binding(
+                        get: { thread.keepsOutOfMemory == true },
+                        set: { store.setKeepsOutOfMemory($0, threadID: thread.id) }
+                    )) {
+                        Label("这段对话不进记忆", systemImage: "eye.slash")
+                    }
                 }
                 if thread.story != nil {
                     Button("剧情控制、记忆与存档", systemImage: "arrow.triangle.branch") { storyPlayFor = thread.id }
@@ -1841,17 +1853,46 @@ struct ChatScreen: View {
                 systemPromptTarget = ConversationPanelTarget(threadID: thread.id)
             })
         }
+        // 1.46 固定做法: each saved routine is a command; picking one keeps 「/名字 」 in the draft
+        // so you can go on typing what it is for.
+        if let project = store.activeProject, project.studySubject == nil {
+            for skill in project.skills ?? [] {
+                list.append(SlashCommand(name: skill.name, detail: skill.whenToUse.isEmpty ? "固定做法" : skill.whenToUse) {
+                    localDraft = "/\(skill.name) "
+                    scheduleDraftPush()
+                })
+            }
+            if (project.skills ?? []).count < ProjectSkill.countLimit {
+                list.append(SlashCommand(name: "存为做法", detail: "把刚才的要求存成这个项目的固定做法") {
+                    localDraft = ""
+                    scheduleDraftPush()
+                    focusComposer(false)
+                    let lastAsk = store.activeThread?.messages.last(where: { $0.role == .user })
+                        .map { PendingDocumentCodec.extractEditableUserText($0.content) } ?? ""
+                    skillDraftTarget = ProjectSkillTarget(projectID: project.id, draft: ProjectSkillDraft(body: lastAsk))
+                })
+            }
+        }
         let query = slashQuery
         guard !query.isEmpty else { return list }
         return list.filter { $0.name.localizedCaseInsensitiveContains(query) || $0.detail.localizedCaseInsensitiveContains(query) }
     }
 
+    /// True once a routine has been picked and you are typing what it is for (「/周报 这周…」).
+    private var slashRoutineChosen: Bool {
+        let lead = localDraft.drop(while: { $0.isWhitespace })
+        guard lead.count > 1, let space = lead.firstIndex(where: { $0.isWhitespace }) else { return false }
+        let word = String(lead[lead.index(after: lead.startIndex)..<space])
+        return store.activeProject?.skills?.contains { $0.name == word } == true
+    }
+
     // 1.46: a plain list on one card, like Claude Code's command menu, instead of a row of capsules.
     @ViewBuilder private var slashCommandBar: some View {
-        let commands = isSlashCommandActive && !store.isGenerating ? slashCommands : []
+        let commands = isSlashCommandActive && !store.isGenerating && !slashRoutineChosen ? slashCommands : []
         if !commands.isEmpty {
             VStack(alignment: .leading, spacing: 0) {
-                ForEach(Array(commands.prefix(7).enumerated()), id: \.element.id) { index, command in
+                // By position: a routine may share a name with a built-in command.
+                ForEach(Array(commands.prefix(7).enumerated()), id: \.offset) { index, command in
                     if index > 0 { Rectangle().fill(Ink.line.opacity(0.7)).frame(height: 0.5).padding(.leading, 14) }
                     Button {
                         Haptic.tap()
@@ -3782,4 +3823,11 @@ struct SlashCommand: Identifiable {
     let detail: String
     let action: () -> Void
     var id: String { name }
+}
+
+/// The 「/存为做法」 editor, for the sheet on the chat screen.
+struct ProjectSkillTarget: Identifiable {
+    let projectID: UUID
+    let draft: ProjectSkillDraft
+    var id: UUID { draft.id }
 }

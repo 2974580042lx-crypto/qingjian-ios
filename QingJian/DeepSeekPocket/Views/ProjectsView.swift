@@ -402,6 +402,14 @@ struct ProjectPageView: View {
             Button("编辑详情", systemImage: "doc.badge.gearshape") {
                 editingDetails = true
             }
+            if project?.studySubject == nil {
+                // 1.46: Claude's incognito chat — the project's memory never reads it and later
+                // chats never find it.
+                Button("新建无痕会话", systemImage: "eye.slash") {
+                    store.createIncognitoThread(in: projectID)
+                    opened()
+                }
+            }
             Button("项目成果与文献检索", systemImage: "archivebox") {
                 showingWorkspace = true
             }

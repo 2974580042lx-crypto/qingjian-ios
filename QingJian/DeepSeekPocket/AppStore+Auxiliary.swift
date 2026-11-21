@@ -126,3 +126,16 @@ extension AppStore {
         compactActiveThread()
     }
 }
+
+extension AppStore {
+    /// Looks a question up in the project's other conversations. Returns the note for the answer
+    /// and the titles it drew on, or nil when nothing relevant turns up.
+    func pastChatsNote(_ query: String, projectID: UUID, excluding threadID: UUID) async -> (note: String, titles: [String])? {
+        let pool = threads(in: projectID)
+        return await Task.detached(priority: .userInitiated) { () -> (note: String, titles: [String])? in
+            let hits = ProjectRecall.search(query, in: pool, excluding: threadID)
+            guard let note = ProjectRecall.note(hits, query: query) else { return nil }
+            return (note, hits.map { $0.title })
+        }.value
+    }
+}

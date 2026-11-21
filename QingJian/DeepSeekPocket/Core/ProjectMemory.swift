@@ -17,6 +17,7 @@ enum ProjectMemory {
     }
 
     static func pending(_ thread: ChatThread, in project: ChatProject) -> [ChatMessage] {
+        guard thread.keepsOutOfMemory != true else { return [] }
         let done = project.memorizedCounts?[thread.id.uuidString] ?? 0
         let settled = thread.messages.filter { !$0.content.isEmpty && ($0.role == .user || $0.state == .complete) }
         guard settled.count > done else { return [] }

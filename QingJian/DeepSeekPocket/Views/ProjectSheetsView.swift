@@ -70,10 +70,13 @@ struct ProjectFilesSheet: View {
                 if project != nil {
                     ToolbarItem(placement: .topBarTrailing) {
                         Menu {
-                            Button("导入到百万字检索库（推荐）", systemImage: "books.vertical") {
+                            Button("按长短自动放（推荐）", systemImage: "wand.and.stars") {
+                                chooseFiles(intoLibrary: nil)
+                            }
+                            Button("放进资料库，用到时再查", systemImage: "books.vertical") {
                                 chooseFiles(intoLibrary: true)
                             }
-                            Button("导入为随提问整篇附带资料", systemImage: "doc.text") {
+                            Button("每次提问都整篇带上", systemImage: "doc.text") {
                                 chooseFiles(intoLibrary: false)
                             }
                             Button("粘贴剪贴板文字入库", systemImage: "doc.on.clipboard") {
@@ -139,7 +142,7 @@ struct ProjectFilesSheet: View {
                 .foregroundStyle(Ink.ink3)
                 .multilineTextAlignment(.center)
                 .padding(.horizontal, 28)
-            Text("自动存入百万字本地按需检索库，不占平时对话额度。")
+            Text("合计 3 万字以内的文件每次提问都带上；更长的放进资料库，问到时再查。")
                 .font(TypeScale.tiny)
                 .foregroundStyle(Ink.ink3.opacity(0.85))
                 .multilineTextAlignment(.center)
@@ -286,7 +289,7 @@ struct ProjectFilesSheet: View {
                                         .font(.system(size: 15, weight: .medium))
                                         .foregroundStyle(Ink.ink)
                                         .lineLimit(1)
-                                    Text("\(doc.characterCount.formatted()) 字 · \(doc.chunkCount) 段按需检索 · \(doc.fileExtension.uppercased())")
+                                    Text("\(doc.characterCount.formatted()) 字 · 问到时再查 · \(doc.fileExtension.uppercased())")
                                         .font(TypeScale.tiny)
                                         .foregroundStyle(Ink.ink3)
                                 }
@@ -308,7 +311,7 @@ struct ProjectFilesSheet: View {
                         }
                     }
                 } header: {
-                    Text("文献检索库（按需调阅 · \(libraryDocs.count) 份）")
+                    Text("资料库 · \(libraryDocs.count) 份")
                         .font(TypeScale.tiny)
                         .foregroundStyle(Ink.ink3)
                         .textCase(nil)
@@ -333,7 +336,7 @@ struct ProjectFilesSheet: View {
                                             .font(.system(size: 15, weight: .medium))
                                             .foregroundStyle(Ink.ink)
                                             .lineLimit(1)
-                                        Text("\(doc.text.count.formatted()) 字 · 随提问附带")
+                                        Text("\(doc.text.count.formatted()) 字 · \(doc.isIncluded ? "每次都带上" : "暂不带上")")
                                             .font(TypeScale.tiny)
                                             .foregroundStyle(Ink.ink3)
                                     }
@@ -360,7 +363,7 @@ struct ProjectFilesSheet: View {
                         }
                     }
                 } header: {
-                    Text("随提问整篇附带（\(inlineDocs.count) 份）")
+                    Text("每次都带上 · \(inlineDocs.count) 份")
                         .font(TypeScale.tiny)
                         .foregroundStyle(Ink.ink3)
                         .textCase(nil)
@@ -376,7 +379,7 @@ struct ProjectFilesSheet: View {
         VStack(spacing: 0) {
             Button {
                 Haptic.tap()
-                chooseFiles(intoLibrary: true)
+                chooseFiles(intoLibrary: nil)
             } label: {
                 HStack(spacing: 8) {
                     Image(systemName: "paperclip")
@@ -398,7 +401,8 @@ struct ProjectFilesSheet: View {
         .background(Ink.paper)
     }
 
-    private func chooseFiles(intoLibrary: Bool) {
+    /// `intoLibrary` nil lets the length decide (1.46): short files go with every message.
+    private func chooseFiles(intoLibrary: Bool?) {
         guard !importing, project != nil, store.canPersist else { return }
         importNotice = nil
         DocumentPicker.presentMany(
@@ -427,7 +431,11 @@ struct ProjectFilesSheet: View {
                             lines.append(studyNotice)
                             continue
                         }
-                        if intoLibrary {
+                        if intoLibrary == nil {
+                            let res = try await store.importProjectFile(projectID: projectID, url: url)
+                            ok += 1
+                            lines.append("✓ \(res.name)（\(res.characters.formatted()) 字，\(res.wholeEveryTime ? "每次提问都带上" : "放进资料库，问到时再查")）")
+                        } else if intoLibrary == true {
                             let res = try await store.importLibraryDocument(projectID: projectID, url: url)
                             ok += 1
                             lines.append("✓ \(res.doc.name)（\(res.doc.characterCount.formatted()) 字，已建全文索引）")
@@ -835,45 +843,15 @@ struct ProjectDetailsEditSheet: View {
                             }
                         }
 
-                        Picker("学习科目", selection: Binding(
-                            get: { proj.studySubject?.rawValue ?? "none" },
-                            set: { value in
-                                mutate { p in
-                                    p.studySubject = StudySubject(rawValue: value)
-                                    if p.studySubject != nil { p.autoMemory = true }
-                                }
-                            }
-                        )) {
-                            Text("普通项目").tag("none")
-                            ForEach(StudySubject.allCases, id: \.rawValue) { subj in
-                                Text(subj.title).tag(subj.rawValue)
-                            }
-                        }
                     }
                     .claudeCardRow()
 
-                    Section {
-                        if store.canUsePureRoleplay(proj) {
-                            Toggle("纯角色扮演模式", isOn: Binding(
-                                get: { proj.isPureRoleplay },
-                                set: { value in mutate { $0.pureRoleplay = value } }
-                            ))
-                            .tint(Ink.seal)
-                        }
-                        if !proj.isPureRoleplay {
-                            Toggle("联网工具", isOn: Binding(
-                                get: { proj.webTools != false },
-                                set: { value in mutate { $0.webTools = value } }
-                            ))
-                            .tint(Ink.seal)
-                            Toggle("谷歌云盘工具", isOn: Binding(
-                                get: { proj.driveTools ?? store.drive.connected },
-                                set: { value in mutate { $0.driveTools = value } }
-                            ))
-                            .tint(Ink.seal)
-                            Toggle("GitHub 工具", isOn: Binding(
-                                get: { proj.githubTools ?? store.github.connected },
-                                set: { value in mutate { $0.githubTools = value } }
+                    // 1.46: the few things people change; everything else under 「更多」.
+                    Section("记忆与时间") {
+                        if proj.studySubject == nil {
+                            Toggle("跨对话记忆", isOn: Binding(
+                                get: { proj.remembers },
+                                set: { value in mutate { $0.autoMemory = value } }
                             ))
                             .tint(Ink.seal)
                         }
@@ -882,12 +860,69 @@ struct ProjectDetailsEditSheet: View {
                             set: { value in mutate { $0.timeAwareness = value } }
                         ))
                         .tint(Ink.seal)
-                        Toggle("面容 ID 锁", isOn: Binding(
-                            get: { proj.isLocked },
-                            set: { value in mutate { $0.isLocked = value } }
-                        ))
-                        .tint(Ink.seal)
-                    } header: { Text("工具与隐私") } footer: {
+                    }
+                    .claudeCardRow()
+
+                    if proj.studySubject == nil {
+                        Section {
+                            NavigationLink {
+                                ProjectSkillsView(projectID: projectID).environmentObject(store)
+                            } label: {
+                                LabeledContent("固定做法", value: (proj.skills ?? []).isEmpty ? "还没有" : "\((proj.skills ?? []).count) 个")
+                            }
+                        } footer: {
+                            Text("存下常用的做法，聊到时自动用上；也可以在输入框打「/名字」直接调用。")
+                        }
+                        .claudeCardRow()
+                    }
+
+                    Section {
+                        DisclosureGroup("更多") {
+                            Picker("学习科目", selection: Binding(
+                                get: { proj.studySubject?.rawValue ?? "none" },
+                                set: { value in
+                                    mutate { p in
+                                        p.studySubject = StudySubject(rawValue: value)
+                                        if p.studySubject != nil { p.autoMemory = true }
+                                    }
+                                }
+                            )) {
+                                Text("普通项目").tag("none")
+                                ForEach(StudySubject.allCases, id: \.rawValue) { subj in
+                                    Text(subj.title).tag(subj.rawValue)
+                                }
+                            }
+                            if store.canUsePureRoleplay(proj) {
+                                Toggle("纯角色扮演模式", isOn: Binding(
+                                    get: { proj.isPureRoleplay },
+                                    set: { value in mutate { $0.pureRoleplay = value } }
+                                ))
+                                .tint(Ink.seal)
+                            }
+                            if !proj.isPureRoleplay {
+                                Toggle("联网工具", isOn: Binding(
+                                    get: { proj.webTools != false },
+                                    set: { value in mutate { $0.webTools = value } }
+                                ))
+                                .tint(Ink.seal)
+                                Toggle("谷歌云盘工具", isOn: Binding(
+                                    get: { proj.driveTools ?? store.drive.connected },
+                                    set: { value in mutate { $0.driveTools = value } }
+                                ))
+                                .tint(Ink.seal)
+                                Toggle("GitHub 工具", isOn: Binding(
+                                    get: { proj.githubTools ?? store.github.connected },
+                                    set: { value in mutate { $0.githubTools = value } }
+                                ))
+                                .tint(Ink.seal)
+                            }
+                            Toggle("面容 ID 锁", isOn: Binding(
+                                get: { proj.isLocked },
+                                set: { value in mutate { $0.isLocked = value } }
+                            ))
+                            .tint(Ink.seal)
+                        }
+                    } footer: {
                         if proj.isPureRoleplay {
                             Text("纯角色扮演模式会屏蔽文档生成与外部工具；如需让 AI 生成 Word / Excel / PDF，请关闭此开关。")
                         }

@@ -158,6 +158,9 @@ struct ChatThread: Identifiable, Codable, Equatable, Sendable {
     var systemPromptPreset: SystemPromptPreset?
     // Pure role-play mode (1.37): omits external tool schemas, manual notes, and historical reasoning echo.
     var pureRoleplay: Bool?
+    // 1.46 「不进记忆」: the project's memory never reads this conversation and later conversations
+    // never find it when looking back. Set when the chat is started as 无痕 or switched off by hand.
+    var keepsOutOfMemory: Bool?
     var preview: String {
         messages.last(where: { !$0.content.isEmpty })?.content.replacingOccurrences(of: "\n", with: " ") ?? "暂无消息"
     }

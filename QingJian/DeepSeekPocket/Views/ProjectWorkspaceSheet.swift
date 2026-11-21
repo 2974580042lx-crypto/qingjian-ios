@@ -432,27 +432,13 @@ struct ProjectWorkspaceSheet: View {
                                 Text(proj.studySubject != nil ? "学习档案与进度" : "项目跨对话备忘")
                                     .font(TypeScale.ui(15.5))
                                     .foregroundStyle(Ink.ink)
-                                Text("自动沉淀的长期结论、规范与偏好，与原始文献和成品文件完全独立")
+                                Text("你说过、以后还用得上的事")
                                     .font(TypeScale.tiny)
                                     .foregroundStyle(Ink.ink3)
                                     .lineLimit(2)
                             }
                         }
                     }
-                }
-                .claudeCardRow()
-
-                Section {
-                    VStack(alignment: .leading, spacing: 6) {
-                        Text("五层清晰分离")
-                            .font(TypeScale.ui(13.5, weight: .medium))
-                            .foregroundStyle(Ink.ink)
-                        Text("• 对话流：你的提问与 AI 回复\n• 文献资料库：百万字参考书，只读按需检索\n• 项目成果：AI 生成的 Word/Excel/PDF/HTML 多版本文件\n• 长期记忆：跨对话沉淀的事实与偏好\n• 工作指令：固定规则与输出规范")
-                            .font(TypeScale.tiny)
-                            .foregroundStyle(Ink.ink3)
-                            .lineSpacing(4)
-                    }
-                    .padding(.vertical, 4)
                 }
                 .claudeCardRow()
             }

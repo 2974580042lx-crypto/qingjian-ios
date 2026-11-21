@@ -486,6 +486,66 @@ final class AppStore: ObservableObject {
         return (doc, imported.warnings)
     }
 
+    /// 1.46: one way to add a file. Short files (all of them together up to
+    /// `ChatProject.wholeDocumentBudget` characters) go with every message; anything longer goes to
+    /// the on-demand library, where the router looks things up when a question needs them.
+    func importProjectFile(projectID: UUID, url: URL) async throws -> (name: String, characters: Int, wholeEveryTime: Bool) {
+        guard !isLocked(projectID), canPersist, project(projectID) != nil else {
+            throw ProjectLibraryError.unavailable("项目已上锁或暂时不可修改")
+        }
+        let ext = url.pathExtension.lowercased()
+        let imported = try await DocumentTextImporter.load(url, maxCharacters: ProjectLibraryStore.maxLibraryCharactersPerDocument,
+                                                           apiKey: apiKey)
+        try Task.checkCancellation()
+        if var latest = project(projectID), latest.studySubject == nil,
+           latest.documents.count < 50,
+           latest.includedCharacters + imported.text.count <= ChatProject.wholeDocumentBudget {
+            var doc = ProjectDocument(name: String(imported.name.prefix(200)), text: imported.text)
+            doc.isIncluded = true
+            latest.documents.append(doc)
+            if updateProject(latest) { return (doc.name, imported.text.count, true) }
+        }
+        let library = self.projectLibrary
+        let doc = try await Task.detached(priority: .userInitiated) {
+            try library.ingestDocument(projectID: projectID, name: imported.name, fileExtension: ext, text: imported.text)
+        }.value
+        workspaceRevision += 1
+        return (doc.name, doc.characterCount, false)
+    }
+
+    // MARK: 固定做法 (1.46)
+
+    @discardableResult
+    func saveSkill(_ skill: ProjectSkill, in projectID: UUID) -> Bool {
+        guard var latest = project(projectID), skill.isValid else { return false }
+        var list = latest.skills ?? []
+        if let index = list.firstIndex(where: { $0.id == skill.id }) {
+            list[index] = skill
+        } else {
+            guard list.count < ProjectSkill.countLimit else {
+                errorMessage = "一个项目最多保存 \(ProjectSkill.countLimit) 个固定做法。"
+                return false
+            }
+            list.append(skill)
+        }
+        guard Set(list.map { $0.name.lowercased() }).count == list.count else {
+            errorMessage = "已经有一个叫「\(skill.name)」的固定做法了，换个名字吧。"
+            return false
+        }
+        var saved = skill
+        saved.updatedAt = Date()
+        if let index = list.firstIndex(where: { $0.id == skill.id }) { list[index] = saved }
+        latest.skills = list
+        return updateProject(latest)
+    }
+
+    func deleteSkill(_ skillID: UUID, in projectID: UUID) {
+        guard var latest = project(projectID) else { return }
+        latest.skills?.removeAll { $0.id == skillID }
+        if latest.skills?.isEmpty == true { latest.skills = nil }
+        _ = updateProject(latest)
+    }
+
     func importLibraryText(projectID: UUID, name: String, text: String) throws -> ProjectLibraryDocument {
         guard !isLocked(projectID), canPersist, project(projectID) != nil else {
             throw ProjectLibraryError.unavailable("项目已上锁或暂时不可修改")
@@ -970,22 +1030,38 @@ final class AppStore: ObservableObject {
     }
 
     // A new page in a project also takes the project's default model and thinking level.
-    func createThread(in projectID: UUID? = nil) {
+    func createThread(in projectID: UUID? = nil, incognito: Bool = false) {
         guard canPersist else { return }
         cancelReplySuggestions()
         updateMemory(leaving: activeThreadID)
         let old = threads, oldID = activeThreadID, oldSettings = settings
-        if let empty = sortedThreads.first(where: { $0.messages.isEmpty && ($0.draft ?? "").isEmpty && $0.projectID == projectID }) {
+        if let empty = sortedThreads.first(where: { $0.messages.isEmpty && ($0.draft ?? "").isEmpty && $0.projectID == projectID
+                                                    && ($0.keepsOutOfMemory == true) == incognito }) {
             activeThreadID = empty.id
         } else {
             guard threads.count < 2000 else { errorMessage = "对话数量已达上限，请先导出并整理记录。"; return }
             var thread = ChatThread()
             thread.projectID = projectID
+            if incognito { thread.keepsOutOfMemory = true }
             threads.insert(thread, at: 0)
             activeThreadID = thread.id
         }
         applyDefaults(of: projectID)
         if !persistNow() { threads = old; activeThreadID = oldID; settings = oldSettings }
+    }
+
+    /// 1.46 无痕: a new chat in the project that its memory never reads and later chats never find.
+    func createIncognitoThread(in projectID: UUID) {
+        createThread(in: projectID, incognito: true)
+    }
+
+    /// 「不进记忆」 for one conversation. Switching it on also stops the memory from reading what
+    /// this chat already said; switching it off lets the next update pick the chat up again.
+    func setKeepsOutOfMemory(_ value: Bool, threadID: UUID?) {
+        guard canPersist, let threadID, let index = threads.firstIndex(where: { $0.id == threadID }) else { return }
+        let old = threads
+        threads[index].keepsOutOfMemory = value ? true : nil
+        if !persistNow() { threads = old }
     }
 
     private func applyDefaults(of projectID: UUID?, force: Bool = false) {
@@ -2151,27 +2227,45 @@ final class AppStore: ObservableObject {
         if let studyNote, !studyNote.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
             built = built.prefixingLastUserMessage(studyNote)
         }
-        // The same request without tools, for messages the router finds need none of them.
+        // 1.46 先判断再取用. Routines and looking back work with every service; going out without
+        // tools is for DeepSeek, where a request with tools bills every earlier turn's reasoning.
+        let latestText = PendingDocumentCodec.extractEditableUserText(searchQuery)
+        let projectSkills = discussion == nil && story == nil ? (chatProject?.skills ?? []) : []
+        let explicitSkill = ProjectSkills.explicit(in: latestText, skills: projectSkills)
+        if let explicitSkill { built = built.prefixingLastUserMessage(ProjectSkills.note(explicitSkill)) }
         var routingDraft: TurnRouting?
-        if provider == .deepSeek, settings.routesTurns, canRunTools, !hasStudyTools, !researchModeOn,
-           requestedDeliverable == nil, !armImageGen {
-            var plain = ChatRequest(settings: settings, messages: history, imageLoader: loader,
-                                    imageNoteResolver: cachedVisionResolver, systemPrompt: basePrompt,
-                                    includeReasoning: false)
-            if let timeText { plain = plain.prefixingLastUserMessage(timeText) }
-            let recent = history.filter { !$0.content.isEmpty && ($0.role == .user || $0.state == .complete) }
-                .dropLast().suffix(4)
-                .map { TurnRouter.Line(role: $0.role == .user ? "用户" : "助手", text: $0.content) }
+        if settings.routesTurns, discussion == nil, story == nil, !hasStudyTools, !researchModeOn, !armImageGen {
+            let canGoPlain = provider == .deepSeek && canRunTools && requestedDeliverable == nil
             let looseDocs = chatProject.map { projectLibrary.hasDatabase(for: $0.id) || $0.documents.contains { !$0.isIncluded } } ?? false
-            routingDraft = TurnRouting(
-                context: TurnRouter.Context(
-                    latest: PendingDocumentCodec.extractEditableUserText(searchQuery),
-                    recent: Array(recent),
-                    webAllowed: useWeb && (webChannel != .directLinksOnly || directURLsPresent),
-                    hasDocs: looseDocs,
-                    hasChats: false,
-                    skills: []),
-                plain: plain)
+            let hasDocs = looseDocs && (canGoPlain || !canRunTools)
+            let pastChats = chatProject.map { proj in
+                threads(in: proj.id).contains { $0.id != threadID && $0.keepsOutOfMemory != true && $0.messages.count >= 2 }
+            } ?? false
+            let skillHints = ProjectSkills.hints(projectSkills.filter { $0.id != explicitSkill?.id })
+            if canGoPlain || hasDocs || pastChats || !skillHints.isEmpty {
+                var plain: ChatRequest?
+                if canGoPlain {
+                    var request = ChatRequest(settings: settings, messages: history, imageLoader: loader,
+                                              imageNoteResolver: cachedVisionResolver, systemPrompt: basePrompt,
+                                              includeReasoning: false)
+                    if let timeText { request = request.prefixingLastUserMessage(timeText) }
+                    if let explicitSkill { request = request.prefixingLastUserMessage(ProjectSkills.note(explicitSkill)) }
+                    plain = request
+                }
+                let recent = history.filter { !$0.content.isEmpty && ($0.role == .user || $0.state == .complete) }
+                    .dropLast().suffix(4)
+                    .map { TurnRouter.Line(role: $0.role == .user ? "用户" : "助手", text: $0.content) }
+                routingDraft = TurnRouting(
+                    context: TurnRouter.Context(
+                        latest: latestText,
+                        recent: Array(recent),
+                        webAllowed: canGoPlain && useWeb && (webChannel != .directLinksOnly || directURLsPresent),
+                        hasDocs: hasDocs,
+                        hasChats: pastChats,
+                        skills: skillHints,
+                        offersTools: canGoPlain),
+                    plain: plain)
+            }
         }
         let routing = routingDraft
         for note in turnNotes { built = built.prefixingLastUserMessage(note) }
@@ -2213,18 +2307,32 @@ final class AppStore: ObservableObject {
                 if let routing {
                     let plan = await self.planTurn(routing.context, thread: self.threads.first(where: { $0.id == threadID }))
                     try Task.checkCancellation()
-                    if !plan.tools {
-                        outgoing = routing.plain
+                    if let plain = routing.plain, !plan.tools {
+                        outgoing = plain
                         runsTools = false
                         if plan.web { routedWebQuery = plan.webQuery ?? searchQuery }
-                        if let query = plan.docsQuery, let proj = chatProject {
-                            if let note = await self.projectMaterialNote(query, project: proj) {
-                                outgoing = outgoing.prefixingLastUserMessage(note)
-                                self.record(ToolActivity(id: "route-docs-\(answerID.uuidString.prefix(6))",
-                                    title: "查阅项目资料：\(String(query.prefix(24)))", status: .done, detail: nil, kind: "library"),
-                                    threadID: threadID, answerID: answerID)
-                            }
-                        }
+                    }
+                    let tag = answerID.uuidString.prefix(6)
+                    if let query = plan.docsQuery, let proj = chatProject,
+                       let note = await self.projectMaterialNote(query, project: proj) {
+                        outgoing = outgoing.prefixingLastUserMessage(note)
+                        self.record(ToolActivity(id: "route-docs-\(tag)",
+                            title: "查阅项目资料：\(String(query.prefix(24)))", status: .done, detail: nil, kind: "library"),
+                            threadID: threadID, answerID: answerID)
+                    }
+                    if let query = plan.chatsQuery, let proj = chatProject,
+                       let found = await self.pastChatsNote(query, projectID: proj.id, excluding: threadID) {
+                        outgoing = outgoing.prefixingLastUserMessage(found.note)
+                        self.record(ToolActivity(id: "route-chats-\(tag)",
+                            title: "翻看以前的对话：\(String(query.prefix(24)))", status: .done,
+                            detail: found.titles.joined(separator: "\n"), kind: "recall"),
+                            threadID: threadID, answerID: answerID)
+                    }
+                    if let name = plan.skill, let skill = projectSkills.first(where: { $0.name == name }) {
+                        outgoing = outgoing.prefixingLastUserMessage(ProjectSkills.note(skill))
+                        self.record(ToolActivity(id: "route-skill-\(tag)",
+                            title: "按固定做法「\(skill.name)」", status: .done, detail: nil, kind: "skill"),
+                            threadID: threadID, answerID: answerID)
                     }
                 }
                 // Original passages about what was just said, for this request only.

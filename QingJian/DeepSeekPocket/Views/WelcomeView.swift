@@ -31,6 +31,8 @@ struct WelcomeView: View {
     // The page this greets: the same page keeps its line, a new page may get another.
     let page: UUID
     var projectName: String?
+    // 1.46: a 无痕 chat says so under the greeting.
+    var incognito = false
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @State private var shown = false
 
@@ -95,7 +97,7 @@ struct WelcomeView: View {
                     .accessibilityIdentifier("time-greeting")
                     .modifier(Arrive(shown: shown, delay: 0.18))
                 if let projectName {
-                    Text("在「\(projectName)」里").font(TypeScale.label).foregroundStyle(Ink.ink3)
+                    Text("在「\(projectName)」里" + (incognito ? " · 无痕，不进记忆" : "")).font(TypeScale.label).foregroundStyle(Ink.ink3)
                         .modifier(Arrive(shown: shown, delay: 0.3))
                 }
             }
