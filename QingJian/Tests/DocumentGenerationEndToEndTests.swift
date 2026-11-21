@@ -67,6 +67,9 @@ final class DocumentGenerationEndToEndTests: XCTestCase {
                 collector.consume(ev.toolCalls)
             }
         }
+        if let tail = try decoder.finish() {
+            collector.consume(tail.toolCalls)
+        }
         XCTAssertTrue(decoder.completed)
         XCTAssertEqual(collector.calls.count, 1)
         let call = try XCTUnwrap(collector.calls.first)
@@ -200,6 +203,8 @@ final class DocumentGenerationEndToEndTests: XCTestCase {
         for b in sse.utf8 {
             if let ev = try decoder.consume(b) { collector.consume(ev.toolCalls) }
         }
+        if let tail = try decoder.finish() { collector.consume(tail.toolCalls) }
+        XCTAssertTrue(decoder.completed)
         XCTAssertEqual(collector.calls.count, 1)
         XCTAssertEqual(collector.calls.first?.name, "document_create_pdf")
         XCTAssertTrue(collector.calls.first?.arguments.contains("简报") == true)
