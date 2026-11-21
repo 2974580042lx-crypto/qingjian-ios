@@ -88,27 +88,59 @@ struct ContentView: View {
         .sheet(isPresented: $showProjects) {
             ProjectsView(opened: { showProjects = false; showSidebar = false }).environmentObject(store).environmentObject(profile)
         }
-        // Route files opened from the Files app / Share sheet: only .sermobackup restores backups;
-        // all other files attach silently to the active conversation's pending document strip.
+        // Route files & deep links opened from Files / WeChat / Safari / Shortcuts:
+        // .sermobackup opens backup restore directly; all other files, images, links & notes
+        // open the lightweight intake card to send to the active chat or file into a project library.
         .onOpenURL { url in
-            guard url.isFileURL else { return }
-            if IncomingURLRoute.classify(url) == .backup {
+            switch ShareIntakeURLParser.parse(url) {
+            case .backup(let backupURL):
                 Task {
-                    guard let local = await Task.detached(priority: .userInitiated, operation: { IncomingFile.privateCopy(of: url) }).value else {
+                    guard let local = await Task.detached(priority: .userInitiated, operation: { IncomingFile.privateCopy(of: backupURL) }).value else {
                         store.errorMessage = "没能读取这个备份文件，请在「文件」里确认它已下载后再试。"
                         return
                     }
                     store.prepareBackupRestore(local, removeWhenDone: true)
                 }
-                return
-            }
-            Task { @MainActor in
-                guard let local = await Task.detached(priority: .userInitiated, operation: { IncomingFile.privateCopy(of: url) }).value else {
-                    store.errorMessage = "没能读取这个文件，请在「文件」里确认它已下载后再试。"
-                    return
+            case .intake(let item):
+                if let fileURL = item.localFileURL {
+                    Task { @MainActor in
+                        guard let local = await Task.detached(priority: .userInitiated, operation: { IncomingFile.privateCopy(of: fileURL) }).value else {
+                            store.errorMessage = "没能读取这个文件，请在「文件」里确认它已下载后再试。"
+                            return
+                        }
+                        var copied = item
+                        copied.localFilePath = local.path
+                        store.enqueueShareIntake(copied)
+                    }
+                } else {
+                    store.enqueueShareIntake(item)
                 }
-                store.incomingChatFileURL = local
+            case .ignored:
+                break
             }
+        }
+        .sheet(item: $store.pendingShareIntake, onDismiss: { store.advanceShareIntakeQueue() }) { item in
+            ShareIntakeSheet(
+                item: item,
+                onSendToCurrentChat: { chosen in
+                    switch chosen.kind {
+                    case .file:
+                        if let url = chosen.localFileURL { store.incomingChatFileURL = url }
+                    case .image:
+                        if let url = chosen.localFileURL { store.incomingChatImageURL = url }
+                    case .webLink, .text:
+                        let text = chosen.composerPrefillText()
+                        if !text.isEmpty { store.incomingChatPrefillText = text }
+                    }
+                },
+                onDismissCleanup: {
+                    if let url = item.localFileURL,
+                       url.path.hasPrefix(FileManager.default.temporaryDirectory.path) {
+                        try? FileManager.default.removeItem(at: url)
+                    }
+                }
+            )
+            .environmentObject(store)
         }
         .sheet(isPresented: $showBooks) {
             BookshelfView(opened: { showBooks = false; showSidebar = false }).environmentObject(store).environmentObject(store.books)
@@ -337,6 +369,7 @@ struct ChatScreen: View {
     @State private var agentTimelineTarget: AgentTimelineTarget?
     @State private var showWorkspaceSheet = false
     @State private var selectedDeliverable: ProjectDeliverable?
+    @State private var showVoiceDictationSheet = false
     private var loadingPhotos: Bool { photoLoadThreadID == store.activeThreadID && photoLoadThreadID != nil }
     private var attachmentBusy: Bool { choosingFiles || choosingPhotos || fileImportThreadID != nil || photoLoadThreadID != nil }
     private var pendingImages: [PendingImage] {
@@ -518,6 +551,41 @@ struct ChatScreen: View {
         guard let threadID else { return }
         lastPushedDraft = text
         store.setDraft(text, threadID: threadID)
+    }
+
+    private func consumeIncomingChatTransfers() {
+        let origin = store.activeThreadID ?? store.threads.first?.id
+        if let incomingFile = store.incomingChatFileURL, let origin {
+            store.incomingChatFileURL = nil
+            importDocuments([incomingFile], into: origin, removeAfterImport: true)
+        }
+        if let incomingImage = store.incomingChatImageURL {
+            store.incomingChatImageURL = nil
+            Task { @MainActor in
+                defer {
+                    if incomingImage.path.hasPrefix(FileManager.default.temporaryDirectory.path) {
+                        try? FileManager.default.removeItem(at: incomingImage)
+                    }
+                }
+                guard let raw = try? Data(contentsOf: incomingImage),
+                      let uiImage = UIImage(data: raw),
+                      let jpeg = uiImage.jpegData(compressionQuality: 0.88) else {
+                    store.errorMessage = "这张外部图片未能读取，请重试。"
+                    return
+                }
+                if pendingImages.count < 4 {
+                    pendingImages.append(PendingImage(data: jpeg, preview: uiImage))
+                } else {
+                    store.errorMessage = "当前待发送图片已满 4 张，请先发送或移除一张。"
+                }
+            }
+        }
+        if let prefill = store.incomingChatPrefillText {
+            store.incomingChatPrefillText = nil
+            localDraft = OralDrillPromptBuilder.mergeIntoDraft(existing: localDraft, spoken: prefill)
+            scheduleDraftPush()
+            focusComposer(true)
+        }
     }
     /// Hands any typing still waiting to the store, before sending or leaving the chat.
     private func flushDraft() {
@@ -823,20 +891,15 @@ struct ChatScreen: View {
         .onAppear {
             loadDraft()
             refreshContextStats()
-            if let incoming = store.incomingChatFileURL, let origin = store.activeThreadID ?? store.threads.first?.id {
-                store.incomingChatFileURL = nil
-                importDocuments([incoming], into: origin, removeAfterImport: true)
-            }
+            consumeIncomingChatTransfers()
         }
         .onChange(of: store.activeThread?.messages.count) { _, _ in refreshContextStats() }
         .onChange(of: store.isGenerating) { _, generating in if !generating { refreshContextStats() } }
         .onChange(of: store.compactingThreadID) { _, _ in refreshContextStats() }
         .onChange(of: store.activeChatSettings) { _, _ in refreshContextStats() }
-        .onChange(of: store.incomingChatFileURL) { _, incoming in
-            guard let incoming, let origin = store.activeThreadID ?? store.threads.first?.id else { return }
-            store.incomingChatFileURL = nil
-            importDocuments([incoming], into: origin, removeAfterImport: true)
-        }
+        .onChange(of: store.incomingChatFileURL) { _, _ in consumeIncomingChatTransfers() }
+        .onChange(of: store.incomingChatImageURL) { _, _ in consumeIncomingChatTransfers() }
+        .onChange(of: store.incomingChatPrefillText) { _, _ in consumeIncomingChatTransfers() }
         .onDisappear { flushDraft() }
         // Something else changed the draft (a suggestion put in, a file read in, a send
         // clearing it): show that, but not the echo of our own typing coming back.
@@ -927,6 +990,34 @@ struct ChatScreen: View {
                 scheduleDraftPush()
                 focusComposer(true)
             }
+            .environmentObject(store)
+        }
+        .sheet(isPresented: $showVoiceDictationSheet) {
+            VoiceDictationSheet(
+                activeProject: store.activeProject,
+                onInsertDraft: { spoken in
+                    localDraft = OralDrillPromptBuilder.mergeIntoDraft(existing: localDraft, spoken: spoken)
+                    scheduleDraftPush()
+                    focusComposer(true)
+                },
+                onSendDirectly: { payload in
+                    clearMessageNavigation()
+                    followsOutput = true
+                    Haptic.tap()
+                    let textWithQuote = MessageQuoteCodec.encode(quote: quotingMessage, userText: payload)
+                    let fullPayload = PendingDocumentCodec.encode(userText: textWithQuote, documents: pendingDocuments)
+                    if store.send(fullPayload, images: pendingImages.map(\.data)) {
+                        draftPushTask?.cancel()
+                        draftPushTask = nil
+                        localDraft = ""
+                        lastPushedDraft = ""
+                        pendingImages = []
+                        pendingDocuments = []
+                        quotingMessage = nil
+                        focusComposer(false)
+                    }
+                }
+            )
             .environmentObject(store)
         }
         .sheet(isPresented: $showAddToChatSheet) {
@@ -2069,6 +2160,22 @@ struct ChatScreen: View {
                         .buttonStyle(.pressFeedback)
                         .accessibilityLabel("追加补充要求")
                     } else {
+                        if !isCurrentGenerating && store.canPersist {
+                            Button {
+                                Haptic.tap()
+                                focusComposer(false)
+                                showVoiceDictationSheet = true
+                            } label: {
+                                Image(systemName: "mic")
+                                    .font(.system(size: 16, weight: .regular))
+                                    .foregroundStyle(Ink.ink2)
+                                    .frame(width: 34, height: 34)
+                                    .contentShape(Circle())
+                            }
+                            .buttonStyle(.pressFeedback)
+                            .accessibilityLabel("语音输入或口述抽背")
+                            .accessibilityIdentifier("voice-dictation-button")
+                        }
                         Button {
                             if isCurrentGenerating {
                                 store.stopGeneration()

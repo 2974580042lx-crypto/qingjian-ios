@@ -518,36 +518,72 @@ struct OpenAISpeechSettings: View {
     @ObservedObject var speech: OpenAISpeech
     @AppStorage(OpenAISpeech.autoKey) private var autoPlay = false
     @AppStorage(OpenAISpeech.voiceKey) private var voice = "marin"
+    @AppStorage(OpenAISpeech.engineKey) private var engineRaw = SpeechEnginePreference.auto.rawValue
+    @AppStorage(OpenAISpeech.systemRateKey) private var systemRate = 0.50
     @State private var key = ""
     @State private var saved = false
     @State private var issue: String?
     @State private var loaded = false
 
+    private var selectedEngine: SpeechEnginePreference {
+        SpeechEnginePreference(rawValue: engineRaw) ?? .auto
+    }
+
+    private var rateLabel: String {
+        if systemRate < 0.46 { return "偏慢" }
+        if systemRate > 0.54 { return "偏快" }
+        return "标准"
+    }
+
     var body: some View {
-        Section {
-            SecureField("粘贴 OpenAI API Key", text: $key)
-                .textInputAutocapitalization(.never).autocorrectionDisabled().privacySensitive()
-            Button(saved ? "语音密钥已保存" : "保存语音密钥") {
-                do { try speech.saveKey(key); saved = true }
-                catch { issue = error.localizedDescription }
+        Group {
+            Section {
+                Picker("朗读方式", selection: $engineRaw) {
+                    ForEach(SpeechEnginePreference.allCases) { option in
+                        Text(option.shortLabel).tag(option.rawValue)
+                    }
+                }
+                LabeledContent("免费系统中文音色", value: speech.preferredSystemVoiceDescription)
+                VStack(alignment: .leading, spacing: 4) {
+                    HStack {
+                        Text("系统朗读语速")
+                        Spacer()
+                        Text(rateLabel)
+                            .font(TypeScale.caption)
+                            .foregroundStyle(Ink.ink3)
+                    }
+                    Slider(value: $systemRate, in: 0.40...0.60, step: 0.02)
+                        .tint(Ink.seal)
+                }
+                Toggle("回复后自动朗读", isOn: $autoPlay)
+                    .tint(Ink.seal)
+                    .disabled(selectedEngine == .openAI && !speech.hasKey)
+                HStack {
+                    SpeechPlaybackControl(speech: speech, text: "你好，这是一段语音朗读试听。未填付费密钥或离线时，也会自动使用苹果免费的中文系统音色为你清晰朗读。", messageID: OpenAISpeech.sampleID)
+                    Text(speech.isActive(OpenAISpeech.sampleID) ? speech.status : "试听当前朗读效果")
+                        .font(TypeScale.caption).foregroundStyle(Ink.ink3)
+                }
+            } header: { Text("语音朗读（免费系统兜底）") } footer: {
+                Text("默认「自动兜底」：填写了 OpenAI 语音密钥时优先用高拟真 GPT 声音，未填写密钥或网络断开时自动无缝切到苹果免费的中文系统朗读（完全离线、零费用，播完自动恢复背景音乐音量）。可在 iPhone「设置 → 辅助功能 → 朗读内容 → 声音 → 中文」下载更高清的免费增强语音。")
             }
-            Toggle("DeepSeek 回复后自动朗读", isOn: $autoPlay)
-                .tint(Ink.seal)
-                .disabled(!speech.hasKey)
-            Picker("声音", selection: $voice) {
-                ForEach(OpenAISpeech.voices, id: \.self) { Text($0.capitalized).tag($0) }
+
+            Section {
+                SecureField("粘贴 OpenAI API Key（可选）", text: $key)
+                    .textInputAutocapitalization(.never).autocorrectionDisabled().privacySensitive()
+                Button(saved ? "语音密钥已保存" : "保存语音密钥") {
+                    do { try speech.saveKey(key); saved = true }
+                    catch { issue = error.localizedDescription }
+                }
+                Picker("GPT 声音", selection: $voice) {
+                    ForEach(OpenAISpeech.voices, id: \.self) { Text($0.capitalized).tag($0) }
+                }
+                Link("领取 API 额度", destination: URL(string: "https://chatgpt.com/settings/billing")!)
+                Link("管理 OpenAI API Key", destination: URL(string: "https://platform.openai.com/api-keys")!)
+                Link("查看 API 余额和用量", destination: URL(string: "https://platform.openai.com/settings/organization/billing/overview")!)
+                Link("查看 OpenAI 语音价格", destination: URL(string: "https://developers.openai.com/api/docs/pricing")!)
+            } header: { Text("GPT 高拟真声音（可选）") } footer: {
+                Text("不填也能直接用上方的免费系统朗读。若填写 OpenAI API Key，朗读或试听会把文字发给 OpenAI（按官方价目约 $0.024/分钟，密钥只保存在本机钥匙串，不随聊天备份导出）。")
             }
-            HStack {
-                SpeechPlaybackControl(speech: speech, text: "你好，这是一段声音试听。你可以继续用 DeepSeek 聊天，再让我把回复读出来。", messageID: OpenAISpeech.sampleID)
-                Text(speech.isActive(OpenAISpeech.sampleID) ? speech.status : "试听当前声音")
-                    .font(TypeScale.caption).foregroundStyle(Ink.ink3)
-            }
-            Link("领取 API 额度", destination: URL(string: "https://chatgpt.com/settings/billing")!)
-            Link("管理 OpenAI API Key", destination: URL(string: "https://platform.openai.com/api-keys")!)
-            Link("查看 API 余额和用量", destination: URL(string: "https://platform.openai.com/settings/organization/billing/overview")!)
-            Link("查看 OpenAI 语音价格", destination: URL(string: "https://developers.openai.com/api/docs/pricing")!)
-        } header: { Text("GPT 声音") } footer: {
-            Text("先领取额度并绑定 API 组织，再到 OpenAI 平台创建该组织的 API Key，粘贴并保存。DeepSeek 继续负责回答；朗读或试听会把文字发送给 OpenAI，使用 OpenAI API 额度。按 2026 年 10 月价格估算，语音输出约 $0.024/分钟，另有少量文字费用；每次重新生成都计费，实际以 OpenAI 账单为准。自动朗读默认关闭；开关和音色立即生效。声音为 AI 生成，可能与原文略有不同，请以文字为准。密钥只保存在本机钥匙串，不随聊天备份导出。")
         }
         .onAppear {
             guard !loaded else { return }
@@ -556,6 +592,7 @@ struct OpenAISpeechSettings: View {
         }
         .onChange(of: key) { _, _ in saved = false }
         .onChange(of: voice) { _, _ in speech.stop() }
+        .onChange(of: engineRaw) { _, _ in speech.stop() }
         .onChange(of: autoPlay) { _, enabled in if !enabled { speech.stop() } }
         .alert("语音密钥未保存", isPresented: Binding(get: { issue != nil }, set: { if !$0 { issue = nil } })) {
             Button("知道了") { issue = nil }
@@ -579,7 +616,7 @@ struct SpeechPlaybackControl: View {
                 .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
-        .accessibilityLabel(speech.isActive(messageID) ? "停止朗读" : "用 GPT 声音朗读")
+        .accessibilityLabel(speech.isActive(messageID) ? "停止朗读" : "朗读回答")
         .alert("声音暂时没播放", isPresented: Binding(
             get: { speech.errorMessageID == messageID && speech.errorMessage != nil },
             set: { if !$0 { speech.errorMessage = nil } }

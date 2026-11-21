@@ -51,7 +51,7 @@ enum SpeechError: LocalizedError {
         switch self {
         case .invalidKey: return "语音 API Key 不能包含换行，请重新粘贴。"
         case .keychain: return "无法读取或保存语音钥匙，请解锁手机后重试。"
-        case .missingKey: return "请先在设置的“GPT 声音”里保存 OpenAI API Key。"
+        case .missingKey: return "当前设为「仅使用 GPT 语音」，请先保存 OpenAI API Key，或切回「自动兜底 / 免费系统朗读」。"
         case .tooLong: return "这条回答超过 20000 字，请分段朗读。"
         case .audio: return "声音播放未能完成，请检查手机的音频输出后重试。"
         case .disconnected: return "语音连接中断，请检查网络、OpenAI API Key 和模型权限后重试。"
@@ -68,10 +68,28 @@ private final class SpeechNoRedirect: NSObject, URLSessionTaskDelegate, @uncheck
     }
 }
 
+/// Bridges `AVSpeechSynthesizerDelegate` callbacks safely onto the MainActor.
+private final class SystemSpeechDelegateProxy: NSObject, AVSpeechSynthesizerDelegate, @unchecked Sendable {
+    var onFinished: (@MainActor () -> Void)?
+    var onCancelled: (@MainActor () -> Void)?
+
+    func speechSynthesizer(_ synthesizer: AVSpeechSynthesizer, didFinish utterance: AVSpeechUtterance) {
+        let cb = onFinished
+        Task { @MainActor in cb?() }
+    }
+
+    func speechSynthesizer(_ synthesizer: AVSpeechSynthesizer, didCancel utterance: AVSpeechUtterance) {
+        let cb = onCancelled
+        Task { @MainActor in cb?() }
+    }
+}
+
 @MainActor
 final class OpenAISpeech: ObservableObject {
     static let autoKey = "qingjian.speech.auto"
     static let voiceKey = "qingjian.speech.voice"
+    static let engineKey = "qingjian.speech.engine"
+    static let systemRateKey = "qingjian.speech.systemRate"
     static let sampleID = UUID(uuidString: "B1715461-A962-49B1-BD97-24FAED4198B8")!
     static let voices = ["marin", "cedar", "alloy", "ash", "ballad", "coral", "echo", "sage", "shimmer", "verse"]
 
@@ -86,29 +104,91 @@ final class OpenAISpeech: ObservableObject {
     private var session: URLSession?
     private var engine: AVAudioEngine?
     private var player: AVAudioPlayerNode?
+    private var synthesizer: AVSpeechSynthesizer?
+    private var systemDelegate: SystemSpeechDelegateProxy?
+    private var systemPendingParts: [String] = []
     private var runID: UUID?
+    private var audioSessionGuard = SpeechAudioSessionGuard()
+    private var currentAudioGeneration: UInt64?
     private var queuedFrames = 0
     private var queuedBuffers = 0
     private var receiving = false
     private var carry: UInt8?
     private var foreground = true
-    private var audioActive = false
+    private var interruptionObserver: NSObjectProtocol?
 
-    init() { hasKey = ((try? SpeechKeychain.read()) ?? "").isEmpty == false }
+    init() {
+        hasKey = ((try? SpeechKeychain.read()) ?? "").isEmpty == false
+        interruptionObserver = NotificationCenter.default.addObserver(
+            forName: AVAudioSession.interruptionNotification,
+            object: nil,
+            queue: .main
+        ) { [weak self] notification in
+            guard let info = notification.userInfo,
+                  let rawType = info[AVAudioSessionInterruptionTypeKey] as? UInt,
+                  let type = AVAudioSession.InterruptionType(rawValue: rawType),
+                  type == .began else { return }
+            Task { @MainActor [weak self] in
+                self?.stop()
+            }
+        }
+    }
+
+    deinit {
+        if let interruptionObserver {
+            NotificationCenter.default.removeObserver(interruptionObserver)
+        }
+    }
+
+    var enginePreference: SpeechEnginePreference {
+        get {
+            let raw = UserDefaults.standard.string(forKey: Self.engineKey) ?? SpeechEnginePreference.auto.rawValue
+            return SpeechEnginePreference(rawValue: raw) ?? .auto
+        }
+        set {
+            UserDefaults.standard.set(newValue.rawValue, forKey: Self.engineKey)
+            stop()
+            objectWillChange.send()
+        }
+    }
+
+    var systemSpeechRate: Double {
+        get {
+            let stored = UserDefaults.standard.double(forKey: Self.systemRateKey)
+            return stored > 0.1 ? min(0.62, max(0.38, stored)) : 0.50
+        }
+        set {
+            UserDefaults.standard.set(min(0.62, max(0.38, newValue)), forKey: Self.systemRateKey)
+            objectWillChange.send()
+        }
+    }
+
+    var preferredSystemVoiceDescription: String {
+        guard let voice = Self.bestSystemChineseVoice() else { return "iOS 系统默认中文语音" }
+        let tier: String
+        switch voice.quality {
+        case .premium: tier = "自然高清"
+        case .enhanced: tier = "增强"
+        default: tier = "标准"
+        }
+        return "\(voice.name)（\(tier)）"
+    }
 
     func storedKey() throws -> String { try SpeechKeychain.read() }
     func saveKey(_ key: String) throws {
         stop()
         try SpeechKeychain.save(key)
         hasKey = !key.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
-        if !hasKey { UserDefaults.standard.set(false, forKey: Self.autoKey) }
         errorMessage = nil; errorMessageID = nil
     }
     func setForeground(_ value: Bool) {
         foreground = value
         if !value { stop() }
     }
-    var autoEnabled: Bool { foreground && hasKey && UserDefaults.standard.bool(forKey: Self.autoKey) }
+    var autoEnabled: Bool {
+        guard foreground, UserDefaults.standard.bool(forKey: Self.autoKey) else { return false }
+        return SpeechRouting.resolveBackend(preference: enginePreference, hasOpenAIKey: hasKey) != .missingOpenAIKey
+    }
     func isActive(_ messageID: UUID) -> Bool { activeMessageID == messageID }
 
     func speak(_ text: String, messageID: UUID) {
@@ -118,21 +198,36 @@ final class OpenAISpeech: ObservableObject {
         guard !input.isEmpty else { return }
         guard input.count <= 20000 else { errorMessage = SpeechError.tooLong.localizedDescription; return }
         guard foreground else { return }
-        let key: String
-        do { key = try SpeechKeychain.read() }
-        catch { errorMessage = error.localizedDescription; return }
-        guard !key.isEmpty else { errorMessage = SpeechError.missingKey.localizedDescription; return }
+
+        let key = (try? SpeechKeychain.read()) ?? ""
+        hasKey = !key.isEmpty
+        let backend = SpeechRouting.resolveBackend(preference: enginePreference, hasOpenAIKey: !key.isEmpty)
+
+        switch backend {
+        case .missingOpenAIKey:
+            errorMessage = SpeechError.missingKey.localizedDescription
+            return
+        case .systemOnly:
+            speakWithSystemVoice(input, messageID: messageID, fallbackNote: nil)
+            return
+        case .openAIOnly, .openAIWithSystemFallback:
+            let allowFallback = (backend == .openAIWithSystemFallback)
+            speakWithOpenAI(input, key: key, messageID: messageID, allowSystemFallback: allowFallback)
+        }
+    }
+
+    private func speakWithOpenAI(_ input: String, key: String, messageID: UUID, allowSystemFallback: Bool) {
         let selected = UserDefaults.standard.string(forKey: Self.voiceKey) ?? "marin"
         let voice = Self.voices.contains(selected) ? selected : "marin"
         let id = UUID()
         runID = id
         activeMessageID = messageID
         receiving = true
-        status = "正在连接声音…"
+        status = "正在连接 GPT 声音…"
         task = Task { [weak self] in
             guard let self else { return }
             do {
-                try self.prepareAudio()
+                try self.prepareAudioSessionAndEngine()
                 try await self.generate(input, key: key, voice: voice, runID: id)
                 guard self.runID == id else { return }
                 self.receiving = false
@@ -141,14 +236,70 @@ final class OpenAISpeech: ObservableObject {
                 self.session?.invalidateAndCancel()
                 self.session = nil
                 if self.queuedBuffers == 0 { self.finishPlayback(id) }
-                else { self.status = "正在播放" }
+                else { self.status = "GPT 语音播放中" }
             } catch {
                 guard self.runID == id else { return }
+                if allowSystemFallback && self.queuedBuffers == 0 {
+                    // Seamless zero-cost offline / network / quota fallback
+                    self.speakWithSystemVoice(input, messageID: messageID, fallbackNote: "系统免费朗读中")
+                    return
+                }
                 let message = (error as? SpeechError)?.localizedDescription ?? SpeechError.disconnected.localizedDescription
                 self.stop()
                 self.errorMessage = message
             }
         }
+    }
+
+    private func speakWithSystemVoice(_ rawInput: String, messageID: UUID, fallbackNote: String?) {
+        stop()
+        let cleaned = SpeechTextCleaner.cleanForSpeech(rawInput)
+        let chunks = Self.parts(cleaned.isEmpty ? rawInput : cleaned)
+        guard !chunks.isEmpty else { return }
+
+        do {
+            try activateSpokenAudioSession()
+        } catch {
+            errorMessage = SpeechError.audio.localizedDescription
+            return
+        }
+
+        let id = UUID()
+        runID = id
+        activeMessageID = messageID
+        status = fallbackNote ?? "系统免费朗读中"
+        systemPendingParts = chunks
+
+        let synth = AVSpeechSynthesizer()
+        let proxy = SystemSpeechDelegateProxy()
+        proxy.onFinished = { [weak self] in
+            guard let self, self.runID == id else { return }
+            self.speakNextSystemPart(runID: id)
+        }
+        proxy.onCancelled = { [weak self] in
+            guard let self, self.runID == id else { return }
+            self.finishPlayback(id)
+        }
+        synth.delegate = proxy
+        self.synthesizer = synth
+        self.systemDelegate = proxy
+        speakNextSystemPart(runID: id)
+    }
+
+    private func speakNextSystemPart(runID id: UUID) {
+        guard self.runID == id, let synth = synthesizer else { return }
+        guard !systemPendingParts.isEmpty else {
+            finishPlayback(id)
+            return
+        }
+        let nextText = systemPendingParts.removeFirst()
+        let utterance = AVSpeechUtterance(string: nextText)
+        utterance.voice = Self.bestSystemChineseVoice()
+        utterance.rate = Float(systemSpeechRate)
+        utterance.pitchMultiplier = 1.0
+        utterance.preUtteranceDelay = 0.02
+        utterance.postUtteranceDelay = 0.06
+        synth.speak(utterance)
     }
 
     func stop() {
@@ -158,19 +309,35 @@ final class OpenAISpeech: ObservableObject {
         session?.invalidateAndCancel(); session = nil
         player?.stop(); engine?.stop()
         player = nil; engine = nil
+        systemPendingParts.removeAll()
+        if let synth = synthesizer {
+            synth.delegate = nil
+            synth.stopSpeaking(at: .immediate)
+            synthesizer = nil
+        }
+        systemDelegate = nil
         queuedFrames = 0; queuedBuffers = 0; receiving = false; carry = nil
         activeMessageID = nil; status = ""
-        if audioActive {
-            try? AVAudioSession.sharedInstance().setActive(false, options: .notifyOthersOnDeactivation)
-            audioActive = false
-        }
+        deactivateAudioSessionIfOwned(generation: nil)
     }
 
-    private func prepareAudio() throws {
+    private func activateSpokenAudioSession() throws {
+        let gen = audioSessionGuard.beginPlayback()
+        currentAudioGeneration = gen
         let audio = AVAudioSession.sharedInstance()
         try audio.setCategory(.playback, mode: .spokenAudio, options: [.duckOthers])
         try audio.setActive(true)
-        audioActive = true
+    }
+
+    private func deactivateAudioSessionIfOwned(generation: UInt64?) {
+        guard audioSessionGuard.endPlayback(generation: generation) else { return }
+        currentAudioGeneration = nil
+        let audio = AVAudioSession.sharedInstance()
+        try? audio.setActive(false, options: .notifyOthersOnDeactivation)
+    }
+
+    private func prepareAudioSessionAndEngine() throws {
+        try activateSpokenAudioSession()
         guard let format = AVAudioFormat(commonFormat: .pcmFormatFloat32, sampleRate: 24000, channels: 1, interleaved: false) else { throw SpeechError.audio }
         let engine = AVAudioEngine(), player = AVAudioPlayerNode()
         engine.attach(player)
@@ -179,9 +346,19 @@ final class OpenAISpeech: ObservableObject {
         self.engine = engine; self.player = player
     }
 
+    private static func bestSystemChineseVoice() -> AVSpeechSynthesisVoice? {
+        let all = AVSpeechSynthesisVoice.speechVoices()
+        let mandarin = all.filter { $0.language.lowercased().hasPrefix("zh-cn") || $0.language.lowercased().hasPrefix("zh_hans") }
+        let ranked = mandarin.sorted { lhs, rhs in
+            if lhs.quality.rawValue != rhs.quality.rawValue {
+                return lhs.quality.rawValue > rhs.quality.rawValue
+            }
+            return lhs.name < rhs.name
+        }
+        return ranked.first ?? AVSpeechSynthesisVoice(language: "zh-CN")
+    }
+
     private func generate(_ text: String, key: String, voice: String, runID: UUID) async throws {
-        // Each short passage has its own session. Long answers therefore do not
-        // carry prior audio back as context or run into a session's time limit.
         for part in Self.parts(text) {
             try Task.checkCancellation()
             guard self.runID == runID else { throw CancellationError() }
@@ -230,7 +407,7 @@ final class OpenAISpeech: ObservableObject {
                 receivedBytes += data.count
                 guard receivedBytes <= 16 * 1024 * 1024 else { throw SpeechError.audio }
                 try enqueue(data, runID: runID)
-                status = "正在播放"
+                status = "GPT 语音播放中"
             }
             if type == "response.done" {
                 let response = event["response"] as? [String: Any]

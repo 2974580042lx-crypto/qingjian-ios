@@ -58,6 +58,11 @@ final class AppStore: ObservableObject {
     let colab = ColabStore()
     let compatible = CompatibleEndpointStore()
     @Published var incomingChatFileURL: URL?
+    @Published var incomingChatImageURL: URL?
+    @Published var incomingChatPrefillText: String?
+    @Published var pendingShareIntake: ShareIntakeItem?
+    private var queuedShareIntakes: [ShareIntakeItem] = []
+    private let shareInboxQueue = ShareInboxQueue()
     private var colabObserver: AnyCancellable?
     private var compatibleObserver: AnyCancellable?
     let agentRunStore = AgentRunStore()
@@ -557,6 +562,36 @@ final class AppStore: ObservableObject {
         if !workspaceDeliverables(projectID: projectID, threadID: threadID).isEmpty { return true }
         if let projectID, !isLocked(projectID), projectLibrary.hasDatabase(for: projectID) { return true }
         return false
+    }
+
+    // MARK: Share & Shortcuts Intake (Module 5)
+
+    func enqueueShareIntake(_ item: ShareIntakeItem) {
+        if pendingShareIntake == nil {
+            pendingShareIntake = item
+        } else {
+            queuedShareIntakes.append(item)
+        }
+    }
+
+    func advanceShareIntakeQueue() {
+        if pendingShareIntake != nil {
+            pendingShareIntake = nil
+        }
+        guard !queuedShareIntakes.isEmpty else { return }
+        let next = queuedShareIntakes.removeFirst()
+        Task { @MainActor [weak self] in
+            try? await Task.sleep(nanoseconds: 240_000_000)
+            guard let self, self.pendingShareIntake == nil else { return }
+            self.pendingShareIntake = next
+        }
+    }
+
+    func drainShortcutsShareInbox() {
+        let items = shareInboxQueue.drainPending()
+        for item in items {
+            enqueueShareIntake(item)
+        }
     }
     func agentRunRecord(for message: ChatMessage, threadID: UUID?) -> AgentRunRecord? {
         _ = agentRunRevision
@@ -2981,7 +3016,7 @@ final class AppStore: ObservableObject {
         }
         let answer = threads[ti].messages[mi]
         if !isPreview, activeThreadID == threadID, !isHidden(threads[ti]),
-           answer.role == .assistant, answer.state == .complete, !answer.isSubscription,
+           answer.role == .assistant, answer.state == .complete,
            speech.autoEnabled {
             speech.speak(answer.content, messageID: answer.id)
         }
