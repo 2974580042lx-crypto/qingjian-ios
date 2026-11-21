@@ -88,7 +88,7 @@ struct WelcomeView: View {
                 .modifier(Arrive(shown: shown, delay: 0.05))
                 // Clean system sans-serif greeting matching Claude iOS welcome page.
                 Text(line.before + line.marked + line.after)
-                    .font(TypeScale.ui(28, weight: .semibold, relativeTo: .title))
+                    .font(TypeScale.ui(28, weight: .regular, relativeTo: .title))
                     .foregroundStyle(Ink.ink)
                     .lineLimit(1).minimumScaleFactor(0.6)
                     .accessibilityElement(children: .combine)

@@ -156,7 +156,7 @@ struct HistorySidebar: View {
                         }
                         // Compact DeepSeek price band so it never truncates at 390pt width.
                         Text(Pricing.compactStatusLabel())
-                            .font(.system(size: 10.5, weight: .regular))
+                            .font(.system(size: 11, weight: .regular))
                             .foregroundStyle(Ink.ink3)
                             .lineLimit(1)
                             .minimumScaleFactor(0.85)

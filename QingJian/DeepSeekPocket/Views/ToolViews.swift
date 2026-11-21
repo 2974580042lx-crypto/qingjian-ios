@@ -84,7 +84,7 @@ struct ToolActivityList: View {
 
                         if item.status == .needsSignIn && item.kind != "github" {
                             Button("登录谷歌云盘", action: signIn)
-                                .font(.system(size: 12.5, weight: .semibold)).foregroundStyle(Ink.seal)
+                                .font(.system(size: 13, weight: .semibold)).foregroundStyle(Ink.seal)
                                 .padding(.horizontal, 10).frame(height: 28)
                                 .background(Ink.raised, in: InkCapsule())
                                 .buttonStyle(.plain)

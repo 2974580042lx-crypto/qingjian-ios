@@ -151,7 +151,7 @@ struct VoiceDictationSheet: View {
                             .foregroundStyle(Ink.ink2)
                             .frame(height: 44)
                             .padding(.horizontal, 16)
-                            .background(Ink.raised, in: RoundedRectangle(cornerRadius: 13, style: .continuous))
+                            .background(Ink.raised, in: RoundedRectangle(cornerRadius: 12, style: .continuous))
                     }
                     .buttonStyle(.pressFeedback)
                     .disabled(cleanTranscript.isEmpty)
@@ -168,8 +168,8 @@ struct VoiceDictationSheet: View {
                             .foregroundStyle(Ink.ink)
                             .frame(maxWidth: .infinity)
                             .frame(height: 44)
-                            .background(Ink.raised, in: RoundedRectangle(cornerRadius: 13, style: .continuous))
-                            .overlay(RoundedRectangle(cornerRadius: 13, style: .continuous).stroke(Ink.line, lineWidth: 0.8))
+                            .background(Ink.raised, in: RoundedRectangle(cornerRadius: 12, style: .continuous))
+                            .overlay(RoundedRectangle(cornerRadius: 12, style: .continuous).stroke(Ink.line, lineWidth: 0.8))
                     }
                     .buttonStyle(.pressFeedback)
                     .disabled(cleanTranscript.isEmpty)
@@ -186,7 +186,7 @@ struct VoiceDictationSheet: View {
                             .foregroundStyle(Ink.onSeal)
                             .frame(maxWidth: .infinity)
                             .frame(height: 44)
-                            .background(cleanTranscript.isEmpty ? Ink.line : Ink.seal, in: RoundedRectangle(cornerRadius: 13, style: .continuous))
+                            .background(cleanTranscript.isEmpty ? Ink.line : Ink.seal, in: RoundedRectangle(cornerRadius: 12, style: .continuous))
                     }
                     .buttonStyle(.pressFeedback)
                     .disabled(cleanTranscript.isEmpty || !store.canChat)

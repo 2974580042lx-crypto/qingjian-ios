@@ -341,7 +341,7 @@ struct AddToChatSheet: View {
 
             if let hint = inlineHint {
                 Text(hint)
-                    .font(.system(size: 12.5))
+                    .font(.system(size: 13))
                     .foregroundStyle(Ink.ink3)
                     .frame(maxWidth: .infinity, alignment: .leading)
                     .padding(.horizontal, 6)
@@ -390,7 +390,7 @@ struct AddToChatSheet: View {
                                 .foregroundStyle(Ink.ink3)
                                 .lineLimit(1)
                             Image(systemName: "chevron.right")
-                                .font(.system(size: 12.5, weight: .semibold))
+                                .font(.system(size: 13, weight: .semibold))
                                 .foregroundStyle(Ink.ink3.opacity(0.75))
                         }
                         .padding(.horizontal, 16)
@@ -462,7 +462,7 @@ struct AddToChatSheet: View {
                         .foregroundStyle(Ink.ink3)
                         .lineLimit(1)
                     Image(systemName: "chevron.right")
-                        .font(.system(size: 12.5, weight: .semibold))
+                        .font(.system(size: 13, weight: .semibold))
                         .foregroundStyle(Ink.ink3.opacity(0.75))
                 }
             }
@@ -501,7 +501,7 @@ struct AddToChatSheet: View {
                     .foregroundStyle(Ink.ink)
                 Spacer()
                 Image(systemName: "chevron.right")
-                    .font(.system(size: 12.5, weight: .semibold))
+                    .font(.system(size: 13, weight: .semibold))
                     .foregroundStyle(Ink.ink3.opacity(0.75))
             }
             .padding(.horizontal, 16)
@@ -596,9 +596,9 @@ struct AddToChatSheet: View {
                             .resizable()
                             .scaledToFill()
                             .frame(width: 68, height: 68)
-                            .clipShape(RoundedRectangle(cornerRadius: 11, style: .continuous))
+                            .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
                             .overlay(
-                                RoundedRectangle(cornerRadius: 11, style: .continuous)
+                                RoundedRectangle(cornerRadius: 12, style: .continuous)
                                     .stroke(Ink.line, lineWidth: 0.7)
                             )
                     }
@@ -617,7 +617,7 @@ struct AddToChatSheet: View {
                     }
                     .foregroundStyle(Ink.ink2)
                     .frame(width: 68, height: 68)
-                    .background(Self.topTileSurface, in: RoundedRectangle(cornerRadius: 11, style: .continuous))
+                    .background(Self.topTileSurface, in: RoundedRectangle(cornerRadius: 12, style: .continuous))
                 }
                 .buttonStyle(.pressFeedback)
             }
@@ -700,7 +700,7 @@ struct AddToChatSheet: View {
                         .font(.system(size: 16, weight: isSelected ? .medium : .regular))
                         .foregroundStyle(Ink.ink)
                     Text(subtitle)
-                        .font(.system(size: 12.5))
+                        .font(.system(size: 13))
                         .foregroundStyle(Ink.ink3)
                         .lineLimit(1)
                 }
@@ -770,7 +770,7 @@ struct AddToChatSheet: View {
                             .font(.system(size: 16, weight: .medium))
                             .foregroundStyle(Ink.ink)
                         Text(store.drive.connected ? "已登录 · 支持检索与读取云盘资料" : "未登录谷歌账号")
-                            .font(.system(size: 12.5))
+                            .font(.system(size: 13))
                             .foregroundStyle(Ink.ink3)
                     }
                     Spacer()
@@ -801,7 +801,7 @@ struct AddToChatSheet: View {
                             .font(.system(size: 16, weight: .medium))
                             .foregroundStyle(Ink.ink)
                         Text(store.github.connected ? "令牌已配置 · 支持代码查阅与运行状态检查" : "尚未在设置中填写 GitHub 令牌")
-                            .font(.system(size: 12.5))
+                            .font(.system(size: 13))
                             .foregroundStyle(Ink.ink3)
                     }
                     Spacer()
@@ -832,7 +832,7 @@ struct AddToChatSheet: View {
                             .font(.system(size: 16, weight: .medium))
                             .foregroundStyle(Ink.ink)
                         Text("当前通道：\(currentChannel.title)")
-                            .font(.system(size: 12.5))
+                            .font(.system(size: 13))
                             .foregroundStyle(Ink.ink3)
                     }
                     Spacer()
@@ -850,7 +850,7 @@ struct AddToChatSheet: View {
 
             VStack(alignment: .leading, spacing: 6) {
                 Text("当前服务（\(activeProvider.title)）联网通道")
-                    .font(.system(size: 12.5, weight: .medium))
+                    .font(.system(size: 13, weight: .medium))
                     .foregroundStyle(Ink.ink3)
                     .padding(.horizontal, 6)
 
@@ -901,7 +901,7 @@ struct AddToChatSheet: View {
                                 .font(.system(size: 15.5, weight: .medium))
                                 .foregroundStyle(Ink.ink)
                             Text(chapter.whenToRead)
-                                .font(.system(size: 12.5))
+                                .font(.system(size: 13))
                                 .foregroundStyle(Ink.ink3)
                                 .lineLimit(2)
                         }

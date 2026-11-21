@@ -58,7 +58,7 @@ struct DeliverableFileRow: View {
                         .lineLimit(2)
                         .multilineTextAlignment(.leading)
                     Text(item.claudeSubtitle)
-                        .font(.system(size: 12.5, weight: .regular))
+                        .font(.system(size: 13, weight: .regular))
                         .foregroundStyle(subtitleColor)
                         .lineLimit(1)
                 }
@@ -243,7 +243,7 @@ struct DeliverableDetailSheet: View {
                             Text("版本 v\(activeItem.version) / 共 \(versions.count) 版")
                                 .font(TypeScale.ui(12, weight: .medium))
                             Image(systemName: "chevron.down")
-                                .font(.system(size: 9.5, weight: .semibold))
+                                .font(.system(size: 10, weight: .semibold))
                         }
                         .foregroundStyle(Ink.ink)
                         .padding(.horizontal, 10)
@@ -340,7 +340,7 @@ struct DeliverableDetailSheet: View {
                     }
                     if activeItem.format == .html {
                         Text(MarkdownAnswer.highlightedCode(raw, language: "html"))
-                            .font(.system(size: 12.5, design: .monospaced))
+                            .font(.system(size: 13, design: .monospaced))
                             .textSelection(.enabled)
                             .frame(maxWidth: .infinity, alignment: .leading)
                     } else {
@@ -391,7 +391,7 @@ struct DeliverableDetailSheet: View {
                 .foregroundStyle(Ink.onSolid)
                 .frame(maxWidth: .infinity)
                 .frame(height: 44)
-                .background(Ink.solid, in: RoundedRectangle(cornerRadius: 13, style: .continuous))
+                .background(Ink.solid, in: RoundedRectangle(cornerRadius: 12, style: .continuous))
             }
             .buttonStyle(.pressFeedback)
         }

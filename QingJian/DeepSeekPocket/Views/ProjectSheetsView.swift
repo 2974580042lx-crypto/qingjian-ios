@@ -725,7 +725,7 @@ struct ProjectMemorySheet: View {
                                 .foregroundStyle(Ink.ink)
                             Spacer()
                             Image(systemName: "chevron.right")
-                                .font(.system(size: 12.5, weight: .medium))
+                                .font(.system(size: 13, weight: .medium))
                                 .foregroundStyle(Ink.ink3.opacity(0.75))
                         }
                         .padding(.horizontal, 16)

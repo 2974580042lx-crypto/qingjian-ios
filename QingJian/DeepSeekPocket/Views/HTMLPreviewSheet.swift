@@ -354,7 +354,7 @@ struct WebSourcesSheet: View {
                                 VStack(alignment: .leading, spacing: 5) {
                                     HStack(spacing: 6) {
                                         Text("\(index + 1)")
-                                            .font(.system(size: 10.5, weight: .semibold, design: .monospaced))
+                                            .font(.system(size: 11, weight: .semibold, design: .monospaced))
                                             .foregroundStyle(Ink.ink2)
                                             .frame(width: 18, height: 18)
                                             .background(Ink.raised, in: Circle())
@@ -444,7 +444,7 @@ struct GeneratedImagesGalleryView: View {
                                 Image(systemName: savedURLs.contains(url) ? "checkmark" : "square.and.arrow.down")
                                     .font(.system(size: 12, weight: .semibold))
                                 Text(savedURLs.contains(url) ? "已存相册" : "存相册")
-                                    .font(.system(size: 12.5, weight: .medium))
+                                    .font(.system(size: 13, weight: .medium))
                             }
                             .foregroundStyle(.white)
                             .padding(.horizontal, 11)

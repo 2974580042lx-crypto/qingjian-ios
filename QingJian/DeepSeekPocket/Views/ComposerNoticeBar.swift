@@ -9,7 +9,8 @@ struct ComposerNoticeBar: View {
     var action: (() -> Void)? = nil
     var secondTitle: String? = nil
     var second: (() -> Void)? = nil
-    let dismiss: () -> Void
+    /// Without it the line has no close mark (it goes away on its own).
+    var dismiss: (() -> Void)? = nil
 
     var body: some View {
         HStack(alignment: .firstTextBaseline, spacing: 0) {
@@ -33,18 +34,20 @@ struct ComposerNoticeBar: View {
             .font(TypeScale.ui(14.5, relativeTo: .subheadline))
             .lineLimit(2)
             Spacer(minLength: 10)
-            Button(action: dismiss) {
-                Image(systemName: "xmark")
-                    .font(.system(size: 12, weight: .medium))
-                    .foregroundStyle(Ink.ink3)
-                    .frame(width: 28, height: 24)
-                    .contentShape(Rectangle())
+            if let dismiss {
+                Button(action: dismiss) {
+                    Image(systemName: "xmark")
+                        .font(.system(size: 12, weight: .medium))
+                        .foregroundStyle(Ink.ink3)
+                        .frame(width: 28, height: 24)
+                        .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+                .accessibilityLabel("关闭提示")
             }
-            .buttonStyle(.plain)
-            .accessibilityLabel("关闭提示")
         }
         .padding(.leading, 16)
-        .padding(.trailing, 6)
+        .padding(.trailing, dismiss == nil ? 16 : 6)
         .padding(.vertical, 10)
         .background(Ink.raised, in: RoundedRectangle(cornerRadius: 16, style: .continuous))
         .overlay(RoundedRectangle(cornerRadius: 16, style: .continuous).stroke(Ink.line, lineWidth: 0.6))

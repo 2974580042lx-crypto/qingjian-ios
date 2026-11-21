@@ -40,7 +40,7 @@ struct ThinkingRow: View {
                     line(head: message.thinkingSeconds.map { "已思考 \($0) 秒" } ?? "思考过程")
                 }
                 Image(systemName: "chevron.right")
-                    .font(.system(size: 10.5, weight: .light))
+                    .font(.system(size: 11, weight: .light))
                     .foregroundStyle(Ink.ink3.opacity(0.75))
             }
             .font(.system(size: 13.5, weight: .regular))

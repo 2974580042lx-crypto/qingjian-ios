@@ -262,98 +262,6 @@ struct TypingIndicatorBubble: View {
     }
 }
 
-/// Persists Tapback-style emoji badges locally without modifying `ChatMessage` Codable schema.
-@MainActor @Observable
-final class MessageReactionStore {
-    static let shared = MessageReactionStore()
-    static let quickEmojis = ["❤️", "😂", "👍", "😮"]
-    static let moreEmojis = ["🤔", "🙏", "🔥", "👏"]
-
-    private(set) var reactions: [String: String] = [:]
-    private let fileURL: URL?
-
-    private init() {
-        let support = try? FileManager.default.url(
-            for: .applicationSupportDirectory,
-            in: .userDomainMask,
-            appropriateFor: nil,
-            create: true
-        )
-        let dir = support?.appendingPathComponent("QingJian", isDirectory: true)
-        if let dir {
-            try? FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
-        }
-        let url = dir?.appendingPathComponent("message-reactions.json")
-        self.fileURL = url
-        if let url, let data = try? Data(contentsOf: url),
-           let decoded = try? JSONDecoder().decode([String: String].self, from: data) {
-            self.reactions = decoded
-        }
-    }
-
-    func reaction(for messageID: UUID) -> String? {
-        reactions[messageID.uuidString]
-    }
-
-    func toggle(_ emoji: String, for messageID: UUID) {
-        let key = messageID.uuidString
-        Haptic.tap()
-        if reactions[key] == emoji {
-            reactions.removeValue(forKey: key)
-        } else {
-            reactions[key] = emoji
-        }
-        persist()
-    }
-
-    func clear(for messageID: UUID) {
-        let key = messageID.uuidString
-        guard reactions[key] != nil else { return }
-        Haptic.tap()
-        reactions.removeValue(forKey: key)
-        persist()
-    }
-
-    private func persist() {
-        guard let url = fileURL else { return }
-        var snapshot = reactions
-        if snapshot.count > 2000 {
-            for key in snapshot.keys {
-                snapshot.removeValue(forKey: key)
-                if snapshot.count <= 1500 { break }
-            }
-            reactions = snapshot
-        }
-        Task.detached(priority: .utility) {
-            guard let data = try? JSONEncoder().encode(snapshot) else { return }
-            try? data.write(to: url, options: [.atomic, .completeFileProtectionUntilFirstUserAuthentication])
-        }
-    }
-}
-
-@MainActor
-struct MessageReactionBadge: View {
-    let messageID: UUID
-
-    var body: some View {
-        if let emoji = MessageReactionStore.shared.reaction(for: messageID) {
-            Button {
-                MessageReactionStore.shared.clear(for: messageID)
-            } label: {
-                Text(emoji)
-                    .font(.system(size: 13))
-                    .padding(.horizontal, 7)
-                    .padding(.vertical, 3)
-                    .background(Ink.paper, in: Capsule())
-                    .overlay(Capsule().stroke(Ink.line, lineWidth: 0.8))
-                    .shadow(color: Color.black.opacity(0.10), radius: 4, y: 1.5)
-            }
-            .buttonStyle(.pressFeedback)
-            .accessibilityLabel("心情贴纸 \(emoji)，点一下移除")
-        }
-    }
-}
-
 @MainActor
 struct QuotedReplyCard: View {
     let quote: QuotedMessage
@@ -371,7 +279,7 @@ struct QuotedReplyCard: View {
                     .foregroundStyle(Ink.seal)
                     .lineLimit(1)
                 Text(quote.excerpt)
-                    .font(.system(size: 12.5))
+                    .font(.system(size: 13))
                     .foregroundStyle(Ink.ink3)
                     .lineLimit(2)
                     .multilineTextAlignment(.leading)

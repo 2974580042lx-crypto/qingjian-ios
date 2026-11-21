@@ -1788,80 +1788,97 @@ struct ChatScreen: View {
         return line
     }
 
-    @ViewBuilder private var slashCommandBar: some View {
-        if isSlashCommandActive && !store.isGenerating {
-            ScrollView(.horizontal, showsIndicators: false) {
-                HStack(spacing: 8) {
-                    slashPill("/深搜", subtitle: "多轮深度搜索") {
-                        store.webSearchEnabled = true
-                        let remainder = String(localDraft.drop(while: { $0 != " " })).trimmingCharacters(in: .whitespaces)
-                        localDraft = remainder
-                        scheduleDraftPush()
-                    }
-                    if store.activeThread?.story == nil {
-                        slashPill("/浓缩", subtitle: "无损浓缩上文") {
-                            localDraft = ""
-                            scheduleDraftPush()
-                            store.compactActiveThread()
-                        }
-                    }
-                    if store.activeThread?.projectID != nil, store.activeProject?.studySubject == nil {
-                        slashPill("/做梦", subtitle: "整合去重记忆") {
-                            localDraft = ""
-                            scheduleDraftPush()
-                            store.dreamConsolidateActiveProject()
-                        }
-                    }
-                    if store.activeProject?.studySubject == .english {
-                        slashPill("/考词", subtitle: "随机抽10个词") {
-                            localDraft = ""
-                            flushDraft()
-                            _ = store.send("请随机抽 10 个单词考考我。", images: [])
-                            focusComposer(false)
-                        }
-                    }
-                    if store.activeProject?.studySubject != nil {
-                        slashPill("/周报", subtitle: "生成本周周报") {
-                            localDraft = ""
-                            flushDraft()
-                            _ = store.send("帮我生成本周学习周报。", images: [])
-                            focusComposer(false)
-                        }
-                    }
-                    if showsSystemPromptControl, let thread = store.activeThread, store.canChooseSystemPrompt(for: thread) {
-                        slashPill("/指令", subtitle: "切换系统指令") {
-                            localDraft = ""
-                            scheduleDraftPush()
-                            focusComposer(false)
-                            systemPromptTarget = ConversationPanelTarget(threadID: thread.id)
-                        }
-                    }
-                }
-                .padding(.horizontal, 4)
-            }
-            .transition(.opacity.combined(with: .move(edge: .bottom)))
-        }
+    /// What you have typed after 「/」, up to the first space.
+    private var slashQuery: String {
+        let trimmed = localDraft.trimmingCharacters(in: .whitespaces)
+        return String(trimmed.dropFirst().prefix(while: { $0 != " " }))
     }
 
-    private func slashPill(_ command: String, subtitle: String, action: @escaping () -> Void) -> some View {
-        Button {
-            Haptic.tap()
-            action()
-        } label: {
-            HStack(spacing: 5) {
-                Text(command)
-                    .font(.system(size: 12.5, weight: .bold, design: .monospaced))
-                    .foregroundStyle(Ink.seal)
-                Text(subtitle)
-                    .font(.system(size: 11.5))
-                    .foregroundStyle(Ink.ink2)
-            }
-            .padding(.horizontal, 11)
-            .padding(.vertical, 6)
-            .background(Ink.card, in: Capsule())
-            .overlay(Capsule().stroke(Ink.line, lineWidth: 0.7))
+    /// The commands for this conversation, in the order Claude Code lists them: name, then what it does.
+    private var slashCommands: [SlashCommand] {
+        var list: [SlashCommand] = []
+        list.append(SlashCommand(name: "深搜", detail: "多轮深度搜索后再回答") {
+            store.webSearchEnabled = true
+            let remainder = String(localDraft.drop(while: { $0 != " " })).trimmingCharacters(in: .whitespaces)
+            localDraft = remainder
+            scheduleDraftPush()
+        })
+        if store.activeThread?.story == nil {
+            list.append(SlashCommand(name: "浓缩", detail: "把上文浓缩成摘要，原对话保留") {
+                localDraft = ""
+                scheduleDraftPush()
+                store.compactActiveThread()
+            })
         }
-        .buttonStyle(.pressFeedback)
+        if store.activeThread?.projectID != nil, store.activeProject?.studySubject == nil {
+            list.append(SlashCommand(name: "做梦", detail: "整理这个项目的记忆，去重合并") {
+                localDraft = ""
+                scheduleDraftPush()
+                store.dreamConsolidateActiveProject()
+            })
+        }
+        if store.activeProject?.studySubject == .english {
+            list.append(SlashCommand(name: "考词", detail: "随机抽 10 个词考我") {
+                localDraft = ""
+                flushDraft()
+                _ = store.send("请随机抽 10 个单词考考我。", images: [])
+                focusComposer(false)
+            })
+        }
+        if store.activeProject?.studySubject != nil {
+            list.append(SlashCommand(name: "周报", detail: "生成本周学习周报") {
+                localDraft = ""
+                flushDraft()
+                _ = store.send("帮我生成本周学习周报。", images: [])
+                focusComposer(false)
+            })
+        }
+        if showsSystemPromptControl, let thread = store.activeThread, store.canChooseSystemPrompt(for: thread) {
+            list.append(SlashCommand(name: "指令", detail: "切换这段对话的系统指令") {
+                localDraft = ""
+                scheduleDraftPush()
+                focusComposer(false)
+                systemPromptTarget = ConversationPanelTarget(threadID: thread.id)
+            })
+        }
+        let query = slashQuery
+        guard !query.isEmpty else { return list }
+        return list.filter { $0.name.localizedCaseInsensitiveContains(query) || $0.detail.localizedCaseInsensitiveContains(query) }
+    }
+
+    // 1.46: a plain list on one card, like Claude Code's command menu, instead of a row of capsules.
+    @ViewBuilder private var slashCommandBar: some View {
+        let commands = isSlashCommandActive && !store.isGenerating ? slashCommands : []
+        if !commands.isEmpty {
+            VStack(alignment: .leading, spacing: 0) {
+                ForEach(Array(commands.prefix(7).enumerated()), id: \.element.id) { index, command in
+                    if index > 0 { Rectangle().fill(Ink.line.opacity(0.7)).frame(height: 0.5).padding(.leading, 14) }
+                    Button {
+                        Haptic.tap()
+                        command.action()
+                    } label: {
+                        HStack(alignment: .firstTextBaseline, spacing: 10) {
+                            Text("/" + command.name)
+                                .font(.system(size: 14, weight: .medium, design: .monospaced))
+                                .foregroundStyle(Ink.ink)
+                            Text(command.detail)
+                                .font(.system(size: 13))
+                                .foregroundStyle(Ink.ink3)
+                                .lineLimit(1)
+                            Spacer(minLength: 0)
+                        }
+                        .padding(.horizontal, 14)
+                        .padding(.vertical, 10)
+                        .contentShape(Rectangle())
+                    }
+                    .buttonStyle(.pressFeedback)
+                    .accessibilityLabel("/\(command.name)：\(command.detail)")
+                }
+            }
+            .background(Ink.raised, in: RoundedRectangle(cornerRadius: 16, style: .continuous))
+            .overlay(RoundedRectangle(cornerRadius: 16, style: .continuous).stroke(Ink.line, lineWidth: 0.6))
+            .transition(.opacity.combined(with: .move(edge: .bottom)))
+        }
     }
 
     private var composer: some View {
@@ -1879,25 +1896,11 @@ struct ChatScreen: View {
                 if approval.threadID == store.activeThreadID {
                     InlineToolApprovalCard(approval: approval) { store.resolveApproval($0) }
                 } else {
-                    Button {
-                        Haptic.tap()
+                    ComposerNoticeBar(text: "另一个对话在等你确认一个操作。", actionTitle: "前往", action: {
                         if let target = store.threads.first(where: { $0.id == approval.threadID }), !store.isHidden(target) {
                             store.activeThreadID = target.id
                         }
-                    } label: {
-                        HStack(spacing: 6) {
-                            Image(systemName: "exclamationmark.shield")
-                                .font(.system(size: 13, weight: .semibold))
-                            Text("另一个对话正等待你确认操作 · 点此前往 ›")
-                                .font(TypeScale.caption)
-                        }
-                        .foregroundStyle(Ink.seal)
-                        .padding(.horizontal, 12)
-                        .padding(.vertical, 7)
-                        .background(Ink.card, in: Capsule())
-                        .overlay(Capsule().stroke(Ink.line, lineWidth: 0.8))
-                    }
-                    .buttonStyle(.pressFeedback)
+                    })
                 }
             }
             if let notice = store.composerNotice,
@@ -2163,8 +2166,8 @@ struct ChatScreen: View {
                         } label: {
                             HStack(spacing: 4) {
                                 Image(systemName: "wand.and.stars").font(.system(size: 13, weight: .medium))
-                                Text("画图").font(.system(size: 12.5, weight: .medium))
-                                Image(systemName: "xmark").font(.system(size: 9.5, weight: .semibold))
+                                Text("画图").font(.system(size: 13, weight: .medium))
+                                Image(systemName: "xmark").font(.system(size: 10, weight: .semibold))
                             }
                             .foregroundStyle(Ink.seal)
                             .frame(height: 34)
@@ -2208,7 +2211,7 @@ struct ChatScreen: View {
                                 Text("追加")
                                     .font(.system(size: 13.5, weight: .semibold))
                                 Image(systemName: "arrow.up")
-                                    .font(.system(size: 12.5, weight: .semibold))
+                                    .font(.system(size: 13, weight: .semibold))
                             }
                             .foregroundStyle(Ink.sendGlyph)
                             .padding(.horizontal, 12)
@@ -2646,28 +2649,6 @@ struct MessageView: View, Equatable {
             } else if style == .swiss { swissContent } else { paperContent }
         }
         .contextMenu {
-            if message.directive == nil && message.state != .streaming {
-                ControlGroup {
-                    ForEach(MessageReactionStore.quickEmojis, id: \.self) { emoji in
-                        Button(emoji) {
-                            MessageReactionStore.shared.toggle(emoji, for: message.id)
-                        }
-                    }
-                }
-                Menu("更多表情", systemImage: "face.smiling") {
-                    ForEach(MessageReactionStore.moreEmojis, id: \.self) { emoji in
-                        Button(emoji) {
-                            MessageReactionStore.shared.toggle(emoji, for: message.id)
-                        }
-                    }
-                    if MessageReactionStore.shared.reaction(for: message.id) != nil {
-                        Divider()
-                        Button("移除表情", systemImage: "xmark.circle", role: .destructive) {
-                            MessageReactionStore.shared.clear(for: message.id)
-                        }
-                    }
-                }
-            }
             // The most used actions come first; extra actions live below.
             Section {
                 if let quoteReply {
@@ -2758,10 +2739,6 @@ struct MessageView: View, Equatable {
                                 )
                         }
                     }
-                    .overlay(alignment: .topLeading) {
-                        MessageReactionBadge(messageID: message.id)
-                            .offset(x: -8, y: -10)
-                    }
                 }
                 .frame(maxWidth: .infinity, alignment: .trailing)
             } else {
@@ -2833,11 +2810,11 @@ struct MessageView: View, Equatable {
                                     } label: {
                                         HStack(spacing: 5) {
                                             Image(systemName: "globe")
-                                                .font(.system(size: 12.5, weight: .regular))
+                                                .font(.system(size: 13, weight: .regular))
                                             Text("\(sources.count) 个来源")
-                                                .font(.system(size: 12.5, weight: .regular))
+                                                .font(.system(size: 13, weight: .regular))
                                             Image(systemName: "chevron.right")
-                                                .font(.system(size: 9.5, weight: .medium))
+                                                .font(.system(size: 10, weight: .medium))
                                                 .foregroundStyle(Ink.ink3.opacity(0.7))
                                         }
                                         .foregroundStyle(Ink.ink2)
@@ -2856,9 +2833,9 @@ struct MessageView: View, Equatable {
                                             Image(systemName: "doc.richtext")
                                                 .font(.system(size: 12, weight: .regular))
                                             Text("独立文稿预览")
-                                                .font(.system(size: 12.5, weight: .regular))
+                                                .font(.system(size: 13, weight: .regular))
                                             Image(systemName: "chevron.right")
-                                                .font(.system(size: 9.5, weight: .medium))
+                                                .font(.system(size: 10, weight: .medium))
                                                 .foregroundStyle(Ink.ink3.opacity(0.7))
                                         }
                                         .foregroundStyle(Ink.ink2)
@@ -3010,10 +2987,6 @@ struct MessageView: View, Equatable {
             let showBubble = isImessage || isSmartBubble
             answerBubbleBody(showBubble: showBubble)
                 .animation(.easeInOut(duration: 0.24), value: showBubble)
-                .overlay(alignment: .topTrailing) {
-                    MessageReactionBadge(messageID: message.id)
-                        .offset(x: 6, y: -10)
-                }
         }
     }
 
@@ -3801,4 +3774,12 @@ private struct DocumentPreviewSheet: View {
         .tint(Ink.ink)
         .presentationDragIndicator(.visible)
     }
+}
+
+/// One entry in the 「/」 menu above the composer.
+struct SlashCommand: Identifiable {
+    let name: String
+    let detail: String
+    let action: () -> Void
+    var id: String { name }
 }
