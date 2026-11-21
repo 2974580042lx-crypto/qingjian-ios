@@ -9,7 +9,7 @@ enum DeliverableToolsUnavailableReason: Equatable, Sendable {
     var honestUserGuidance: String {
         switch self {
         case .pureRoleplay:
-            return "当前对话已开启「纯角色扮演模式」，系统已屏蔽所有文件生成与外部工具。请点右上角「⋯」关闭「纯角色扮演模式」后再让我生成可下载文件。"
+            return "当前对话已开启「纯角色扮演模式」，系统已屏蔽所有文件生成与外部工具。请点对话右上角「⋯」（或项目主页「⋯ → 编辑详情」）关闭「纯角色扮演模式」后再让我生成可下载文件。"
         case .chatOnlyPolicy:
             return "当前对话的工具权限设为「仅纯聊天」，暂时无法调用文件生成工具。请点输入框左下角「+ → 权限」切回「自动」后再试。"
         case .bookMode:
