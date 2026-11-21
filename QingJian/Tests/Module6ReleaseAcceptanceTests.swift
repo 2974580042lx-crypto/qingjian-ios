@@ -63,6 +63,7 @@ final class Module6ReleaseAcceptanceTests: XCTestCase {
         let msgID = UUID()
         let legacyJSON = """
         {
+          "version": 1,
           "settings": {
             "model": "deepseek-flash",
             "thinkingEnabled": true,
