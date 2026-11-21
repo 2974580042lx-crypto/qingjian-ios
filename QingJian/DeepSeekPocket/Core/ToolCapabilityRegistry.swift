@@ -50,7 +50,7 @@ final class SessionAgentPreferencesStore: @unchecked Sendable {
         var entries: [String: SessionAgentPreferences]
     }
 
-    init(fileURL: URL? = Self.defaultFileURL(), maxEntries: Int = 600) {
+    init(fileURL: URL? = SessionAgentPreferencesStore.defaultFileURL(), maxEntries: Int = 600) {
         self.fileURL = fileURL
         self.maxEntries = max(32, maxEntries)
         loadFromDisk()
@@ -190,7 +190,7 @@ final class VisionDescriptionCache: @unchecked Sendable {
         var entries: [String: String]
     }
 
-    init(fileURL: URL? = Self.defaultFileURL(), maxEntries: Int = 200) {
+    init(fileURL: URL? = VisionDescriptionCache.defaultFileURL(), maxEntries: Int = 200) {
         self.fileURL = fileURL
         self.maxEntries = max(16, maxEntries)
         loadFromDisk()

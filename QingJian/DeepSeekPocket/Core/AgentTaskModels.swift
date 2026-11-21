@@ -334,7 +334,7 @@ final class AgentRunStore: @unchecked Sendable {
         var records: [AgentRunRecord]
     }
 
-    init(fileURL: URL? = Self.defaultFileURL(), maxRecords: Int = 400) {
+    init(fileURL: URL? = AgentRunStore.defaultFileURL(), maxRecords: Int = 400) {
         self.fileURL = fileURL
         self.maxRecords = max(32, maxRecords)
         loadFromDisk()

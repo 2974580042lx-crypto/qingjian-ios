@@ -1033,7 +1033,9 @@ struct AddToChatSheet: View {
                 options: singleShot
             ) { image, info in
                 let isDegraded = (info?[PHImageResultIsDegradedKey] as? Bool) ?? false
-                guard !isDegraded, !resumed else { return }
+                let isCancelled = (info?[PHImageCancelledKey] as? Bool) ?? false
+                let hasError = info?[PHImageErrorKey] != nil
+                guard (!isDegraded || isCancelled || hasError), !resumed else { return }
                 resumed = true
                 continuation.resume(returning: image)
             }
