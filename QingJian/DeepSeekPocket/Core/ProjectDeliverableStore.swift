@@ -422,7 +422,13 @@ enum DocumentStudioTools {
     ]
 
     static let systemNote = """
-    你已配备本地文档生成工作台工具（document_create_docx / document_create_xlsx / document_create_pdf / document_create_file / document_list_deliverables / document_read_deliverable）。当用户要求输出可下载的 Word、Excel、PDF、HTML 或 Markdown 成果文件，或修改此前已生成的交付文件时，请直接调用对应工具生成真实文件（生成的成果会自动以单列文件行展示在回复上方，无需在聊天正文里重复粘贴整份文件全文，只需简洁交代要点与修改处即可）。
+    【本地真实文件交付能力（已就绪）】
+    你已配备 Sermo 客户端内置的本地文件编译工具：`document_create_docx`（真实可下载 Word .docx，含标准底部圆圈页下注）、`document_create_xlsx`（真实可下载多工作表 Excel .xlsx）、`document_create_pdf`（真实可下载中文排版 PDF）、`document_create_file`（HTML/Markdown/CSV/TXT）、`document_list_deliverables` 与 `document_read_deliverable`。
+    重要规则：
+    1. 只要用户要求生成、导出、交付可下载的 Word / Excel / PDF / Markdown / HTML 文件，或基于项目资料输出项目成果，必须**直接调用对应 `document_create_*` 工具**。客户端会立即编译出真实二进制文件并自动展示在回复上方的单列附件卡片中，支持预览、分享、导出到 Word/WPS 与版本管理（v1 → v2）。
+    2. 严禁声称「当前聊天暂时无法发送可下载的 .docx/.xlsx/.pdf 附件」，严禁输出 HTML 预览来替代 Word/Excel/PDF，也严禁让用户自己复制文字粘贴到 Word。
+    3. 修改已有成果文件时，先调用 `document_list_deliverables` / `document_read_deliverable` 读取原稿，再传 `base_deliverable_id` 调用 `document_create_*` 自动递增版本号。
+    4. 生成成功后，正文只需简洁交代文件亮点、结构或修改处即可，无需把整篇文档全文重复贴进聊天框。
     """
 
     static func activityTitle(for call: ToolCall) -> String {
@@ -447,6 +453,29 @@ enum DocumentStudioTools {
         }
     }
 
+    private static func extractString(_ obj: [String: Any], keys: [String]) -> String {
+        for key in keys {
+            if let s = obj[key] as? String {
+                let trimmed = s.trimmingCharacters(in: .whitespacesAndNewlines)
+                if !trimmed.isEmpty { return trimmed }
+            }
+        }
+        return ""
+    }
+
+    private static func extractSheetsData(_ obj: [String: Any]) -> Data? {
+        for key in ["sheets_json", "sheets", "tables", "data"] {
+            if let raw = obj[key] as? String {
+                let trimmed = raw.trimmingCharacters(in: .whitespacesAndNewlines)
+                if !trimmed.isEmpty, let d = trimmed.data(using: .utf8) { return d }
+            } else if let nested = obj[key], JSONSerialization.isValidJSONObject(nested),
+                      let d = try? JSONSerialization.data(withJSONObject: nested, options: []) {
+                return d
+            }
+        }
+        return nil
+    }
+
     static func execute(
         _ call: ToolCall,
         projectID: UUID?,
@@ -459,8 +488,8 @@ enum DocumentStudioTools {
 
         switch call.name {
         case "document_create_docx":
-            let title = (obj["title"] as? String ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
-            let markdown = (obj["markdown"] as? String ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
+            let title = extractString(obj, keys: ["title", "file_name", "filename", "name"])
+            let markdown = extractString(obj, keys: ["markdown", "content", "body", "text"])
             guard !title.isEmpty, !markdown.isEmpty else {
                 throw ToolError.invalidArguments("生成 Word 文档需要 title 和 markdown。")
             }
@@ -491,9 +520,8 @@ enum DocumentStudioTools {
             )
 
         case "document_create_xlsx":
-            let title = (obj["title"] as? String ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
-            let sheetsRaw = (obj["sheets_json"] as? String ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
-            guard !title.isEmpty, !sheetsRaw.isEmpty, let sheetsData = sheetsRaw.data(using: .utf8) else {
+            let title = extractString(obj, keys: ["title", "file_name", "filename", "name"])
+            guard !title.isEmpty, let sheetsData = extractSheetsData(obj) else {
                 throw ToolError.invalidArguments("生成 Excel 表格需要 title 和有效的 sheets_json。")
             }
             let sheets: [XlsxSheetSpec]
@@ -527,8 +555,8 @@ enum DocumentStudioTools {
             )
 
         case "document_create_pdf":
-            let title = (obj["title"] as? String ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
-            let markdown = (obj["markdown"] as? String ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
+            let title = extractString(obj, keys: ["title", "file_name", "filename", "name"])
+            let markdown = extractString(obj, keys: ["markdown", "content", "body", "text"])
             guard !title.isEmpty, !markdown.isEmpty else {
                 throw ToolError.invalidArguments("生成 PDF 需要 title 和 markdown。")
             }
@@ -552,10 +580,10 @@ enum DocumentStudioTools {
             )
 
         case "document_create_file":
-            let title = (obj["title"] as? String ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
-            let rawFmt = (obj["format"] as? String ?? "").trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
-            let content = (obj["content"] as? String ?? "")
-            guard !title.isEmpty, !content.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
+            let title = extractString(obj, keys: ["title", "file_name", "filename", "name"])
+            let rawFmt = extractString(obj, keys: ["format", "ext", "extension"]).lowercased()
+            let content = extractString(obj, keys: ["content", "markdown", "body", "text"])
+            guard !title.isEmpty, !content.isEmpty else {
                 throw ToolError.invalidArguments("生成文件需要 title 和非空 content。")
             }
             let format: DeliverableFormat

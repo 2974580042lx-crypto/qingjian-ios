@@ -125,6 +125,7 @@ struct DeliverableDetailSheet: View {
     @State private var selectedID: UUID
     @State private var viewMode: PreviewMode = .preview
     @State private var previewURL: URL?
+    @State private var previewReady = false
     @State private var shareURL: URL?
     @State private var reloadToken = UUID()
     @State private var copied = false
@@ -280,6 +281,14 @@ struct DeliverableDetailSheet: View {
                     QuickLookFilePreview(url: url)
                         .id(url.path + "-" + activeItem.id.uuidString)
                         .ignoresSafeArea(edges: .bottom)
+                } else if !previewReady {
+                    VStack(spacing: 10) {
+                        ProgressView()
+                        Text("正在准备文档预览…")
+                            .font(TypeScale.caption)
+                            .foregroundStyle(Ink.ink3)
+                    }
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
                 } else {
                     fallbackTextScroll(title: "暂未能载入系统预览，下方显示已提取的文字版本：", text: activeItem.sourcePreview)
                 }
@@ -394,6 +403,7 @@ struct DeliverableDetailSheet: View {
     private func refreshPreviewURL() {
         cleanupTempPreview()
         previewURL = store.exportableDeliverableURL(for: activeItem)
+        previewReady = true
     }
 
     private func saveToFiles() {

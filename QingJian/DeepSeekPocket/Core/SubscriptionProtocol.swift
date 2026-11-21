@@ -397,6 +397,7 @@ struct ResponsesStreamDecoder {
     private var firstLine = true
     private(set) var completed = false
     private var functionIndices: Set<Int> = []
+    private var streamedArgumentIndices: Set<Int> = []
     private var pendingInitialArguments: [Int: String] = [:]
     // Allow large base64 image_generation_call payloads (up to 24 MiB) without triggering malformed-stream errors.
     private static let maxEventBytes = 24 * 1024 * 1024
@@ -437,7 +438,7 @@ struct ResponsesStreamDecoder {
             if itemType == "function_call" {
                 let ns = item["namespace"] as? String
                 guard let index = object["output_index"] as? Int, let id = item["call_id"] as? String,
-                      let name = item["name"] as? String, (ns == nil || ns == "study"),
+                      let name = item["name"] as? String, (ns == nil || ns == "" || ns == "study"),
                       !functionIndices.contains(index) else { throw SubscriptionError.malformed }
                 functionIndices.insert(index)
                 let initialArgs = item["arguments"] as? String ?? ""
@@ -474,13 +475,41 @@ struct ResponsesStreamDecoder {
             return StreamEvent(webSources: [source])
         case "response.function_call_arguments.delta":
             guard let index = object["output_index"] as? Int, functionIndices.contains(index), let delta = object["delta"] as? String else { throw SubscriptionError.malformed }
+            streamedArgumentIndices.insert(index)
             pendingInitialArguments.removeValue(forKey: index)
             return StreamEvent(toolCalls: [.init(index: index, arguments: delta)])
+        case "response.function_call_arguments.done":
+            guard let index = object["output_index"] as? Int, functionIndices.contains(index) else { return nil }
+            guard !streamedArgumentIndices.contains(index) else { return nil }
+            if let fullArgs = object["arguments"] as? String, !fullArgs.isEmpty {
+                streamedArgumentIndices.insert(index)
+                pendingInitialArguments.removeValue(forKey: index)
+                return StreamEvent(toolCalls: [.init(index: index, arguments: fullArgs)])
+            }
+            return nil
         case "response.output_item.done":
             guard let item = object["item"] as? [String: Any], let itemType = item["type"] as? String else { return nil }
             if itemType == "function_call", let index = object["output_index"] as? Int {
-                if let unstreamed = pendingInitialArguments.removeValue(forKey: index), !unstreamed.isEmpty {
-                    return StreamEvent(toolCalls: [.init(index: index, arguments: unstreamed)])
+                let doneArgs = (item["arguments"] as? String) ?? ""
+                if !functionIndices.contains(index) {
+                    // Some OpenAI Responses servers emit a complete function_call directly in output_item.done
+                    let ns = item["namespace"] as? String
+                    guard let id = item["call_id"] as? String,
+                          let name = item["name"] as? String,
+                          (ns == nil || ns == "" || ns == "study") else { return nil }
+                    functionIndices.insert(index)
+                    if !doneArgs.isEmpty { streamedArgumentIndices.insert(index) }
+                    return StreamEvent(toolCalls: [.init(index: index, id: id, name: name, arguments: doneArgs)])
+                }
+                if !streamedArgumentIndices.contains(index) {
+                    let resolved = !doneArgs.isEmpty ? doneArgs : (pendingInitialArguments.removeValue(forKey: index) ?? "")
+                    pendingInitialArguments.removeValue(forKey: index)
+                    if !resolved.isEmpty {
+                        streamedArgumentIndices.insert(index)
+                        return StreamEvent(toolCalls: [.init(index: index, arguments: resolved)])
+                    }
+                } else {
+                    pendingInitialArguments.removeValue(forKey: index)
                 }
                 return nil
             }

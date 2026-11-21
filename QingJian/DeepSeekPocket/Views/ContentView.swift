@@ -16,6 +16,7 @@ struct ContentView: View {
     // Settings, projects and the full list open from the sidebar; there is no tab bar.
     @State private var showSettings = previewFlag("settings", "profile", "usage")
     @State private var showProjects = previewFlag("projects", "project")
+    @State private var initialProjectID: UUID? = nil
     @State private var showAllChats = previewFlag("all-chats")
     @State private var showBooks = previewFlag("books")
     @State private var showSidebar = previewFlag("sidebar")
@@ -41,7 +42,7 @@ struct ContentView: View {
                 sidebarBuilder: {
                     HistorySidebar(close: { showSidebar = false },
                                    openSettings: { showSettings = true },
-                                   openProjects: { showProjects = true },
+                                   openProjects: { initialProjectID = nil; showProjects = true },
                                    openAllChats: { showAllChats = true },
                                    openBooks: { showBooks = true })
                         .environmentObject(store)
@@ -51,6 +52,7 @@ struct ContentView: View {
                 main: NavigationStack {
                     ChatScreen(openHistory: { showSidebar = true },
                                openSettings: { showSettings = true },
+                               openProject: { id in initialProjectID = id; showProjects = true },
                                keyboardVisible: $keyboardVisible,
                                composerPanelHeight: $composerPanelHeight,
                                bottomInset: bottomInset,
@@ -85,8 +87,14 @@ struct ContentView: View {
             UnifiedRestorePreviewSheet(preview: preview)
                 .environmentObject(store)
         }
-        .sheet(isPresented: $showProjects) {
-            ProjectsView(opened: { showProjects = false; showSidebar = false }).environmentObject(store).environmentObject(profile)
+        .sheet(isPresented: $showProjects, onDismiss: { initialProjectID = nil }) {
+            ProjectsView(
+                opened: { showProjects = false; showSidebar = false },
+                initialProjectID: initialProjectID,
+                initiallyUnlocked: initialProjectID.map { !store.isLocked($0) } ?? false
+            )
+            .environmentObject(store)
+            .environmentObject(profile)
         }
         // Route files & deep links opened from Files / WeChat / Safari / Shortcuts:
         // .sermobackup opens backup restore directly; all other files, images, links & notes
@@ -330,6 +338,7 @@ struct ChatScreen: View {
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     let openHistory: () -> Void
     let openSettings: () -> Void
+    var openProject: (UUID) -> Void = { _ in }
     @Binding var keyboardVisible: Bool
     @Binding var composerPanelHeight: CGFloat
     let bottomInset: CGFloat
@@ -816,18 +825,49 @@ struct ChatScreen: View {
         // No title in the bar: only the floating glass buttons, as in the Claude app.
         .toolbar(removing: .title)
         .toolbar {
-            ToolbarItem(placement: .topBarLeading) {
-                Button { focusComposer(false); openHistory() } label: { SidebarGlyph() }
-                    .accessibilityLabel("打开历史对话")
+            if let activeProject = store.activeProject {
+                ToolbarItem(placement: .topBarLeading) {
+                    Button {
+                        focusComposer(false)
+                        openProject(activeProject.id)
+                    } label: {
+                        Image(systemName: "chevron.left")
+                            .font(.system(size: 15.5, weight: .medium))
+                    }
+                    .accessibilityLabel("返回项目 \(activeProject.name)")
+                    .accessibilityIdentifier("chat-back-to-project")
+                }
+                ToolbarSpacer(.fixed, placement: .topBarLeading)
+                ToolbarItem(placement: .topBarLeading) {
+                    Button {
+                        focusComposer(false)
+                        openProject(activeProject.id)
+                    } label: {
+                        HStack(spacing: 5) {
+                            Image(systemName: activeProject.studySubject != nil ? "graduationcap" : "tray.full")
+                                .font(.system(size: 13.5, weight: .regular))
+                            Text(activeProject.name.count > 9 ? String(activeProject.name.prefix(8)) + "…" : activeProject.name)
+                                .font(.system(size: 14, weight: .medium))
+                                .lineLimit(1)
+                        }
+                    }
+                    .accessibilityLabel("当前所属项目：\(activeProject.name)，点击返回项目")
+                    .accessibilityIdentifier("chat-project-badge")
+                }
+            } else {
+                ToolbarItem(placement: .topBarLeading) {
+                    Button { focusComposer(false); openHistory() } label: { SidebarGlyph() }
+                        .accessibilityLabel("打开历史对话")
+                }
             }
             ToolbarItem(placement: .principal) {
                 if let thread = store.activeThread, thread.story != nil { StoryDirectionMenu(threadID: thread.id) }
                 else if night { MoonDisc(size: 22, glow: store.isGenerating).accessibilityLabel("Sermo") }
             }
             // Like the Claude app: no title in the bar, only the floating glass controls.
-            // In a conversation the right one holds optional workspace/deliverables, new-page and a "⋯" menu.
+            // In a conversation the right one holds optional deliverables shortcut, new-page and a "⋯" menu.
             ToolbarItemGroup(placement: .topBarTrailing) {
-                if store.activeThread?.projectID != nil || store.hasWorkspaceItems(projectID: store.activeThread?.projectID, threadID: store.activeThreadID) {
+                if !store.workspaceDeliverables(projectID: store.activeThread?.projectID, threadID: store.activeThreadID).isEmpty {
                     Button {
                         focusComposer(false)
                         showWorkspaceSheet = true
@@ -842,7 +882,7 @@ struct ChatScreen: View {
                     Image(systemName: "square.and.pencil").font(.system(size: 16, weight: .regular))
                 }
                     .accessibilityLabel("新建对话")
-                if !isEmptyPage || store.activeThread?.bookDiscussion != nil { titleMenu }
+                if !isEmptyPage || store.activeThread?.bookDiscussion != nil || store.activeProject != nil { titleMenu }
             }
         }
         .toolbarBackgroundVisibility(.hidden, for: .navigationBar)
@@ -1340,6 +1380,21 @@ struct ChatScreen: View {
                     Button("新建本书讨论", systemImage: "plus.bubble") { _ = store.startBookDiscussion(discussion.bookID) }
                 }
                 Divider()
+                if let activeProject = store.activeProject {
+                    Button("返回项目「\(activeProject.name)」", systemImage: activeProject.studySubject != nil ? "graduationcap" : "tray.full") {
+                        focusComposer(false)
+                        openProject(activeProject.id)
+                    }
+                    Button("项目成果与文献库", systemImage: "doc.on.doc") {
+                        focusComposer(false)
+                        showWorkspaceSheet = true
+                    }
+                    Button("打开历史侧栏", systemImage: "sidebar.left") {
+                        focusComposer(false)
+                        openHistory()
+                    }
+                    Divider()
+                }
                 if !swiss {
                     Menu("排版样式 · \(currentLayoutMode.title)", systemImage: currentLayoutMode.symbol) {
                         ForEach(ChatLayoutMode.allCases) { mode in

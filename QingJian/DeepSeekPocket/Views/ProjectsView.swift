@@ -38,10 +38,17 @@ struct ProjectsView: View {
     @Environment(\.dismiss) private var dismiss
     // Called after a conversation was opened, so the sheet and the sidebar can close.
     let opened: () -> Void
+    var initialProjectID: UUID? = nil
     @State private var path: [UUID] = []
     @State private var creating = false
     @State private var newName = ""
     @State private var designing = false
+
+    init(opened: @escaping () -> Void, initialProjectID: UUID? = nil, initiallyUnlocked: Bool = false) {
+        self.opened = opened
+        self.initialProjectID = initialProjectID
+        self._path = State(initialValue: (initiallyUnlocked && initialProjectID != nil) ? [initialProjectID!] : [])
+    }
 
     var body: some View {
         NavigationStack(path: $path) {
@@ -133,7 +140,15 @@ struct ProjectsView: View {
         }
         .tint(Ink.ink)
         .onAppear {
-            if ProcessInfo.processInfo.arguments.contains("--preview-project"), let first = store.projects.first { path = [first.id] }
+            if let initialProjectID, path.isEmpty {
+                if store.isLocked(initialProjectID) {
+                    open(initialProjectID)
+                } else if store.project(initialProjectID) != nil {
+                    path = [initialProjectID]
+                }
+            } else if ProcessInfo.processInfo.arguments.contains("--preview-project"), let first = store.projects.first {
+                path = [first.id]
+            }
         }
     }
 
@@ -149,8 +164,9 @@ struct ProjectsView: View {
     _ = store.updateProject(project)
 }
 
-// After the Claude app's project screen: files and instructions on top, the
-// project's conversations below, and a new-conversation button at the bottom right.
+// 1:1 Claude iOS Project homepage: clean neutral canvas, three lightweight outlined
+// capsules (添加文件 / 添加指令 / 查看记忆), natural un-boxed conversation rows, and
+// bottom-right floating "+ 新建会话" pill.
 @MainActor
 struct ProjectPageView: View {
     @EnvironmentObject private var store: AppStore
@@ -159,136 +175,166 @@ struct ProjectPageView: View {
     let opened: () -> Void
     @State private var editingInstructions = false
     @State private var showingFiles = false
+    @State private var showingMemory = false
     @State private var showingWorkspace = false
+    @State private var editingDetails = false
     @State private var adjusting = false
-    @State private var renaming = false
-    @State private var renameText = ""
     @State private var confirmDelete = false
+    @State private var selectedDeliverable: ProjectDeliverable?
     private var project: ChatProject? { store.project(projectID) }
 
     var body: some View {
         let threads = store.threads(in: projectID)
         let libraryDocs = store.libraryDocuments(for: projectID)
-        let deliverablesCount = store.workspaceDeliverables(projectID: projectID, threadID: nil).count
+        let projectDeliverables = store.workspaceDeliverables(projectID: projectID, threadID: nil)
         let totalFileCount = (project?.documents.count ?? 0) + libraryDocs.count
+        let hasInstructions = !(project?.instructions.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ?? true)
         List {
-            Section {
-                HStack(spacing: 10) {
-                    Button { showingFiles = true } label: {
-                        pill(totalFileCount == 0 ? "添加文件" : "文件 · \(totalFileCount)", symbol: "doc.text")
-                    }
-                    .accessibilityIdentifier("project-files")
-                    Button { editingInstructions = true } label: {
-                        pill((project?.instructions.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ?? true) ? "添加指令" : "编辑指令", symbol: "text.alignleft")
-                    }
-                    .accessibilityIdentifier("project-instructions-button")
+            // 1. Three lightweight outlined horizontal capsules (1:1 Claude iOS)
+            HStack(spacing: 8) {
+                Button { showingFiles = true } label: {
+                    claudeOutlineCapsule(totalFileCount == 0 ? "添加文件" : "文件 · \(totalFileCount)")
                 }
-                .buttonStyle(.plain)
+                .accessibilityIdentifier("project-files")
+
+                Button { editingInstructions = true } label: {
+                    claudeOutlineCapsule(hasInstructions ? "编辑指令" : "添加指令")
+                }
+                .accessibilityIdentifier("project-instructions-button")
+
+                Button { showingMemory = true } label: {
+                    claudeOutlineCapsule(project?.studySubject != nil ? "学习档案" : "查看记忆")
+                }
+                .accessibilityIdentifier("project-memory")
             }
-            .listRowBackground(Color.clear)
-            .listRowInsets(EdgeInsets(top: 4, leading: 0, bottom: 4, trailing: 0))
+            .buttonStyle(.plain)
+            .listRowBackground(Ink.paper)
+            .listRowInsets(EdgeInsets(top: 10, leading: 16, bottom: 10, trailing: 16))
+            .listRowSeparator(.hidden)
 
-            // Every service can use manually written project memory.
-            if project != nil {
+            // Study English daily words strip (kept lightweight, zero white card box)
+            if project?.studySubject == .english,
+               let todayList = (try? store.studyWordSummary(projectID: projectID))?.todayWordsList,
+               !todayList.isEmpty {
+                ScrollView(.horizontal, showsIndicators: false) {
+                    HStack(spacing: 6) {
+                        Text("今日已聊")
+                            .font(TypeScale.tiny.weight(.medium))
+                            .foregroundStyle(Ink.ink3)
+                        ForEach(todayList.prefix(16), id: \.word.id) { item in
+                            Text(item.word.word)
+                                .font(.system(size: 12, weight: .medium, design: .monospaced))
+                                .foregroundStyle(Ink.ink2)
+                                .padding(.horizontal, 8)
+                                .padding(.vertical, 3)
+                                .background(Ink.raised, in: Capsule())
+                        }
+                    }
+                    .padding(.vertical, 2)
+                }
+                .listRowBackground(Ink.paper)
+                .listRowInsets(EdgeInsets(top: 2, leading: 16, bottom: 6, trailing: 16))
+                .listRowSeparator(.hidden)
+            }
+
+            // 2. Deliverables section (only shown when real generated deliverables exist — single-column Claude rows, zero nested card box)
+            if !projectDeliverables.isEmpty {
                 Section {
-                    Button { showingWorkspace = true } label: {
-                        HStack(spacing: 12) {
-                            ClaudeIconBadge(systemName: "doc.on.doc", color: Ink.ink2)
-                            Text("项目成果与文献检索")
-                                .font(TypeScale.ui(15.5))
-                                .foregroundStyle(Ink.ink)
-                            Spacer(minLength: 8)
-                            Text(workspaceSummary(deliverablesCount: deliverablesCount, libraryCount: libraryDocs.count))
-                                .font(TypeScale.ui(12.5))
-                                .foregroundStyle(Ink.ink3)
-                                .lineLimit(1)
-                            Image(systemName: "chevron.right")
-                                .font(.system(size: 11, weight: .medium))
-                                .foregroundStyle(Ink.ink3.opacity(0.6))
+                    ForEach(projectDeliverables.prefix(3)) { item in
+                        DeliverableFileRow(item: item) {
+                            selectedDeliverable = item
                         }
+                        .listRowBackground(Ink.paper)
+                        .listRowInsets(EdgeInsets(top: 4, leading: 16, bottom: 4, trailing: 16))
+                        .listRowSeparator(.hidden)
                     }
-                    .buttonStyle(.plain)
-                    .accessibilityIdentifier("project-workspace")
-
-                    NavigationLink {
-                        if project?.studySubject != nil { StudyMemoryView(projectID: projectID) }
-                        else { ProjectMemoryView(projectID: projectID) }
-                    } label: {
-                        HStack(spacing: 12) {
-                            ClaudeIconBadge(
-                                systemName: project?.studySubject != nil ? "graduationcap" : "brain",
-                                color: project?.studySubject != nil ? Ink.seal : Ink.ink2
-                            )
-                            Text(project?.studySubject != nil ? "学习档案与进度" : "项目备忘（跨对话）")
-                                .font(TypeScale.ui(15.5))
-                                .foregroundStyle(Ink.ink)
-                            Spacer(minLength: 8)
-                            Text(memorySummary)
-                                .font(TypeScale.ui(12.5))
-                                .foregroundStyle(Ink.ink3)
-                                .lineLimit(1)
-                        }
-                    }
-                    .accessibilityIdentifier("project-memory")
-
-                    if project?.studySubject == .english,
-                       let todayList = (try? store.studyWordSummary(projectID: projectID))?.todayWordsList,
-                       !todayList.isEmpty {
-                        ScrollView(.horizontal, showsIndicators: false) {
-                            HStack(spacing: 6) {
-                                Text("今日已聊")
-                                    .font(TypeScale.tiny.weight(.medium))
-                                    .foregroundStyle(Ink.ink3)
-                                ForEach(todayList.prefix(16), id: \.word.id) { item in
-                                    Text(item.word.word)
-                                        .font(.system(size: 12, weight: .medium, design: .monospaced))
-                                        .foregroundStyle(Ink.ink2)
-                                        .padding(.horizontal, 8).padding(.vertical, 3)
-                                        .background(Ink.raised, in: Capsule())
-                                }
+                    if projectDeliverables.count > 3 {
+                        Button { showingWorkspace = true } label: {
+                            HStack(spacing: 4) {
+                                Text("查看全部 \(projectDeliverables.count) 份成果")
+                                    .font(TypeScale.caption)
+                                Image(systemName: "chevron.right")
+                                    .font(.system(size: 10, weight: .medium))
                             }
-                            .padding(.vertical, 2)
+                            .foregroundStyle(Ink.ink3)
+                            .padding(.vertical, 4)
                         }
+                        .buttonStyle(.plain)
+                        .listRowBackground(Ink.paper)
+                        .listRowInsets(EdgeInsets(top: 2, leading: 18, bottom: 6, trailing: 16))
+                        .listRowSeparator(.hidden)
                     }
+                } header: {
+                    Text("项目成果")
+                        .font(TypeScale.ui(13.5))
+                        .foregroundStyle(Ink.ink3)
+                        .textCase(nil)
                 }
-                .claudeCardRow()
             }
 
+            // 3. Natural un-boxed recent conversations list (1:1 Claude iOS)
             if threads.isEmpty {
-                Section {
-                    VStack(spacing: 10) {
-                        Image(systemName: "message").font(.system(size: 20, weight: .light)).foregroundStyle(Ink.ink2)
-                            .frame(width: 48, height: 48).background(Ink.raised, in: Circle())
-                        Text("向 Sermo 提出任何问题").font(TypeScale.ui(15.5, weight: .medium)).foregroundStyle(Ink.ink)
-                        Text("此项目中的会话将显示在这里。").font(TypeScale.ui(13.5)).foregroundStyle(Ink.ink3)
-                    }
-                    .frame(maxWidth: .infinity)
-                    .padding(.vertical, 28)
+                VStack(spacing: 10) {
+                    Image(systemName: "bubble.left")
+                        .font(.system(size: 20, weight: .light))
+                        .foregroundStyle(Ink.ink2)
+                        .frame(width: 48, height: 48)
+                        .background(Ink.raised, in: Circle())
+                    Text("向 Sermo 提出任何问题")
+                        .font(TypeScale.ui(15.5, weight: .medium))
+                        .foregroundStyle(Ink.ink)
+                    Text("此项目中的会话将显示在这里。")
+                        .font(TypeScale.ui(13.5))
+                        .foregroundStyle(Ink.ink3)
                 }
-                .listRowBackground(Color.clear)
+                .frame(maxWidth: .infinity)
+                .padding(.vertical, 48)
+                .listRowBackground(Ink.paper)
+                .listRowSeparator(.hidden)
             } else {
-                Section("项目对话") {
+                Section {
                     ForEach(threads) { thread in
                         Button { store.select(thread.id); opened() } label: {
-                            HStack(spacing: 12) {
-                                ClaudeIconBadge(systemName: "message", color: Ink.ink2, size: 15.5)
-                                VStack(alignment: .leading, spacing: 2.5) {
-                                    Text(thread.title).font(TypeScale.ui(15.5)).foregroundStyle(Ink.ink).lineLimit(1)
-                                    Text(thread.updatedAt.formatted(date: .abbreviated, time: .omitted)).font(TypeScale.tiny).foregroundStyle(Ink.ink3)
+                            HStack(alignment: .top, spacing: 14) {
+                                Image(systemName: "bubble.left")
+                                    .font(.system(size: 18, weight: .light))
+                                    .foregroundStyle(Ink.ink2)
+                                    .padding(.top, 2)
+                                VStack(alignment: .leading, spacing: 3) {
+                                    Text(thread.title)
+                                        .font(.system(size: 16, weight: .medium))
+                                        .foregroundStyle(Ink.ink)
+                                        .lineLimit(1)
+                                    Text(Self.friendlyRelativeDate(thread.updatedAt))
+                                        .font(.system(size: 13.5, weight: .regular))
+                                        .foregroundStyle(Ink.ink3)
                                 }
                                 Spacer(minLength: 0)
                             }
-                            .padding(.vertical, 2).frame(maxWidth: .infinity, alignment: .leading).contentShape(Rectangle())
+                            .padding(.vertical, 8)
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                            .contentShape(Rectangle())
                         }
                         .buttonStyle(.plain)
-                        .swipeActions { Button("移出") { store.moveThreads([thread.id], to: nil) }.tint(Ink.ink3) }
+                        .listRowBackground(Ink.paper)
+                        .listRowInsets(EdgeInsets(top: 2, leading: 18, bottom: 2, trailing: 18))
+                        .listRowSeparator(.hidden)
+                        .swipeActions {
+                            Button("移出") { store.moveThreads([thread.id], to: nil) }.tint(Ink.ink3)
+                        }
                         .accessibilityIdentifier("project-thread-row")
                     }
+                } header: {
+                    Text("最近")
+                        .font(TypeScale.ui(13.5))
+                        .foregroundStyle(Ink.ink3)
+                        .textCase(nil)
                 }
-                .claudeCardRow()
             }
         }
-        .claudeGroupedListStyle()
+        .listStyle(.plain)
+        .scrollContentBackground(.hidden)
+        .background(Ink.paper.ignoresSafeArea())
         .contentMargins(.bottom, 92, for: .scrollContent)
         .overlay(alignment: .bottomTrailing) {
             Button { store.createThread(in: projectID); opened() } label: {
@@ -313,8 +359,11 @@ struct ProjectPageView: View {
                 optionsMenu
             }
         }
-        .navigationDestination(isPresented: $showingFiles) {
-            ProjectFilesView(projectID: projectID)
+        .sheet(isPresented: $showingFiles) {
+            ProjectFilesSheet(projectID: projectID).environmentObject(store)
+        }
+        .sheet(isPresented: $showingMemory) {
+            ProjectMemorySheet(projectID: projectID).environmentObject(store)
         }
         .sheet(isPresented: $showingWorkspace) {
             ProjectWorkspaceSheet(projectID: projectID, threadID: nil, initialTab: .deliverables)
@@ -323,13 +372,18 @@ struct ProjectPageView: View {
         .sheet(isPresented: $editingInstructions) {
             ProjectInstructionsView(projectID: projectID).environmentObject(store)
         }
+        .sheet(isPresented: $editingDetails) {
+            ProjectDetailsEditSheet(projectID: projectID) {
+                adjusting = true
+            }
+            .environmentObject(store)
+        }
         .sheet(isPresented: $adjusting) {
             ProjectDesignerView(projectID: projectID).environmentObject(store)
         }
-        .alert("重命名项目", isPresented: $renaming) {
-            TextField("项目名称", text: $renameText)
-            Button("取消", role: .cancel) { }
-            Button("保存") { editProject(store, projectID) { $0.name = renameText } }
+        .sheet(item: $selectedDeliverable) { item in
+            DeliverableDetailSheet(deliverable: item)
+                .environmentObject(store)
         }
         .confirmationDialog("删除「\(project?.name ?? "")」？", isPresented: $confirmDelete, titleVisibility: .visible) {
             Button("删除项目，对话移回「最近」") { store.deleteProject(projectID, keepConversations: true); dismiss() }
@@ -342,123 +396,19 @@ struct ProjectPageView: View {
         .errorAlert(store)
     }
 
+    // 1:1 Claude iOS clean native floating menu: 编辑详情 / 项目成果与检索 / 删除
     private var optionsMenu: some View {
         Menu {
-            Button("让 AI 调整项目", systemImage: "sparkles") { adjusting = true }
-            Button("重命名", systemImage: "pencil") { renameText = project?.name ?? ""; renaming = true }
-            Menu("学习科目", systemImage: "graduationcap") {
-                Picker("学习科目", selection: Binding(
-                    get: { project?.studySubject?.rawValue ?? "none" },
-                    set: { value in
-                        editProject(store, projectID) { proj in
-                            proj.studySubject = StudySubject(rawValue: value)
-                            if proj.studySubject != nil { proj.autoMemory = true }
-                        }
-                    }
-                )) {
-                    Text("普通项目（无）").tag("none")
-                    ForEach(StudySubject.allCases, id: \.rawValue) { subj in
-                        Text(subj.title).tag(subj.rawValue)
-                    }
-                }
+            Button("编辑详情", systemImage: "doc.badge.gearshape") {
+                editingDetails = true
             }
-            Menu("服务", systemImage: "server.rack") {
-                Picker("服务", selection: Binding(get: { project?.service ?? .deepSeek },
-                                                set: { value in editProject(store, projectID) { $0.provider = value } })) {
-                    ForEach(AIProvider.allCases) { Text($0.title).tag($0) }
-                }
-            }
-            if project?.service == .chatGPT {
-                Menu("默认模型", systemImage: "cpu") {
-                    Picker("默认模型", selection: Binding(get: { project?.subscriptionModel ?? "follow" },
-                                                      set: { value in editProject(store, projectID) { $0.subscriptionModel = value == "follow" ? nil : value } })) {
-                        Text("跟随当前").tag("follow")
-                        ForEach(store.subscription.models) { Text($0.displayName).tag($0.slug) }
-                    }
-                }
-                Menu("默认思考", systemImage: "sparkle") {
-                    let targetSlug = project?.subscriptionModel ?? store.activeChatSettings.subscriptionModel
-                    Picker("默认思考", selection: Binding(get: { project?.subscriptionEffort?.rawValue ?? "follow" },
-                                                      set: { value in editProject(store, projectID) { $0.subscriptionEffort = SubscriptionEffort(rawValue: value) } })) {
-                        Text("跟随当前").tag("follow")
-                        ForEach(store.subscription.availableEfforts(for: targetSlug)) { Text($0.menuLabel).tag($0.rawValue) }
-                    }
-                }
-                if project?.studySubject == nil {
-                    Toggle(isOn: Binding(get: { project?.autoMemory != false },
-                                         set: { value in editProject(store, projectID) { $0.autoMemory = value } })) {
-                        Label("自动整理备忘", systemImage: "brain")
-                    }
-                }
-            } else {
-            if project?.service == .deepSeek {
-            Menu("默认模型", systemImage: "cpu") {
-                Picker("默认模型", selection: Binding(get: { project?.model?.rawValue ?? "follow" },
-                                                  set: { value in editProject(store, projectID) { $0.model = DeepSeekModel(rawValue: value) } })) {
-                    Text("跟随当前").tag("follow")
-                    ForEach(DeepSeekModel.allCases) { Text($0.title).tag($0.rawValue) }
-                }
-            }
-            Menu("默认思考", systemImage: "sparkle") {
-                Picker("默认思考", selection: Binding(get: {
-                    guard let thinking = project?.thinkingEnabled else { return "follow" }
-                    return thinking ? (project?.effort ?? .high).rawValue : "off"
-                }, set: { value in
-                    editProject(store, projectID) { project in
-                        switch value {
-                        case "follow": project.thinkingEnabled = nil; project.effort = nil
-                        case "off": project.thinkingEnabled = false
-                        default: project.thinkingEnabled = true; project.effort = ThinkingEffort(rawValue: value)
-                        }
-                    }
-                })) {
-                    Text("跟随当前").tag("follow")
-                    Text("Off").tag("off")
-                    ForEach(ThinkingEffort.allCases) { Text($0.title).tag($0.rawValue) }
-                }
-            }
-            } else {
-                Text("Colab 模型与思考在 Colab 设置页配置")
-            }
-            if project?.studySubject == nil {
-                // Off by default, so one-scene role-play projects never carry anything across chats.
-                Toggle(isOn: Binding(get: { project?.autoMemory == true },
-                                     set: { value in editProject(store, projectID) { $0.autoMemory = value } })) {
-                    Label("跨对话备忘", systemImage: "brain")
-                }
-            }
-            }
-            if store.canUsePureRoleplay(project) {
-                Toggle(isOn: Binding(get: { project?.isPureRoleplay == true },
-                                     set: { value in editProject(store, projectID) { $0.pureRoleplay = value } })) {
-                    Label("纯角色扮演模式", systemImage: "theatermasks")
-                }
-            }
-            if project?.isPureRoleplay != true {
-                Toggle(isOn: Binding(get: { project?.driveTools ?? store.drive.connected },
-                                     set: { value in editProject(store, projectID) { $0.driveTools = value } })) {
-                    Label("谷歌云盘工具", systemImage: "externaldrive")
-                }
-                Toggle(isOn: Binding(get: { project?.githubTools ?? store.github.connected },
-                                     set: { value in editProject(store, projectID) { $0.githubTools = value } })) {
-                    Label("GitHub 工具", systemImage: "chevron.left.forwardslash.chevron.right")
-                }
-                Toggle(isOn: Binding(get: { project?.webTools != false },
-                                     set: { value in editProject(store, projectID) { $0.webTools = value } })) {
-                    Label("联网工具", systemImage: "globe")
-                }
-            }
-            // Enabled by default across all projects and chats unless explicitly switched off.
-            Toggle(isOn: Binding(get: { project?.timeAwareness != false },
-                                 set: { value in editProject(store, projectID) { $0.timeAwareness = value } })) {
-                Label("告诉角色时间流逝", systemImage: "clock")
-            }
-            Toggle(isOn: Binding(get: { project?.isLocked == true },
-                                 set: { value in editProject(store, projectID) { $0.isLocked = value } })) {
-                Label("面容 ID 锁", systemImage: "faceid")
+            Button("项目成果与文献检索", systemImage: "archivebox") {
+                showingWorkspace = true
             }
             Divider()
-            Button("删除项目", systemImage: "trash", role: .destructive) { confirmDelete = true }
+            Button("删除", systemImage: "trash", role: .destructive) {
+                confirmDelete = true
+            }
         } label: {
             Image(systemName: "ellipsis")
         }
@@ -466,60 +416,30 @@ struct ProjectPageView: View {
         .accessibilityIdentifier("project-options")
     }
 
-    private var memorySummary: String {
-        _ = store.studyRevision
-        if let subject = project?.studySubject {
-            guard let noteCount = try? store.studyRecords(for: projectID).count else { return "暂时无法读取" }
-            if subject == .english {
-                let wordSum = try? store.studyWordSummary(projectID: projectID)
-                let learned = wordSum?.learnedWords ?? 0
-                let today = wordSum?.todayWords ?? 0
-                let totalWords = wordSum?.totalWords ?? 0
-                let answeredReadings = (try? store.studyReadingAnsweredCount(projectID: projectID)) ?? 0
-                let totalReadings = (try? store.studyReadingCount(projectID: projectID)) ?? 0
-                if learned > 0 || answeredReadings > 0 || noteCount > 0 {
-                    let wordPart = today > 0 ? "已背 \(learned) 词(今\(today))" : "已背 \(learned) 词"
-                    return "\(wordPart) · 阅读 \(answeredReadings) 题 · \(noteCount) 笔记"
-                } else if totalWords > 0 || totalReadings > 0 {
-                    return "词库 \(totalWords) 词 · 阅读 \(totalReadings) 篇"
-                } else {
-                    return "点击导入词库 / 真题包"
-                }
-            } else {
-                let topicCount = (try? store.studyTopics(projectID: projectID).count) ?? 0
-                let practiceCount = (try? store.studyPractices(projectID: projectID).count) ?? 0
-                if topicCount > 0 || practiceCount > 0 || noteCount > 0 {
-                    return "专题 \(topicCount) · 练习 \(practiceCount) 题 · \(noteCount) 笔记"
-                } else {
-                    return "0 条学习记录"
-                }
-            }
-        }
-        if store.memorizingProjectID == projectID { return "正在整理…" }
-        let count = (project?.memory ?? "").components(separatedBy: .newlines).filter { !$0.trimmingCharacters(in: .whitespaces).isEmpty }.count
-        if count == 0 { return project?.remembers == true ? "离开对话后自动整理" : "手动填写" }
-        return "\(count) 条"
+    private func claudeOutlineCapsule(_ title: String) -> some View {
+        Text(title)
+            .font(.system(size: 14.5, weight: .medium))
+            .foregroundStyle(Ink.ink)
+            .lineLimit(1)
+            .minimumScaleFactor(0.86)
+            .frame(maxWidth: .infinity)
+            .frame(height: 44)
+            .background(Ink.paper, in: Capsule())
+            .overlay(Capsule().stroke(Ink.line, lineWidth: 0.9))
+            .contentShape(Capsule())
     }
 
-    private func workspaceSummary(deliverablesCount: Int, libraryCount: Int) -> String {
-        if deliverablesCount == 0 && libraryCount == 0 {
-            return "成品归档 · 百万字检索"
+    private static func friendlyRelativeDate(_ date: Date) -> String {
+        let elapsed = Date().timeIntervalSince(date)
+        if elapsed < 120 { return "此刻" }
+        let cal = Calendar.current
+        if cal.isDateInToday(date) {
+            return "今天 " + date.formatted(date: .omitted, time: .shortened)
         }
-        var parts: [String] = []
-        if deliverablesCount > 0 { parts.append("\(deliverablesCount) 份成果") }
-        if libraryCount > 0 { parts.append("\(libraryCount) 本文献") }
-        return parts.joined(separator: " · ")
-    }
-
-    private func pill(_ title: String, symbol: String) -> some View {
-        HStack(spacing: 7) {
-            Image(systemName: symbol).font(.system(size: 14.5, weight: .light)).foregroundStyle(Ink.ink2)
-            Text(title).font(TypeScale.ui(15, weight: .medium)).foregroundStyle(Ink.ink)
+        if cal.isDateInYesterday(date) {
+            return "昨天"
         }
-        .frame(maxWidth: .infinity).frame(height: 46)
-        .background(Ink.card, in: InkRounded(radius: 14))
-        .overlay(InkRounded(radius: 14).stroke(Ink.line, lineWidth: 0.6))
-        .contentShape(InkRounded(radius: 14))
+        return date.formatted(.dateTime.month().day())
     }
 }
 
@@ -1119,39 +1039,98 @@ private struct ProjectDocumentEditor: View {
     }
 }
 
+// 1:1 Claude iOS「指令」editor sheet: circular X close, centered title, circular solid checkmark confirm,
+// clean rounded multiline text box with placeholder and short guidance underneath, iPhone Air keyboard-safe.
 @MainActor
 struct ProjectInstructionsView: View {
     @EnvironmentObject private var store: AppStore
     @Environment(\.dismiss) private var dismiss
     let projectID: UUID
     @State private var text = ""
+    @FocusState private var isFocused: Bool
+
+    private var projectName: String {
+        store.project(projectID)?.name ?? "本项目"
+    }
 
     var body: some View {
         NavigationStack {
-            VStack(alignment: .leading, spacing: 12) {
-                Text("这个项目里的对话只用这段指令，不叠加设置里的系统提示词。可以写身份、语气和规矩，比如「你是一位研究明史的老教授……」。")
-                    .font(TypeScale.caption).foregroundStyle(Ink.ink3)
-                TextEditor(text: $text).font(TypeScale.ui(15.5)).scrollContentBackground(.hidden)
-                    .padding(12).background(Ink.card, in: InkRounded(radius: 16))
-                    .overlay(InkRounded(radius: 16).stroke(Ink.line, lineWidth: 0.7))
-                    .accessibilityIdentifier("project-instructions")
+            ScrollView {
+                VStack(alignment: .leading, spacing: 12) {
+                    ZStack(alignment: .topLeading) {
+                        TextEditor(text: $text)
+                            .font(TypeScale.ui(15.5))
+                            .foregroundStyle(Ink.ink)
+                            .scrollContentBackground(.hidden)
+                            .focused($isFocused)
+                            .padding(.horizontal, 12)
+                            .padding(.vertical, 10)
+                            .accessibilityIdentifier("project-instructions")
+                        if text.isEmpty {
+                            Text("使用专业的语气、使用简洁易懂的措辞、您是某领域专家等。")
+                                .font(TypeScale.ui(15.5))
+                                .foregroundStyle(Ink.ink3.opacity(0.85))
+                                .padding(.horizontal, 17)
+                                .padding(.vertical, 18)
+                                .allowsHitTesting(false)
+                        }
+                    }
+                    .frame(minHeight: 168, maxHeight: 280)
+                    .background(Ink.card, in: RoundedRectangle(cornerRadius: 18, style: .continuous))
+                    .overlay(
+                        RoundedRectangle(cornerRadius: 18, style: .continuous)
+                            .stroke(Ink.line, lineWidth: 0.85)
+                    )
+
+                    HStack(alignment: .firstTextBaseline) {
+                        Text("指示 Sermo 在「\(projectName)」中应如何表现和回应。")
+                            .font(TypeScale.caption)
+                            .foregroundStyle(Ink.ink3)
+                        Spacer(minLength: 8)
+                        Text("\(text.count.formatted()) / 20,000")
+                            .font(TypeScale.tiny)
+                            .foregroundStyle(text.count > 20_000 ? Color.red : Ink.ink3)
+                            .monospacedDigit()
+                    }
+                    .padding(.horizontal, 4)
+                }
+                .padding(.horizontal, 18)
+                .padding(.top, 14)
+                .padding(.bottom, 24)
             }
-            .padding(20).background(Ink.groupedBg.ignoresSafeArea())
-            .navigationTitle("指令").navigationBarTitleDisplayMode(.inline)
+            .scrollDismissesKeyboard(.interactively)
+            .background(Ink.paper.ignoresSafeArea())
+            .navigationTitle("指令")
+            .navigationBarTitleDisplayMode(.inline)
             .toolbar {
-                ToolbarItem(placement: .topBarLeading) { ClaudeSheetCloseButton(label: "取消") { dismiss() } }
-                ToolbarItem(placement: .topBarTrailing) {
-                    Button("保存") {
+                ToolbarItem(placement: .topBarLeading) {
+                    ClaudeSheetCloseButton(label: "关闭") { dismiss() }
+                }
+                ToolbarItem(placement: .confirmationAction) {
+                    Button {
                         guard var project = store.project(projectID) else { dismiss(); return }
                         project.instructions = text
                         if store.updateProject(project) { dismiss() }
-                    }.fontWeight(.semibold)
+                    } label: {
+                        Image(systemName: "checkmark")
+                            .font(.system(size: 14, weight: .semibold))
+                    }
+                    .buttonStyle(.borderedProminent)
+                    .tint(Ink.solid)
+                    .disabled(text.count > 20_000)
+                    .accessibilityLabel("保存指令")
                 }
             }
             .errorAlert(store)
         }
         .tint(Ink.ink)
-        .onAppear { text = store.project(projectID)?.instructions ?? "" }
+        .presentationDragIndicator(.visible)
+        .onAppear {
+            text = store.project(projectID)?.instructions ?? ""
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.25) {
+                isFocused = true
+            }
+        }
     }
 }
 // "查看全部": every conversation that may be shown, with multi-select to move or delete in bulk.

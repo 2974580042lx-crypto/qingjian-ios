@@ -2057,9 +2057,10 @@ final class AppStore: ObservableObject {
                 notes.append(WebTools.systemNote)
             }
         }
+        let requestedDeliverable = DocumentDeliverableRouter.detectExplicitRequest(in: searchQuery)
+        let hasProjectDocs = chatProject.map { projectLibrary.hasDatabase(for: $0.id) || !$0.documents.isEmpty } ?? false
         if canRunTools {
-            if let proj = chatProject,
-               projectLibrary.hasDatabase(for: proj.id) || !proj.documents.isEmpty {
+            if let proj = chatProject, hasProjectDocs {
                 specs += ProjectLibraryTools.specs
                 notes.append(ProjectLibraryTools.systemNote)
             }
@@ -2067,6 +2068,18 @@ final class AppStore: ObservableObject {
             notes.append(DocumentStudioTools.systemNote)
             specs += SandboxTools.specs
             notes.append(SandboxTools.systemNote)
+        } else if let requestedDeliverable {
+            let reason: DeliverableToolsUnavailableReason
+            if discussion != nil || story != nil {
+                reason = .bookMode
+            } else if pureRP {
+                reason = .pureRoleplay
+            } else if permPolicy == .chatOnly {
+                reason = .chatOnlyPolicy
+            } else {
+                reason = .providerToolsDisabled(provider)
+            }
+            notes.append(DocumentDeliverableRouter.toolsUnavailableSystemNote(for: requestedDeliverable, reason: reason))
         }
         if armImageGen {
             notes.append("用户已在本次对话中开启生图功能。请根据用户描述直接调用内置 image_generation 工具绘制高清图片，并用简短中文说明画面亮点。")
@@ -2126,6 +2139,15 @@ final class AppStore: ObservableObject {
             } else {
                 built = built.prefixingLastUserMessage(timeNote)
             }
+        }
+        if let requestedDeliverable, canRunTools {
+            built = built.prefixingLastUserMessage(
+                DocumentDeliverableRouter.turnLevelDirective(
+                    for: requestedDeliverable,
+                    isProjectChat: chatProject != nil,
+                    hasProjectDocs: hasProjectDocs
+                )
+            )
         }
         let request = built
         var answer = ChatMessage(role: .assistant, state: .streaming, model: provider == .deepSeek ? settings.model : nil)
@@ -2227,6 +2249,7 @@ final class AppStore: ObservableObject {
                     let total = try await self.runToolLoop(outgoing, key: key, threadID: threadID, answerID: answerID,
                         subscriptionModel: subscriptionModel, subscriptionEffort: subscriptionEffort,
                         nativeWebSearch: chatGPTBuiltInWebSearch, nativeImageGeneration: armImageGen,
+                        expectedDeliverable: canRunTools ? requestedDeliverable : nil,
                         onProgress: onProgress, onEvent: onEvent)
                     self.storeUsage(total, threadID: threadID, answerID: answerID)
                 } else {
@@ -2350,11 +2373,13 @@ final class AppStore: ObservableObject {
     private func runToolLoop(_ first: ChatRequest, key: String, threadID: UUID, answerID: UUID,
                              subscriptionModel: String? = nil, subscriptionEffort: SubscriptionEffort = .automatic,
                              nativeWebSearch: Bool = false, nativeImageGeneration: Bool = false,
+                             expectedDeliverable: DeliverableFormat? = nil,
                              onProgress: @escaping @MainActor (ChatStreamProgress) -> Void,
                              onEvent: @escaping @MainActor (StreamEvent) -> Void) async throws -> TokenUsage? {
         var request = first
         let provider = threads.first(where: { $0.id == threadID })?.messages.first(where: { $0.id == answerID })?.provider ?? .deepSeek
         var total: TokenUsage?
+        var didEnforceDeliverable = false
         for round in 0..<ToolLoop.maxRounds {
             try await waitIfAgentPaused()
             let last = round == ToolLoop.maxRounds - 1
@@ -2393,6 +2418,33 @@ final class AppStore: ObservableObject {
             }
             let steered = drainSteeringNotes()
             if calls.isEmpty {
+                if let expected = expectedDeliverable,
+                   !didEnforceDeliverable,
+                   !last,
+                   !deliverables.deliverables(forMessage: answerID).contains(where: { $0.format == expected }) {
+                    didEnforceDeliverable = true
+                    flushPending()
+                    let keptReasoning = live.reasoning
+                    restartColabOutput(threadID: threadID, messageID: answerID, content: "", reasoning: keptReasoning)
+                    record(ToolActivity(
+                        id: "enforce-doc-\(answerID.uuidString.prefix(6))",
+                        title: "触发本地真实 \(expected.displayLabel) 文件生成工具",
+                        status: .running,
+                        detail: "检测到首轮未调用文档工具，已自动纠正并要求生成真实可下载文件。",
+                        kind: "studio"
+                    ), threadID: threadID, answerID: answerID)
+                    if !buffer.content.isEmpty || !buffer.reasoning.isEmpty || !buffer.subscriptionItems.isEmpty {
+                        var assistantTurn = APIMessage(role: "assistant", content: buffer.content)
+                        if !buffer.reasoning.isEmpty { assistantTurn.reasoningContent = buffer.reasoning }
+                        assistantTurn.subscriptionItems = buffer.subscriptionItems
+                        request = request.appending([assistantTurn])
+                    }
+                    request = request.appending([APIMessage(
+                        role: "user",
+                        content: DocumentDeliverableRouter.correctiveRetryDirective(for: expected)
+                    )])
+                    continue
+                }
                 if !steered.isEmpty, !last {
                     if !buffer.content.isEmpty || !buffer.reasoning.isEmpty || !buffer.subscriptionItems.isEmpty {
                         var assistantTurn = APIMessage(role: "assistant", content: buffer.content)
@@ -2601,6 +2653,19 @@ final class AppStore: ObservableObject {
                 if result.created != nil {
                     await MainActor.run {
                         self?.workspaceRevision += 1
+                        let enforceID = "enforce-doc-\(answerID.uuidString.prefix(6))"
+                        if let self,
+                           let ti = self.threads.firstIndex(where: { $0.id == threadID }),
+                           let mi = self.threads[ti].messages.firstIndex(where: { $0.id == answerID }),
+                           self.threads[ti].messages[mi].toolActivity?.contains(where: { $0.id == enforceID }) == true {
+                            self.record(ToolActivity(
+                                id: enforceID,
+                                title: "已通过真实文档工具完成生成",
+                                status: .done,
+                                detail: nil,
+                                kind: "studio"
+                            ), threadID: threadID, answerID: answerID)
+                        }
                     }
                 }
                 return result.output
