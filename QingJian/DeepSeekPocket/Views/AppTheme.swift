@@ -276,9 +276,14 @@ enum ReadingFont {
     static func resolve(baseSize: CGFloat, bold: Bool = false, italic: Bool = false) -> Font {
         let scaled = TypeScale.scaled(baseSize, .body)
         if FontLibrary.usesSystemFace {
-            let weight: Font.Weight = bold ? .semibold : (Personal.mediumBody ? .medium : .regular)
-            let base = Font.system(size: scaled, weight: weight)
-            return italic ? base.italic() : base
+            if InterfaceStyle.isSwiss {
+                let weight: Font.Weight = bold ? .semibold : (Personal.mediumBody ? .medium : .regular)
+                let base = Font.system(size: scaled, weight: weight)
+                return italic ? base.italic() : base
+            }
+            // 1.45: Latin and digits in Apple's serif (New York), Chinese in PingFang SC.
+            let weight: UIFont.Weight = bold ? .semibold : (Personal.mediumBody ? .medium : .regular)
+            return Font(FontLibrary.claudeProseUIFont(size: scaled, weight: weight, italic: italic))
         }
         if FontLibrary.usesEditorialSerif {
             return Font(FontLibrary.editorialUIFont(size: scaled, bold: bold, italic: italic))
@@ -696,7 +701,7 @@ enum Personal {
 
     struct Preset: Identifiable { let id: String; let title: String; let light: UInt32; let dark: UInt32 }
     static let textPresets = [
-        Preset(id: "black", title: "近黑", light: 0x171717, dark: 0xEDEDEB),
+        Preset(id: "black", title: "近黑", light: 0x1F1E1D, dark: 0xEDEDEB),
         Preset(id: "warm", title: "暖深灰", light: 0x2B2925, dark: 0xE8E5DD),
         Preset(id: "brown", title: "深棕", light: 0x382920, dark: 0xEADACE),
     ]

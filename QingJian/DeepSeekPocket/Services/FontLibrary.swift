@@ -166,6 +166,13 @@ enum FontLibrary {
             UserDefaults.standard.set(true, forKey: claudeUIKey)
             bumpRevision()
         }
+        // 1.45: body text back to the regular weight (the 「正文稍粗」 switch stays in Settings).
+        let regularBodyKey = "sermo.typography.defaults.v145.regular"
+        if !UserDefaults.standard.bool(forKey: regularBodyKey) {
+            UserDefaults.standard.set("0", forKey: "sermo.personal.medium")
+            UserDefaults.standard.set(true, forKey: regularBodyKey)
+            bumpRevision()
+        }
         let claudeCalibratedKey = "sermo.typography.defaults.v139_1.claude"
         if !UserDefaults.standard.bool(forKey: claudeCalibratedKey) {
             let existingSize = UserDefaults.standard.object(forKey: "qingjian.reading.size") as? Double
@@ -231,6 +238,47 @@ enum FontLibrary {
         if editorialCache.count >= 128 { editorialCache.removeAll(keepingCapacity: true) }
         editorialCache[key] = resolved
         editorialCacheLock.unlock()
+        return resolved
+    }
+
+    private struct ProseFontKey: Hashable {
+        let tenthsOfPoint: Int
+        let weight: CGFloat
+        let italic: Bool
+    }
+    nonisolated(unsafe) private static var proseCache: [ProseFontKey: UIFont] = [:]
+    private static let proseCacheLock = NSLock()
+
+    /// 1.45: reading prose like Claude iOS — Latin letters and digits in Apple's system serif
+    /// (New York, lining figures), Chinese and full-width punctuation in PingFang SC.
+    /// Both ship with iOS, so nothing is bundled.
+    static func claudeProseUIFont(size points: CGFloat, weight: UIFont.Weight, italic: Bool = false) -> UIFont {
+        let key = ProseFontKey(tenthsOfPoint: Int((points * 10).rounded()), weight: weight.rawValue, italic: italic)
+        proseCacheLock.lock()
+        if let hit = proseCache[key] {
+            proseCacheLock.unlock()
+            return hit
+        }
+        proseCacheLock.unlock()
+
+        let system = UIFont.systemFont(ofSize: points, weight: weight)
+        var latin = system.fontDescriptor.withDesign(.serif) ?? system.fontDescriptor
+        if italic, let slanted = latin.withSymbolicTraits(latin.symbolicTraits.union(.traitItalic)) {
+            latin = slanted
+        }
+        let cjkName: String
+        switch weight.rawValue {
+        case ..<UIFont.Weight.medium.rawValue: cjkName = "PingFangSC-Regular"
+        case ..<UIFont.Weight.semibold.rawValue: cjkName = "PingFangSC-Medium"
+        default: cjkName = "PingFangSC-Semibold"
+        }
+        let cjk = UIFontDescriptor(fontAttributes: [.name: cjkName])
+        let resolved = UIFont(descriptor: latin.addingAttributes([.cascadeList: [cjk]]), size: points)
+
+        proseCacheLock.lock()
+        if proseCache.count >= 128 { proseCache.removeAll(keepingCapacity: true) }
+        proseCache[key] = resolved
+        proseCacheLock.unlock()
         return resolved
     }
 

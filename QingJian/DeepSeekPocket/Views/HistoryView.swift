@@ -39,7 +39,7 @@ struct HistorySidebar: View {
                 VStack(alignment: .leading, spacing: 4) {
                     // Crisp bold serif wordmark matching Claude iOS's compact sidebar title.
                     Text("Sermo")
-                        .font(TypeScale.editorialDisplay(23, weight: .semibold, relativeTo: .title))
+                        .font(TypeScale.editorialDisplay(25, weight: .regular, relativeTo: .title))
                         .foregroundStyle(Ink.ink)
                         .accessibilityAddTraits(.isHeader).accessibilityIdentifier("history-title")
                     if night {
@@ -60,10 +60,9 @@ struct HistorySidebar: View {
                                 Rectangle().fill(Ink.raised).overlay(Rectangle().stroke(Ink.ink, lineWidth: 1.5))
                             } else if night {
                                 Circle().fill(Ink.raised).overlay(Circle().stroke(Ink.line, lineWidth: 0.6))
-                            } else {
-                                Circle().fill(Color.adaptive(light: 0xEBEBEA, dark: 0x262626))
                             }
                         }
+                        .modifier(SidebarGlassCircle(enabled: !swiss && !night))
                         .contentShape(Circle())
                 }
                 .buttonStyle(.pressFeedback)
@@ -113,7 +112,7 @@ struct HistorySidebar: View {
                                 Text("查看全部")
                                 Image(systemName: "chevron.right").font(.system(size: 11.5, weight: .medium))
                             }
-                            .font(TypeScale.ui(15, weight: .medium)).foregroundStyle(Ink.ink3)
+                            .font(TypeScale.ui(15, weight: .regular)).foregroundStyle(Ink.ink3)
                             .padding(.vertical, 13).padding(.horizontal, 10).contentShape(Rectangle())
                         }
                         .buttonStyle(.plain).accessibilityIdentifier("sidebar-all-chats")
@@ -200,15 +199,15 @@ struct HistorySidebar: View {
     }
 
     private func groupLabel(_ title: String) -> some View {
-        Text(title).font(TypeScale.ui(14, weight: .medium)).foregroundStyle(Ink.ink3)
+        Text(title).font(TypeScale.ui(13.5, weight: .regular)).foregroundStyle(Ink.ink3)
             .padding(.top, 20).padding(.bottom, 8).padding(.horizontal, 10)
     }
 
     private func navRow(_ title: String, symbol: String, identifier: String, action: @escaping () -> Void) -> some View {
         Button(action: action) {
             HStack(spacing: 13) {
-                ClaudeIconBadge(systemName: symbol, color: Ink.ink, size: 18.5, weight: .regular)
-                Text(title).font(TypeScale.ui(16.5, weight: .medium))
+                ClaudeIconBadge(systemName: symbol, color: Ink.ink, size: 18, weight: .light)
+                Text(title).font(TypeScale.ui(16.5, weight: .regular))
             }
             .foregroundStyle(Ink.ink).padding(.vertical, 11.5).padding(.horizontal, 10)
             .frame(maxWidth: .infinity, alignment: .leading).contentShape(Rectangle())
@@ -230,7 +229,7 @@ struct HistorySidebar: View {
             HStack(spacing: 13) {
                 Image(systemName: open ? "chevron.down" : "chevron.right")
                     .font(.system(size: 12, weight: .medium)).foregroundStyle(Ink.ink3).frame(width: 24)
-                Text(project.name).font(TypeScale.ui(16.5, weight: .medium)).lineLimit(1)
+                Text(project.name).font(TypeScale.ui(16.5, weight: .regular)).lineLimit(1)
                 Spacer(minLength: 8)
                 if project.isLocked { Image(systemName: "lock").font(.system(size: 12, weight: .regular)).foregroundStyle(Ink.ink3) }
             }
@@ -267,15 +266,15 @@ struct HistorySidebar: View {
                     if night && thread.isPinned != true {
                         MoonPhaseIcon(phase: MoonPhaseIcon.phase(for: thread))
                     } else {
-                        Image(systemName: thread.isPinned == true ? "pin" : (active && !night ? "message.fill" : "message"))
-                            .font(.system(size: 17.5, weight: .regular))
-                            .foregroundStyle(active && !night ? Ink.ink : Ink.ink2)
+                        Image(systemName: thread.isPinned == true ? "pin" : "message")
+                            .font(.system(size: 17, weight: .light))
+                            .foregroundStyle(Ink.ink)
                     }
                 }
                 .frame(width: 24)
                 .accessibilityHidden(true)
                 Text(thread.title)
-                    .font(TypeScale.ui(16.5, weight: active && !night ? .semibold : .regular))
+                    .font(TypeScale.ui(16.5, weight: .regular))
                     .lineLimit(1)
                     .foregroundStyle(night && active ? Ink.seal : Ink.ink)
                 Spacer(minLength: 8)
@@ -287,8 +286,8 @@ struct HistorySidebar: View {
             .padding(.vertical, 11.5)
             .padding(.horizontal, 10)
             .frame(maxWidth: .infinity, alignment: .leading)
-            .background(active && !night ? Ink.raised : Color.clear, in: RoundedRectangle(cornerRadius: swiss ? 0 : 12, style: .continuous))
-            .contentShape(RoundedRectangle(cornerRadius: swiss ? 0 : 12, style: .continuous))
+            .background(active && !night ? Ink.raised : Color.clear, in: RoundedRectangle(cornerRadius: swiss ? 0 : 16, style: .continuous))
+            .contentShape(RoundedRectangle(cornerRadius: swiss ? 0 : 16, style: .continuous))
         }
         .buttonStyle(.plain)
         .accessibilityIdentifier("history-thread-row")
@@ -498,5 +497,18 @@ struct ConversationVersionsSheet: View {
         selectionError = nil
         if store.selectConversationVersion(id) { dismiss() }
         else { selectionError = store.errorMessage ?? "这个版本暂时无法打开，请稍后再试。" }
+    }
+}
+
+
+/// The sidebar search button sits on Liquid Glass like the Claude app's; other looks keep their own fill.
+private struct SidebarGlassCircle: ViewModifier {
+    let enabled: Bool
+    func body(content: Content) -> some View {
+        if enabled {
+            content.glassEffect(.regular.interactive(), in: Circle())
+        } else {
+            content
+        }
     }
 }

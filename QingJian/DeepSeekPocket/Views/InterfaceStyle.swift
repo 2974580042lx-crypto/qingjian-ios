@@ -35,10 +35,10 @@ enum InterfaceStyle: String, CaseIterable, Identifiable, Sendable {
     static var isSwiss: Bool { current == .swiss }
     static var isNight: Bool { current == .night }
 
-    /// What is saved in Settings.
-    static var stored: InterfaceStyle {
-        InterfaceStyle(rawValue: UserDefaults.standard.string(forKey: key) ?? "") ?? .paper
-    }
+    /// 1.45: the app has one look. 瑞士 and 夜江 were retired; a value saved by an older
+    /// build is ignored, so anyone who had picked them lands on the default look.
+    /// (Their drawing code is now unreachable and can be removed in a later clean-up.)
+    static var stored: InterfaceStyle { .paper }
 }
 
 /// Observable holder for the current look; `reload()` after the setting changes.
@@ -51,9 +51,7 @@ final class StyleAppearance {
         if arguments.contains("--ui-preview") {
             // Preview runs start from their launch flag, so a value left in the
             // simulator never changes a screenshot; the picker can still switch.
-            let flagged: InterfaceStyle = arguments.contains("--preview-swiss") ? .swiss
-                : (arguments.contains("--preview-night") ? .night : .paper)
-            UserDefaults.standard.set(flagged.rawValue, forKey: InterfaceStyle.key)
+            UserDefaults.standard.set(InterfaceStyle.paper.rawValue, forKey: InterfaceStyle.key)
         }
         style = InterfaceStyle.stored
     }
@@ -97,23 +95,11 @@ struct InterfaceStylePicker: View {
     @AppStorage(InterfaceStyle.key) private var stored = InterfaceStyle.paper.rawValue
     @AppStorage(AppearanceMode.key) private var appearance = AppearanceMode.system.rawValue
     var body: some View {
-        Picker("界面风格", selection: $stored) {
-            ForEach(InterfaceStyle.allCases) { style in
-                Text(style.title).tag(style.rawValue)
-            }
-        }
-        .accessibilityIdentifier("interface-style")
-        .accessibilityValue((InterfaceStyle(rawValue: stored) ?? .paper).title)
-        // The app also listens for this key; reloading here as well makes the switch immediate.
-        .onChange(of: stored) { _, _ in StyleAppearance.shared.reload(); InkAppearance.apply() }
         Picker("白天与夜晚", selection: $appearance) {
             ForEach(AppearanceMode.allCases) { mode in Text(mode.title).tag(mode.rawValue) }
         }
-        .disabled(InterfaceStyle(rawValue: stored) == .night)
         .accessibilityIdentifier("appearance-mode")
         .onChange(of: appearance) { _, _ in InkAppearance.apply() }
-        Text((InterfaceStyle(rawValue: stored) ?? .paper).detail + "。切换后整个 App 立刻换样式，对话和设置都不受影响。纸笺和瑞士默认跟着手机的浅色、深色模式自动切换，也可以固定一边；瑞士风格固定使用系统字体；夜江始终是深色。")
-            .font(TypeScale.caption).foregroundStyle(.secondary)
     }
 }
 

@@ -471,32 +471,25 @@ struct ChatScreen: View {
         }
     }
 
+    // Only a small round 「换一条」 button, right-aligned above the composer; no label, no cost.
     @ViewBuilder private var ghostBar: some View {
-        if ghostText != nil, let batch = ghostSource?.replySuggestions {
-            HStack(spacing: 8) {
-                Text("猜你想说 \(suggestionIndex % ghostReplies.count + 1)/\(ghostReplies.count)")
-                    .font(TypeScale.caption).foregroundStyle(Ink.ink3).monospacedDigit()
-                if let cost = ReplySuggestionPanel.costLabel(batch) {
-                    Text(cost).font(TypeScale.tiny).foregroundStyle(Ink.ink3).monospacedDigit().lineLimit(1)
-                }
-                Spacer(minLength: 4)
-                if ghostReplies.count > 1 {
-                    Button {
-                        Haptic.tap()
-                        withAnimation(.snappy(duration: 0.2)) { suggestionIndex += 1 }
-                    } label: {
-                        HStack(spacing: 4) {
-                            Image(systemName: "arrow.triangle.2.circlepath").font(.system(size: 11.5, weight: .regular))
-                            Text("换一条").font(TypeScale.ui(12.5, weight: .medium))
-                        }
+        if ghostText != nil, ghostReplies.count > 1 {
+            HStack(spacing: 0) {
+                Spacer(minLength: 0)
+                Button {
+                    Haptic.tap()
+                    withAnimation(.snappy(duration: 0.2)) { suggestionIndex += 1 }
+                } label: {
+                    Image(systemName: "arrow.triangle.2.circlepath")
+                        .font(.system(size: 13, weight: .regular))
                         .foregroundStyle(Ink.ink2)
-                        .padding(.horizontal, 6)
-                        .frame(height: 28)
-                        .contentShape(Rectangle())
-                    }
-                    .buttonStyle(.pressFeedback)
-                    .accessibilityLabel("换一条猜你想说")
+                        .frame(width: 32, height: 32)
+                        .background(Ink.card, in: Circle())
+                        .overlay(Circle().stroke(Ink.line, lineWidth: 0.6))
+                        .contentShape(Circle())
                 }
+                .buttonStyle(.pressFeedback)
+                .accessibilityLabel("换一条猜你想说")
             }
             .padding(.horizontal, 6)
             .transition(.opacity)
@@ -1372,6 +1365,9 @@ struct ChatScreen: View {
         Menu {
             if let thread = store.activeThread {
                 Text(store.activeProject.map { thread.title + " · " + $0.name } ?? thread.title)
+                if let contextLine = contextSummaryText {
+                    Text(contextLine)
+                }
                 if let story = thread.story {
                     Text("书架 ·《\(story.bookTitle)》" + (story.userRole.isEmpty ? "" : " · 你是\(story.userRole)"))
                 }
@@ -1753,39 +1749,30 @@ struct ChatScreen: View {
         return trimmed.hasPrefix("/") || trimmed.hasPrefix("／")
     }
 
+    // Context usage moved into the top-right 「⋯」 menu (see `contextSummaryText`); only the
+    // compaction progress still shows above the composer, because it is a live task.
     @ViewBuilder private var contextStatusBar: some View {
-        if let thread = store.activeThread, let stats = cachedContext,
-           (stats.messageCount >= 4 || store.compactingThreadID == thread.id) {
-            let pct = max(1, Int(round(stats.ratio * 100)))
-            let barColor: Color = stats.ratio > 0.80 ? .red : (stats.ratio > 0.55 ? .orange : Ink.seal)
-            HStack(spacing: 8) {
-                GeometryReader { geo in
-                    ZStack(alignment: .leading) {
-                        Capsule().fill(Ink.ink3.opacity(0.16))
-                        Capsule().fill(barColor).frame(width: max(3, geo.size.width * CGFloat(stats.ratio)))
-                    }
-                }
-                .frame(width: 40, height: 3.5)
-                Text("上下文 \(pct)% · 约\(stats.estimatedTokens >= 1000 ? String(format: "%.1fk", Double(stats.estimatedTokens) / 1000.0) : "\(stats.estimatedTokens)")")
-                    .font(.system(size: 11, design: .monospaced))
-                    .foregroundStyle(Ink.ink3)
-                    .lineLimit(1)
-                if let hit = stats.cacheHitRate {
-                    Text("· 缓存 \(hit)%")
-                        .font(.system(size: 11, weight: .regular, design: .monospaced))
-                        .foregroundStyle(Ink.ink3)
-                }
-                Spacer(minLength: 4)
-                if store.compactingThreadID == thread.id {
-                    HStack(spacing: 4) {
-                        ProgressView().controlSize(.mini)
-                        Text("正在浓缩…").font(TypeScale.tiny).foregroundStyle(Ink.seal)
-                    }
-                }
+        if let thread = store.activeThread, store.compactingThreadID == thread.id {
+            HStack(spacing: 6) {
+                ProgressView().controlSize(.mini)
+                Text("正在浓缩…").font(TypeScale.tiny).foregroundStyle(Ink.ink3)
+                Spacer(minLength: 0)
             }
             .padding(.horizontal, 8)
             .transition(.opacity)
         }
+    }
+
+    /// One line for the 「⋯」 menu: context share, rough size and cache hit rate of the last answer.
+    private var contextSummaryText: String? {
+        guard let stats = cachedContext, stats.messageCount >= 2 else { return nil }
+        let pct = max(1, Int(round(stats.ratio * 100)))
+        let size = stats.estimatedTokens >= 1000
+            ? String(format: "%.1fk", Double(stats.estimatedTokens) / 1000.0)
+            : "\(stats.estimatedTokens)"
+        var line = "上下文 \(pct)% · 约 \(size) Tokens"
+        if let hit = stats.cacheHitRate { line += " · 缓存 \(hit)%" }
+        return line
     }
 
     @ViewBuilder private var slashCommandBar: some View {
@@ -2704,7 +2691,7 @@ struct MessageView: View, Equatable {
                 Button("重新生成", systemImage: "arrow.clockwise") { regenerate() }
                     .disabled(isGenerating || !canRegenerate)
             }
-            if layoutMode == .imessage, let usage = message.usage {
+            if let usage = message.usage {
                 Section {
                     Text(usageLabel(usage))
                 }
@@ -2816,12 +2803,7 @@ struct MessageView: View, Equatable {
                                 .disabled(isGenerating || !canRegenerate).accessibilityLabel("重新生成")
                             }
                             Spacer(minLength: 4)
-                            // Cost only; the time is in the long-press menu.
-                            if let usage = message.usage {
-                                Text(usageLabel(usage)).font(.system(size: 11)).monospacedDigit().lineLimit(1)
-                                    .foregroundStyle(Ink.ink3.opacity(0.72))
-                                    .accessibilityLabel("本次请求共 \(usage.totalTokens) 个 Token")
-                            }
+                            // Tokens and cost live in the long-press menu, keeping this row as quiet as Claude's.
                         }
                         .foregroundStyle(Ink.ink2.opacity(0.72))
                         .buttonStyle(.pressFeedback)
@@ -3284,9 +3266,10 @@ struct MarkdownAnswer: View, Equatable {
                 case .heading(let text, let level):
                     EditorialHeadingRow(text: text, level: level, style: style)
                 case .list(let items):
-                    VStack(alignment: .leading, spacing: swiss ? 8 : 12) {
+                    // Items breathe almost like paragraphs, as in the Claude app.
+                    VStack(alignment: .leading, spacing: swiss ? 8 : max(10, Personal.paragraphGap - 8)) {
                         ForEach(Array(items.enumerated()), id: \.offset) { _, item in
-                            HStack(alignment: .firstTextBaseline, spacing: swiss ? 8 : 6) {
+                            HStack(alignment: .firstTextBaseline, spacing: swiss ? 8 : 4) {
                                 if swiss {
                                     // Bullets become dashes, numbers go monospaced, both in the accent.
                                     Text(item.marker == "•" ? "—" : item.marker == "◦" ? "–" : item.marker)
@@ -3297,7 +3280,7 @@ struct MarkdownAnswer: View, Equatable {
                                 }
                                 MarkdownParagraph(text: item.text, marks: item.marks, style: style).equatable()
                             }
-                            .padding(.leading, CGFloat(item.level) * 20)
+                            .padding(.leading, (swiss ? 0 : 4) + CGFloat(item.level) * 20)
                         }
                     }
                 case .quote(let text, let marks):
@@ -3574,11 +3557,28 @@ private struct EditorialListMarker: View {
     var body: some View {
         let _ = (fontChoice, fontRevision, StyleAppearance.shared.revision, FontAppearance.shared.revision)
         let isNumbered = marker != "•" && marker != "◦"
-        Text(marker)
-            .font(ReadingFont.resolve(baseSize: CGFloat(readingSize), bold: isNumbered, italic: false))
-            .monospacedDigit()
-            .foregroundStyle(Ink.ink)
-            .frame(minWidth: isNumbered ? 20 : 12, alignment: .leading)
+        let size = TypeScale.scaled(CGFloat(readingSize), .body)
+        if isNumbered {
+            Text(marker)
+                .font(ReadingFont.resolve(baseSize: CGFloat(readingSize), bold: false, italic: false))
+                .monospacedDigit()
+                .foregroundStyle(Ink.ink2)
+                .frame(minWidth: 22, alignment: .leading)
+        } else {
+            // A drawn dot reads cleaner than the "•" glyph, whose size and height vary by font.
+            let dot = max(4.5, size * 0.3)
+            Group {
+                if marker == "◦" {
+                    Circle().stroke(Ink.ink2, lineWidth: 1).frame(width: dot, height: dot)
+                } else {
+                    Circle().fill(Ink.ink).frame(width: dot, height: dot)
+                }
+            }
+            .frame(width: 16, alignment: .leading)
+            // Sit the dot on the middle of a Chinese character (about 0.36 em above the baseline).
+            .alignmentGuide(.firstTextBaseline) { d in d[VerticalAlignment.center] + size * 0.36 }
+            .accessibilityHidden(true)
+        }
     }
 }
 
