@@ -121,6 +121,10 @@
 	<true/>
 	<key>NSFaceIDUsageDescription</key>
 	<string>打开上锁的项目前，用面容 ID 确认是你本人。</string>
+	<key>NSCameraUsageDescription</key>
+	<string>使用相机拍摄书页、讲义或实景并添加到当前会话。</string>
+	<key>NSPhotoLibraryUsageDescription</key>
+	<string>在「添加到会话」中展示最近照片，方便你快速点选发送。</string>
 	<key>NSPhotoLibraryAddUsageDescription</key>
 	<string>将对话中生成的图片保存到你的系统相册。</string>
 	<key>UIAppFonts</key>

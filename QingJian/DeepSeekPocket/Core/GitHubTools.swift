@@ -77,7 +77,9 @@ enum GitHubAction: Equatable, Sendable {
             self = .pullRequest(repo: try repo(), branch: try branch(), title: try text("title", limit: 200)!,
                                 body: try text("body", required: false, limit: 20_000, trim: false) ?? "")
         case "github_checks":
-            self = .checks(repo: try repo(), branch: try branch())
+            let checkRef = try text("branch")!
+            guard Self.isValidRef(checkRef) else { throw ToolError.invalidArguments("branch 不是有效的分支名。") }
+            self = .checks(repo: try repo(), branch: checkRef)
         default:
             throw ToolError.unknownTool(call.name)
         }
@@ -170,8 +172,8 @@ enum GitHubTools {
                  parameters: ToolSpec.object([("repo", "string", "用户名/仓库名"), ("branch", "string", "工作分支名"),
                                               ("title", "string", "PR 标题"), ("body", "string", "PR 说明，可省略")],
                                              required: ["repo", "branch", "title"])),
-        ToolSpec(name: "github_checks", description: "查看工作分支最近的 GitHub Actions 运行结果；失败时附上出错的日志片段。",
-                 parameters: ToolSpec.object([("repo", "string", "用户名/仓库名"), ("branch", "string", "工作分支名")],
+        ToolSpec(name: "github_checks", description: "查看指定分支（如 main 或工作分支）最近的 GitHub Actions 运行结果；失败时附上出错的日志片段。",
+                 parameters: ToolSpec.object([("repo", "string", "用户名/仓库名"), ("branch", "string", "分支名，如 main 或 sermo/... 工作分支")],
                                              required: ["repo", "branch"])),
     ]
 

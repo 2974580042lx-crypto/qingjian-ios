@@ -232,12 +232,18 @@ final class WebPageReader: Sendable {
                          forHTTPHeaderField: "User-Agent")
         request.setValue("text/html,text/plain;q=0.9,*/*;q=0.1", forHTTPHeaderField: "Accept")
         request.setValue("zh-CN,zh;q=0.9,en;q=0.6", forHTTPHeaderField: "Accept-Language")
-        let (data, response) = try await session.data(for: request)
+        let (bytes, response) = try await session.bytes(for: request)
         guard let http = response as? HTTPURLResponse else { throw WebPageError.notText }
         guard (200..<300).contains(http.statusCode) else { throw WebPageError.http(http.statusCode) }
         let type = http.value(forHTTPHeaderField: "Content-Type")?.lowercased() ?? "text/html"
         guard type.contains("html") || type.hasPrefix("text/") else { throw WebPageError.notText }
-        let raw = WebText.decode(data.prefix(Self.byteLimit), contentType: type)
+        var data = Data()
+        data.reserveCapacity(min(65536, Self.byteLimit))
+        for try await byte in bytes {
+            data.append(byte)
+            if data.count >= Self.byteLimit { break }
+        }
+        let raw = WebText.decode(data, contentType: type)
         let text = type.contains("html") ? WebText.extract(html: raw, limit: limit) : String(raw.prefix(limit))
         guard text.count >= 40 else { throw WebPageError.empty }
         return text
@@ -375,10 +381,20 @@ final class PublicRedirectsOnly: NSObject, URLSessionTaskDelegate, @unchecked Se
     func urlSession(_ session: URLSession, task: URLSessionTask, willPerformHTTPRedirection response: HTTPURLResponse,
                     newRequest request: URLRequest, completionHandler: @escaping (URLRequest?) -> Void) {
         guard let url = request.url else { completionHandler(nil); return }
+        let orig = task.originalRequest?.url
+        let sameOrigin = orig?.scheme?.lowercased() == url.scheme?.lowercased()
+            && orig?.host?.lowercased() == url.host?.lowercased()
+        var sanitized = request
+        if !sameOrigin {
+            // Issue #23: Never leak Authorization or Cookie headers across cross-origin redirects.
+            sanitized.setValue(nil, forHTTPHeaderField: "Authorization")
+            sanitized.setValue(nil, forHTTPHeaderField: "Cookie")
+        }
+        let forwarded = sanitized
         Task {
             do {
                 try await PublicWebAddress.validate(url, resolver: resolver)
-                completionHandler(request)
+                completionHandler(forwarded)
             } catch {
                 completionHandler(nil)
             }

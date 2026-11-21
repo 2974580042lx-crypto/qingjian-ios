@@ -41,6 +41,10 @@ struct CompatibleEndpointSettingsView: View {
                 SecureField(selectedPreset.keyPlaceholder, text: $apiKey)
                     .textInputAutocapitalization(.never)
                     .autocorrectionDisabled()
+                Toggle("允许调用工具（云盘 / GitHub / 联网）", isOn: Binding(
+                    get: { compatible.configuration.allowsTools },
+                    set: { compatible.setToolsEnabled($0) }
+                ))
             }
 
             Section {

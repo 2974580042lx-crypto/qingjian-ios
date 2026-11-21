@@ -115,7 +115,13 @@ struct ToolCallCollector: Sendable {
         for delta in deltas {
             var part = parts[delta.index] ?? ("", "", "")
             if let id = delta.id, !id.isEmpty { part.id = id }
-            if let name = delta.name, !name.isEmpty { part.name += name }
+            if let name = delta.name, !name.isEmpty {
+                if part.name.isEmpty {
+                    part.name = name
+                } else if part.name != name && !part.name.hasSuffix(name) {
+                    part.name += name
+                }
+            }
             if let more = delta.arguments { part.arguments += more }
             parts[delta.index] = part
         }
@@ -149,17 +155,23 @@ struct ProjectToolAccess {
         project: ChatProject?,
         provider: AIProvider,
         colabTools: Bool = false,
+        compatibleTools: Bool = true,
         driveDefault: Bool = false,
         githubDefault: Bool = false,
         webDefault: Bool = false,
-        pureRoleplay: Bool = false
+        pureRoleplay: Bool = false,
+        permissionPolicy: ToolPermissionPolicy = .auto
     ) {
-        if pureRoleplay || project?.isPureRoleplay == true {
+        if pureRoleplay || project?.isPureRoleplay == true || permissionPolicy == .chatOnly {
             names = []
             return
         }
         var specs: [ToolSpec] = []
-        let canRunTools = provider == .deepSeek || provider == .chatGPT || (provider == .colab && colabTools)
+        let canRunTools = ToolCapabilityRegistry.supportsFunctionTools(
+            provider: provider,
+            colabToolsEnabled: colabTools,
+            compatibleToolsEnabled: compatibleTools
+        )
         if canRunTools {
             if project?.driveTools ?? driveDefault { specs += DriveTools.specs }
             if project?.githubTools ?? githubDefault { specs += GitHubTools.specs }

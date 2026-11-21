@@ -335,16 +335,22 @@ final class WebSearchClient: @unchecked Sendable {
         var directSources: [WebSource] = []
         var directPages: [String: String] = [:]
 
+        var lastDirectError: Error?
         for url in directURLs {
-            if let text = try? await reader.read(url, limit: 8_000), !text.isEmpty {
-                let title: String
-                if let gh = WebText.parseGitHubURL(url) {
-                    title = gh.path.map { "GitHub: \(gh.owner)/\(gh.repo)/\($0)" } ?? "GitHub: \(gh.owner)/\(gh.repo)"
-                } else {
-                    title = url.host ?? url.absoluteString
+            do {
+                let text = try await reader.read(url, limit: 8_000)
+                if !text.isEmpty {
+                    let title: String
+                    if let gh = WebText.parseGitHubURL(url) {
+                        title = gh.path.map { "GitHub: \(gh.owner)/\(gh.repo)/\($0)" } ?? "GitHub: \(gh.owner)/\(gh.repo)"
+                    } else {
+                        title = url.host ?? url.absoluteString
+                    }
+                    directSources.append(WebSource(title: title, url: url.absoluteString, snippet: String(text.prefix(240))))
+                    directPages[url.absoluteString] = text
                 }
-                directSources.append(WebSource(title: title, url: url.absoluteString, snippet: String(text.prefix(240))))
-                directPages[url.absoluteString] = text
+            } catch {
+                lastDirectError = error
             }
         }
 
@@ -357,6 +363,10 @@ final class WebSearchClient: @unchecked Sendable {
                 pages: directPages,
                 searchLog: log
             )
+        }
+
+        if key.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            throw lastDirectError ?? WebPageError.empty
         }
 
         let trimmedHint = contextHint.trimmingCharacters(in: .whitespacesAndNewlines)

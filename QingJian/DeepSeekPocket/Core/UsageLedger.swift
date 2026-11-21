@@ -8,6 +8,8 @@ struct DayUsage: Codable, Equatable, Sendable {
     var proTokens = 0
     var colabTokens: Int?
     var colabRequests: Int?
+    var compatibleTokens: Int?
+    var compatibleRequests: Int?
     // ChatGPT subscription breakdown (optional so legacy usage ledgers decode cleanly).
     var chatGPTInputTokens: Int?
     var chatGPTCachedTokens: Int?
@@ -46,6 +48,8 @@ struct DayUsage: Codable, Equatable, Sendable {
             proTokens: lhs.proTokens + rhs.proTokens,
             colabTokens: (lhs.colabTokens ?? 0) + (rhs.colabTokens ?? 0),
             colabRequests: (lhs.colabRequests ?? 0) + (rhs.colabRequests ?? 0),
+            compatibleTokens: sumOpt(lhs.compatibleTokens, rhs.compatibleTokens),
+            compatibleRequests: sumOpt(lhs.compatibleRequests, rhs.compatibleRequests),
             chatGPTInputTokens: sumOpt(lhs.chatGPTInputTokens, rhs.chatGPTInputTokens),
             chatGPTCachedTokens: sumOpt(lhs.chatGPTCachedTokens, rhs.chatGPTCachedTokens),
             chatGPTOutputTokens: sumOpt(lhs.chatGPTOutputTokens, rhs.chatGPTOutputTokens),
@@ -73,6 +77,9 @@ struct UsageLedger: Codable, Equatable, Sendable {
         if provider == .colab {
             day.colabTokens = (day.colabTokens ?? 0) + usage.totalTokens
             day.colabRequests = (day.colabRequests ?? 0) + 1
+        } else if provider == .compatible {
+            day.compatibleTokens = (day.compatibleTokens ?? 0) + usage.totalTokens
+            day.compatibleRequests = (day.compatibleRequests ?? 0) + 1
         } else if provider == .chatGPT {
             let cached = min(max(0, usage.cachedTokens), max(0, usage.promptTokens))
             let freshInput = max(0, usage.promptTokens - cached)
@@ -81,7 +88,7 @@ struct UsageLedger: Codable, Equatable, Sendable {
             day.chatGPTOutputTokens = (day.chatGPTOutputTokens ?? 0) + max(0, usage.completionTokens)
             day.chatGPTRequests = (day.chatGPTRequests ?? 0) + 1
         }
-        if let model, provider != .colab, provider != .chatGPT {
+        if let model, provider != .colab, provider != .chatGPT, provider != .compatible {
             day.cost += Pricing.cost(model: model, usage: usage, at: date)
             if model == .flash { day.flashTokens += usage.totalTokens } else { day.proTokens += usage.totalTokens }
         }
@@ -115,15 +122,18 @@ struct UsageLedger: Codable, Equatable, Sendable {
         var ledger = UsageLedger()
         for thread in threads {
             for message in thread.messages {
-                if let usage = message.usage { ledger.record(usage, model: message.provider == .colab ? nil : message.model, at: message.createdAt, calendar: calendar, provider: message.provider) }
+                let nonBilledMain = (message.provider == .colab || message.provider == .chatGPT || message.provider == .compatible)
+                if let usage = message.usage { ledger.record(usage, model: nonBilledMain ? nil : message.model, at: message.createdAt, calendar: calendar, provider: message.provider) }
                 // Search uses a separate native model; count its tokens without
                 // pretending the chat model's price is its billing rate.
                 if let usage = message.searchUsage { ledger.record(usage, model: nil, at: message.createdAt, calendar: calendar) }
                 if let usage = message.translationUsage {
-                    ledger.record(usage, model: message.translatedBy == .chatGPT || message.translatedBy == .colab ? nil : .flash, at: message.createdAt, calendar: calendar, provider: message.translatedBy)
+                    let nonBilledTrans = (message.translatedBy == .chatGPT || message.translatedBy == .colab || message.translatedBy == .compatible)
+                    ledger.record(usage, model: nonBilledTrans ? nil : .flash, at: message.createdAt, calendar: calendar, provider: message.translatedBy)
                 }
                 if let batch = message.replySuggestions, let usage = batch.usage {
-                    ledger.record(usage, model: batch.provider == .chatGPT || batch.provider == .colab ? nil : batch.pricedModel, at: batch.createdAt, calendar: calendar, provider: batch.provider)
+                    let nonBilledReply = (batch.provider == .chatGPT || batch.provider == .colab || batch.provider == .compatible)
+                    ledger.record(usage, model: nonBilledReply ? nil : batch.pricedModel, at: batch.createdAt, calendar: calendar, provider: batch.provider)
                 }
             }
         }

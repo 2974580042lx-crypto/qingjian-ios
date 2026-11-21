@@ -282,10 +282,18 @@ struct ResponsesInput: Encodable, Equatable, Sendable {
         var result = message.subscriptionItems.map(item)
         if let calls = message.toolCalls, !calls.isEmpty {
             if !message.content.isEmpty { result.append(Self(message)) }
-            result += calls.map { call in item(.object([
-                "type": .string("function_call"), "namespace": .string("study"), "call_id": .string(call.id),
-                "name": .string(call.name), "arguments": .string(call.arguments)
-            ])) }
+            result += calls.map { call in
+                var obj: [String: JSONValue] = [
+                    "type": .string("function_call"),
+                    "call_id": .string(call.id),
+                    "name": .string(call.name),
+                    "arguments": .string(call.arguments)
+                ]
+                if call.name.hasPrefix("study_") {
+                    obj["namespace"] = .string("study")
+                }
+                return item(.object(obj))
+            }
         } else { result.append(Self(message)) }
         return result
     }
@@ -297,16 +305,20 @@ struct SubscriptionRequest: Encodable, Sendable {
     let input: [ResponsesInput]
     let store = false
     let stream = true
+    let include: [String]?
     let reasoning: Reasoning?
     let tools: [ToolEntry]?
     let tool_choice: String?
     enum ToolEntry: Encodable, Sendable {
         case namespace(Namespace)
+        case function(Function)
         case builtIn(String)
         func encode(to encoder: Encoder) throws {
             switch self {
             case .namespace(let ns):
                 try ns.encode(to: encoder)
+            case .function(let fn):
+                try fn.encode(to: encoder)
             case .builtIn(let typeName):
                 var container = encoder.container(keyedBy: CodingKeys.self)
                 try container.encode(typeName, forKey: .type)
@@ -336,10 +348,20 @@ struct SubscriptionRequest: Encodable, Sendable {
          nativeWebSearch: Bool = false, nativeImageGeneration: Bool = false) {
         self.model = model
         instructions = request.messages.filter { $0.role == "system" }.map(\.content).joined(separator: "\n\n")
-        input = request.messages.filter { $0.role == "user" || $0.role == "assistant" || $0.role == "tool" }.flatMap(ResponsesInput.items)
+        let builtInput = request.messages.filter { $0.role == "user" || $0.role == "assistant" || $0.role == "tool" }.flatMap(ResponsesInput.items)
+        input = builtInput
         var entries: [ToolEntry] = []
         if let specs = request.tools, !specs.isEmpty {
-            entries.append(.namespace(Namespace(tools: specs.map { Function(name: $0.name, description: $0.description, parameters: $0.parameters) })))
+            let studySpecs = specs.filter { $0.name.hasPrefix("study_") }
+            let generalSpecs = specs.filter { !$0.name.hasPrefix("study_") }
+            if !studySpecs.isEmpty {
+                entries.append(.namespace(Namespace(tools: studySpecs.map {
+                    Function(name: $0.name, description: $0.description, parameters: $0.parameters)
+                })))
+            }
+            for spec in generalSpecs {
+                entries.append(.function(Function(name: spec.name, description: spec.description, parameters: spec.parameters)))
+            }
         }
         if nativeWebSearch {
             entries.append(.builtIn("web_search"))
@@ -347,10 +369,23 @@ struct SubscriptionRequest: Encodable, Sendable {
         if nativeImageGeneration {
             entries.append(.builtIn("image_generation"))
         }
-        tools = entries.isEmpty ? nil : entries
+        let builtTools = entries.isEmpty ? nil : entries
+        tools = builtTools
         tool_choice = request.toolChoice
         let level = effort == .automatic ? nil : effort.rawValue
-        reasoning = level == nil && !summary ? nil : Reasoning(effort: level, summary: summary ? "auto" : nil)
+        let builtReasoning = level == nil && !summary ? nil : Reasoning(effort: level, summary: summary ? "auto" : nil)
+        reasoning = builtReasoning
+        let hasOpaqueReasoningInInput = builtInput.contains { item in
+            if case .object(let dict) = item.raw, case .string("reasoning") = dict["type"] {
+                return true
+            }
+            return false
+        }
+        if hasOpaqueReasoningInInput || (builtReasoning != nil && builtTools != nil) {
+            include = ["reasoning.encrypted_content"]
+        } else {
+            include = nil
+        }
     }
 }
 
@@ -362,6 +397,7 @@ struct ResponsesStreamDecoder {
     private var firstLine = true
     private(set) var completed = false
     private var functionIndices: Set<Int> = []
+    private var pendingInitialArguments: [Int: String] = [:]
     // Allow large base64 image_generation_call payloads (up to 24 MiB) without triggering malformed-stream errors.
     private static let maxEventBytes = 24 * 1024 * 1024
 
@@ -399,11 +435,17 @@ struct ResponsesStreamDecoder {
         case "response.output_item.added":
             guard let item = object["item"] as? [String: Any], let itemType = item["type"] as? String else { return nil }
             if itemType == "function_call" {
+                let ns = item["namespace"] as? String
                 guard let index = object["output_index"] as? Int, let id = item["call_id"] as? String,
-                      let name = item["name"] as? String, item["namespace"] as? String == "study",
+                      let name = item["name"] as? String, (ns == nil || ns == "study"),
                       !functionIndices.contains(index) else { throw SubscriptionError.malformed }
                 functionIndices.insert(index)
-                return StreamEvent(toolCalls: [.init(index: index, id: id, name: name, arguments: item["arguments"] as? String ?? "")])
+                let initialArgs = item["arguments"] as? String ?? ""
+                if !initialArgs.isEmpty {
+                    pendingInitialArguments[index] = initialArgs
+                    return StreamEvent(toolCalls: [.init(index: index, id: id, name: name, arguments: nil)])
+                }
+                return StreamEvent(toolCalls: [.init(index: index, id: id, name: name, arguments: "")])
             }
             if itemType == "web_search_call" {
                 let id = (item["id"] as? String) ?? "openai-web-\(object["output_index"] as? Int ?? 0)"
@@ -432,9 +474,16 @@ struct ResponsesStreamDecoder {
             return StreamEvent(webSources: [source])
         case "response.function_call_arguments.delta":
             guard let index = object["output_index"] as? Int, functionIndices.contains(index), let delta = object["delta"] as? String else { throw SubscriptionError.malformed }
+            pendingInitialArguments.removeValue(forKey: index)
             return StreamEvent(toolCalls: [.init(index: index, arguments: delta)])
         case "response.output_item.done":
             guard let item = object["item"] as? [String: Any], let itemType = item["type"] as? String else { return nil }
+            if itemType == "function_call", let index = object["output_index"] as? Int {
+                if let unstreamed = pendingInitialArguments.removeValue(forKey: index), !unstreamed.isEmpty {
+                    return StreamEvent(toolCalls: [.init(index: index, arguments: unstreamed)])
+                }
+                return nil
+            }
             if itemType == "reasoning" {
                 let value = try JSONDecoder().decode(JSONValue.self, from: JSONSerialization.data(withJSONObject: item))
                 return StreamEvent(subscriptionItems: [value])
@@ -492,8 +541,13 @@ struct ResponsesStreamDecoder {
                 let cached = (details?["cached_tokens"] as? Int) ?? 0
                 usage = TokenUsage(promptTokens: input, completionTokens: output, cachedTokens: cached)
             }
+            let leftoverToolDeltas = pendingInitialArguments.keys.sorted().compactMap { idx -> ToolCallDelta? in
+                guard let args = pendingInitialArguments[idx], !args.isEmpty else { return nil }
+                return ToolCallDelta(index: idx, arguments: args)
+            }
+            pendingInitialArguments.removeAll()
             completed = true
-            return StreamEvent(usage: usage, finishReason: "stop", isDone: true)
+            return StreamEvent(usage: usage, finishReason: "stop", isDone: true, toolCalls: leftoverToolDeltas)
         default: return nil
         }
     }

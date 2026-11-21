@@ -333,7 +333,8 @@ struct ChatScreen: View {
     @State private var documentsByThread: [UUID: [PendingDocument]] = [:]
     @State private var previewingDocument: DocumentPreviewTarget?
     @State private var attachmentReport: String?
-    @State private var attachTrayOpen = false
+    @State private var showAddToChatSheet = false
+    @State private var agentTimelineTarget: AgentTimelineTarget?
     private var loadingPhotos: Bool { photoLoadThreadID == store.activeThreadID && photoLoadThreadID != nil }
     private var attachmentBusy: Bool { choosingFiles || choosingPhotos || fileImportThreadID != nil || photoLoadThreadID != nil }
     private var pendingImages: [PendingImage] {
@@ -378,6 +379,9 @@ struct ChatScreen: View {
     }
     private var isEmptyPage: Bool { store.activeThread?.messages.isEmpty != false }
     private var composerPlaceholder: String {
+        if store.isGenerating(in: store.activeThreadID) {
+            return "中途补充要求，当前步骤完成后衔接…"
+        }
         if store.activeThread?.bookDiscussion != nil, let character = store.activeThread?.discussionDraftCharacter {
             return "问\(character)，听听他的想法…"
         }
@@ -558,14 +562,16 @@ struct ChatScreen: View {
     private var composerLayoutSignature: Int {
         var hasher = Hasher()
         hasher.combine(composerHeightBucket)
-        hasher.combine(attachTrayOpen)
         hasher.combine(pendingImages.count)
         hasher.combine(pendingDocuments.count)
         hasher.combine(quotingMessage != nil)
         hasher.combine(ghostSource?.id)
         hasher.combine(suggestionIndex)
-        hasher.combine(store.pendingApproval != nil)
+        hasher.combine(store.pendingApproval?.id)
+        hasher.combine(store.pendingApproval?.threadID == store.activeThreadID)
         hasher.combine(store.searchingThreadID == store.activeThreadID && store.isGenerating)
+        hasher.combine(store.isGenerating)
+        hasher.combine(store.generatingThreadID == store.activeThreadID)
         hasher.combine(store.canChat)
         hasher.combine(keyboardVisible)
         hasher.combine(cachedContext != nil)
@@ -887,6 +893,37 @@ struct ChatScreen: View {
     private var chatWithToolSheets: some View {
         chatWithStorySheets
         .sheet(item: $thinkingTarget) { target in ThinkingSheet(target: target).environmentObject(store) }
+        .sheet(item: $agentTimelineTarget) { target in
+            AgentWorkingTimelineSheet(target: target).environmentObject(store)
+        }
+        .sheet(isPresented: $showAddToChatSheet) {
+            let activeID = store.activeThreadID ?? store.threads.first?.id ?? UUID()
+            AddToChatSheet(
+                threadID: activeID,
+                remainingPhotoSlots: max(0, 4 - pendingImages.count),
+                showsSystemPromptControl: showsSystemPromptControl,
+                systemPromptTitle: store.systemPromptTitle(for: store.activeThread),
+                onTakeCameraPhoto: { chooseCameraPhoto() },
+                onPickPhotos: { choosePhotos() },
+                onPickFiles: { chooseDocuments() },
+                onAttachPreparedImage: { data, preview in
+                    guard pendingImages.count < 4 else { return }
+                    pendingImages.append(PendingImage(data: data, preview: preview))
+                },
+                onPasteClipboard: { pasteFromClipboard() },
+                onOpenSystemPrompt: {
+                    if let thread = store.activeThread, store.canChooseSystemPrompt(for: thread) {
+                        focusComposer(false)
+                        systemPromptTarget = ConversationPanelTarget(threadID: thread.id)
+                    }
+                },
+                onOpenSettings: {
+                    focusComposer(false)
+                    openSettings()
+                }
+            )
+            .environmentObject(store)
+        }
         .alert("替换输入框里的文字？", isPresented: Binding(
             get: { pendingSuggestedReply != nil },
             set: { if !$0 { pendingSuggestedReply = nil } })) {
@@ -1053,8 +1090,9 @@ struct ChatScreen: View {
             Haptic.tap()
             focusComposer(true)
         } : nil
+        let runRecord = message.role == .assistant ? store.agentRunRecord(for: message, threadID: threadID) : nil
         return MessageView(message: message, threadID: threadID, isLast: isLast,
-                    isGenerating: isLast ? store.isGenerating : false, canRegenerate: store.canChat,
+                    isGenerating: isLast ? store.isGenerating(in: threadID) : false, canRegenerate: store.canChat,
                     showsSuggestions: store.settings.shouldSuggestReplies && store.activeProject?.studySubject == nil,
                     edit: { focusComposer(false); editingThreadID = threadID; editedMessage = message },
                     regenerate: regeneratePreservingDraftImages,
@@ -1069,7 +1107,12 @@ struct ChatScreen: View {
                         store.toggleBookmark(threadID: thread.id, messageID: message.id)
                     }, retryColab: {
                         if let threadID { store.retryColabWithDeepSeek(threadID: threadID, messageID: message.id) }
-                    }, generatedImages: store.generatedImages[message.id] ?? [])
+                    }, generatedImages: store.generatedImages[message.id] ?? [],
+                    agentRecord: runRecord,
+                    openAgentTimeline: {
+                        focusComposer(false)
+                        agentTimelineTarget = AgentTimelineTarget(threadID: threadID, messageID: message.id)
+                    })
             .equatable()
     }
 
@@ -1455,74 +1498,70 @@ struct ChatScreen: View {
     private var attachmentButton: some View {
         Button {
             Haptic.tap()
-            withAnimation(.snappy(duration: 0.22)) { attachTrayOpen.toggle() }
+            flushDraft()
+            focusComposer(false)
+            showAddToChatSheet = true
         } label: {
-            Image(systemName: "plus").font(.system(size: 15, weight: .regular))
+            Image(systemName: "plus").font(.system(size: 15.5, weight: .regular))
                 .foregroundStyle(Ink.ink2)
-                .rotationEffect(.degrees(attachTrayOpen ? 45 : 0))
                 .frame(width: 34, height: 34)
                 .background(Ink.raised, in: swiss ? AnyShape(Rectangle()) : AnyShape(Circle()))
                 .contentShape(Circle())
         }
         .buttonStyle(.pressFeedback)
-        .accessibilityLabel(attachTrayOpen ? "收起添加内容" : "添加图片、文件、文字或切换指令")
+        .accessibilityLabel("添加到会话")
         .accessibilityIdentifier("chat-attachments")
     }
 
-    private var attachmentTray: some View {
-        ScrollView(.horizontal, showsIndicators: false) {
-            HStack(spacing: 8) {
-                if showsSystemPromptControl, let thread = store.activeThread {
-                    let current = store.systemPromptTitle(for: thread)
-                    trayButton("指令 · " + (current.count > 6 ? String(current.prefix(5)) + "…" : current),
-                               symbol: "text.bubble", id: "chat-system-prompt",
-                               disabled: store.isGenerating || !store.canPersist || !store.canChooseSystemPrompt(for: thread)) {
-                        focusComposer(false)
-                        systemPromptTarget = ConversationPanelTarget(threadID: thread.id)
-                    }
+    private func chooseCameraPhoto() {
+        guard !attachmentBusy, store.canPersist, let thread = store.activeThread, !store.isHidden(thread) else { return }
+        let origin = thread.id
+        guard (imagesByThread[origin]?.count ?? 0) < 4 else {
+            attachmentReport = "一次最多添加 4 张图片。"
+            return
+        }
+        focusComposer(false)
+        _ = ChatCameraPicker.present(onError: { issue in
+            attachmentReport = issue
+        }) { captured in
+            Task { @MainActor in
+                guard let raw = captured.jpegData(compressionQuality: 0.90) ?? captured.pngData(),
+                      let prepared = try? await Task.detached(priority: .userInitiated, operation: {
+                          try ImageStore.prepared(raw)
+                      }).value,
+                      let preview = UIImage(data: prepared) else {
+                    attachmentReport = "拍摄的照片未能读取，请重新尝试。"
+                    return
                 }
-                trayButton("图片", symbol: "photo", id: "chat-add-photos",
-                           disabled: attachmentBusy || !store.canPersist || pendingImages.count >= 4) { choosePhotos() }
-                trayButton("文件", symbol: "doc.badge.plus", id: "chat-add-document",
-                           disabled: attachmentBusy || !store.canPersist) { chooseDocuments() }
-                trayButton("粘贴", symbol: "doc.on.clipboard", id: "chat-paste-text", disabled: !store.canPersist) {
-                    guard let id = store.activeThreadID else { return }
-                    if UIPasteboard.general.hasImages, let image = UIPasteboard.general.image {
-                        guard pendingImages.count < 4 else {
-                            attachmentReport = "每条消息最多附加 4 张图片。"
-                            return
-                        }
-                        if let data = image.jpegData(compressionQuality: 0.85) ?? image.pngData() {
-                            pendingImages.append(PendingImage(data: data, preview: image))
-                            Haptic.tap()
-                            return
-                        }
-                    }
-                    guard let text = UIPasteboard.general.string, !text.isEmpty else {
-                        attachmentReport = "剪贴板里没有图片或文字。"
-                        return
-                    }
-                    if store.appendImportedText(text, to: id) { focusComposer(true) }
+                guard let current = store.threads.first(where: { $0.id == origin }), !store.isHidden(current) else {
+                    return
+                }
+                if (imagesByThread[origin]?.count ?? 0) < 4 {
+                    imagesByThread[origin, default: []].append(PendingImage(data: prepared, preview: preview))
                 }
             }
         }
-        .transition(.opacity.combined(with: .move(edge: .bottom)))
     }
 
-    private func trayButton(_ title: String, symbol: String, id: String, disabled: Bool,
-                            action: @escaping () -> Void) -> some View {
-        Button {
-            attachTrayOpen = false
-            flushDraft()
-            action()
-        } label: {
-            Label(title, systemImage: symbol).font(TypeScale.label).foregroundStyle(Ink.ink)
-                .padding(.horizontal, 14).frame(height: 36)
-                .background(Ink.raised, in: swiss ? AnyShape(Rectangle()) : AnyShape(Capsule()))
-                .contentShape(Capsule())
+    private func pasteFromClipboard() {
+        guard store.canPersist, let id = store.activeThreadID else { return }
+        if UIPasteboard.general.hasImages, let image = UIPasteboard.general.image {
+            guard pendingImages.count < 4 else {
+                attachmentReport = "每条消息最多附加 4 张图片。"
+                return
+            }
+            if let data = image.jpegData(compressionQuality: 0.85) ?? image.pngData() {
+                pendingImages.append(PendingImage(data: data, preview: image))
+                Haptic.tap()
+                return
+            }
         }
-        .buttonStyle(.pressFeedback).disabled(disabled)
-        .accessibilityIdentifier(id)
+        guard let text = UIPasteboard.general.string, !text.isEmpty else {
+            attachmentReport = "剪贴板里没有图片或文字。"
+            return
+        }
+        flushDraft()
+        if store.appendImportedText(text, to: id) { focusComposer(true) }
     }
 
     private var isSlashCommandActive: Bool {
@@ -1648,9 +1687,34 @@ struct ChatScreen: View {
     }
 
     private var composerBody: some View {
-        VStack(spacing: 8) {
+        let isCurrentGenerating = store.isGenerating(in: store.activeThreadID)
+        let steerDraft = localDraft.trimmingCharacters(in: .whitespacesAndNewlines)
+        let canSteerCurrentRun = isCurrentGenerating && !steerDraft.isEmpty && pendingImages.isEmpty && pendingDocuments.isEmpty
+        return VStack(spacing: 8) {
             if let approval = store.pendingApproval {
-                InlineToolApprovalCard(approval: approval) { store.resolveApproval($0) }
+                if approval.threadID == store.activeThreadID {
+                    InlineToolApprovalCard(approval: approval) { store.resolveApproval($0) }
+                } else {
+                    Button {
+                        Haptic.tap()
+                        if let target = store.threads.first(where: { $0.id == approval.threadID }), !store.isHidden(target) {
+                            store.activeThreadID = target.id
+                        }
+                    } label: {
+                        HStack(spacing: 6) {
+                            Image(systemName: "exclamationmark.shield")
+                                .font(.system(size: 13, weight: .semibold))
+                            Text("另一个对话正等待你确认操作 · 点此前往 ›")
+                                .font(TypeScale.caption)
+                        }
+                        .foregroundStyle(Ink.seal)
+                        .padding(.horizontal, 12)
+                        .padding(.vertical, 7)
+                        .background(Ink.card, in: Capsule())
+                        .overlay(Capsule().stroke(Ink.line, lineWidth: 0.8))
+                    }
+                    .buttonStyle(.pressFeedback)
+                }
             }
             contextStatusBar
             slashCommandBar
@@ -1668,7 +1732,6 @@ struct ChatScreen: View {
                 }.padding(.bottom, 2)
             }
             VStack(alignment: .leading, spacing: 12) {
-                if attachTrayOpen { attachmentTray }
                 if photoLoadThreadID != nil {
                     HStack(spacing: 8) {
                         ProgressView()
@@ -1924,59 +1987,119 @@ struct ChatScreen: View {
                     }
 
                     Spacer(minLength: 0)
-                    Button {
-                        if store.isGenerating { store.stopGeneration() }
-                        else if ghostText != nil {
-                            takeGhost(send: true)
-                        } else {
-                            clearMessageNavigation()
-                            followsOutput = true
+                    if canSteerCurrentRun {
+                        Button {
                             Haptic.tap()
-                            flushDraft()
-                            let textWithQuote = MessageQuoteCodec.encode(quote: quotingMessage, userText: store.activeDraft)
-                            let payload = PendingDocumentCodec.encode(userText: textWithQuote, documents: pendingDocuments)
-                            if store.send(payload, images: pendingImages.map(\.data)) {
+                            store.stopGeneration()
+                        } label: {
+                            Image(systemName: "stop.fill")
+                                .font(.system(size: 11, weight: .medium))
+                                .foregroundStyle(swiss ? Ink.onSolid : (night ? Ink.onSeal : Ink.ink))
+                                .frame(width: 34, height: 34)
+                                .background(swiss ? Ink.solid : (night ? Ink.seal : Ink.raised),
+                                            in: RoundedRectangle(cornerRadius: swiss ? 0 : 17, style: .continuous))
+                                .contentShape(Rectangle())
+                        }
+                        .buttonStyle(.plain)
+                        .accessibilityLabel("停止生成")
+
+                        Button {
+                            Haptic.tap()
+                            if store.steerActiveRun(steerDraft) {
                                 draftPushTask?.cancel()
                                 draftPushTask = nil
                                 localDraft = ""
                                 lastPushedDraft = ""
-                                pendingImages = []
-                                pendingDocuments = []
-                                quotingMessage = nil
+                                if let activeID = store.activeThreadID {
+                                    store.setDraft("", threadID: activeID)
+                                }
                                 focusComposer(false)
                             }
+                        } label: {
+                            HStack(spacing: 4) {
+                                Text("追加")
+                                    .font(.system(size: 13.5, weight: .semibold))
+                                Image(systemName: "arrow.up")
+                                    .font(.system(size: 12.5, weight: .semibold))
+                            }
+                            .foregroundStyle(Ink.sendGlyph)
+                            .padding(.horizontal, 12)
+                            .frame(height: 34)
+                            .background(Ink.sendFill, in: Capsule())
+                            .contentShape(Capsule())
                         }
-                    } label: {
-                        let readyToSend = hasInput || ghostText != nil
-                        let isStop = store.isGenerating
-                        let sendDisabled = !isStop && (!store.canChat || !readyToSend || !store.canPersist || loadingPhotos
-                            || (fileImportThreadID != nil && fileImportThreadID == store.activeThreadID))
-                        let circleFill: Color = isStop
-                            ? (swiss ? Ink.solid : (night ? Ink.seal : Ink.raised))
-                            : (readyToSend ? Ink.sendFill : Ink.raised)
-                        let glyphColor: Color = isStop
-                            ? (swiss ? Ink.onSolid : (night ? Ink.onSeal : Ink.ink))
-                            : (readyToSend ? Ink.sendGlyph : Ink.ink3.opacity(0.65))
-                        Image(systemName: isStop ? "stop.fill" : "arrow.up")
-                            .font(.system(size: isStop ? 11 : 14, weight: readyToSend ? .semibold : .medium))
-                            .foregroundStyle(glyphColor)
-                            .frame(width: 34, height: 34)
-                            .background(circleFill, in: RoundedRectangle(cornerRadius: swiss ? 0 : 17, style: .continuous))
-                            .shadow(color: night && (readyToSend || isStop) ? Ink.seal.opacity(0.35) : .clear, radius: night ? 12 : 0)
-                            .opacity(readyToSend && sendDisabled ? 0.42 : 1)
-                            .contentShape(Rectangle())
+                        .buttonStyle(.pressFeedback)
+                        .accessibilityLabel("追加补充要求")
+                    } else {
+                        Button {
+                            if isCurrentGenerating {
+                                store.stopGeneration()
+                            } else if store.isGenerating {
+                                store.errorMessage = "另一个对话正在后台生成中，可点下方提示切回查看或等待完成。"
+                            } else if ghostText != nil {
+                                takeGhost(send: true)
+                            } else {
+                                clearMessageNavigation()
+                                followsOutput = true
+                                Haptic.tap()
+                                flushDraft()
+                                let textWithQuote = MessageQuoteCodec.encode(quote: quotingMessage, userText: store.activeDraft)
+                                let payload = PendingDocumentCodec.encode(userText: textWithQuote, documents: pendingDocuments)
+                                if store.send(payload, images: pendingImages.map(\.data)) {
+                                    draftPushTask?.cancel()
+                                    draftPushTask = nil
+                                    localDraft = ""
+                                    lastPushedDraft = ""
+                                    pendingImages = []
+                                    pendingDocuments = []
+                                    quotingMessage = nil
+                                    focusComposer(false)
+                                }
+                            }
+                        } label: {
+                            let readyToSend = hasInput || ghostText != nil
+                            let isStop = isCurrentGenerating
+                            let sendDisabled = !isStop && (!store.canChat || !readyToSend || !store.canPersist || loadingPhotos
+                                || (fileImportThreadID != nil && fileImportThreadID == store.activeThreadID))
+                            let circleFill: Color = isStop
+                                ? (swiss ? Ink.solid : (night ? Ink.seal : Ink.raised))
+                                : (readyToSend ? Ink.sendFill : Ink.raised)
+                            let glyphColor: Color = isStop
+                                ? (swiss ? Ink.onSolid : (night ? Ink.onSeal : Ink.ink))
+                                : (readyToSend ? Ink.sendGlyph : Ink.ink3.opacity(0.65))
+                            Image(systemName: isStop ? "stop.fill" : "arrow.up")
+                                .font(.system(size: isStop ? 11 : 14, weight: readyToSend ? .semibold : .medium))
+                                .foregroundStyle(glyphColor)
+                                .frame(width: 34, height: 34)
+                                .background(circleFill, in: RoundedRectangle(cornerRadius: swiss ? 0 : 17, style: .continuous))
+                                .shadow(color: night && (readyToSend || isStop) ? Ink.seal.opacity(0.35) : .clear, radius: night ? 12 : 0)
+                                .opacity(readyToSend && sendDisabled ? 0.42 : 1)
+                                .contentShape(Rectangle())
+                        }
+                        .buttonStyle(.plain)
+                        .disabled(!isCurrentGenerating && (!store.canChat || !(hasInput || ghostText != nil) || !store.canPersist || loadingPhotos
+                            || (fileImportThreadID != nil && fileImportThreadID == store.activeThreadID)))
+                        .accessibilityLabel(isCurrentGenerating ? "停止生成" : "发送消息")
                     }
-                    .buttonStyle(.plain)
-                    .disabled(!store.isGenerating && (!store.canChat || !(hasInput || ghostText != nil) || !store.canPersist || loadingPhotos
-                        || (fileImportThreadID != nil && fileImportThreadID == store.activeThreadID)))
-                    .accessibilityLabel(store.isGenerating ? "停止生成" : "发送消息")
                 }
             }
             .padding(.horizontal, 11).padding(.top, 12).padding(.bottom, 9)
             .clearGlass(radius: 26)
             if store.isGenerating && store.generatingThreadID != store.activeThreadID {
-                Text("另一个对话正在生成，右侧按钮可停止。")
-                    .font(TypeScale.tiny).foregroundStyle(Ink.ink3)
+                Button {
+                    Haptic.tap()
+                    if let bgID = store.generatingThreadID,
+                       let target = store.threads.first(where: { $0.id == bgID }),
+                       !store.isHidden(target) {
+                        store.activeThreadID = bgID
+                    }
+                } label: {
+                    Text("另一个对话正在后台生成 · 点此切回查看 ›")
+                        .font(TypeScale.tiny)
+                        .foregroundStyle(Ink.ink3)
+                        .padding(.vertical, 2)
+                }
+                .buttonStyle(.plain)
             }
         }
         // When idle, `keyboardLayoutGuide.topAnchor` already sits at `safeAreaLayoutGuide.bottomAnchor`
@@ -2259,6 +2382,8 @@ struct MessageView: View, Equatable {
     var toggleBookmark: (() -> Void)? = nil
     var retryColab: (() -> Void)? = nil
     var generatedImages: [URL] = []
+    var agentRecord: AgentRunRecord? = nil
+    var openAgentTimeline: () -> Void = {}
     @State private var copied = false
     @State private var selecting = false
     @State private var showSourcesSheet = false
@@ -2270,6 +2395,7 @@ struct MessageView: View, Equatable {
             && lhs.showsSuggestions == rhs.showsSuggestions && lhs.round == rhs.round
             && lhs.style == rhs.style && lhs.layoutMode == rhs.layoutMode
             && lhs.generatedImages == rhs.generatedImages
+            && lhs.agentRecord == rhs.agentRecord
     }
 
     private var documentArtifactTitle: String {
@@ -2653,8 +2779,13 @@ struct MessageView: View, Equatable {
         if !message.reasoning.isEmpty {
             ThinkingRow(message: message, open: openThinking)
         }
-        if let tools = message.toolActivity, !tools.isEmpty {
-            ToolActivityList(items: tools, signIn: signInDrive)
+        if let record = agentRecord {
+            AgentWorkingSummaryRow(
+                record: record,
+                toolItems: message.toolActivity ?? [],
+                signInDrive: signInDrive,
+                openTimeline: openAgentTimeline
+            )
         }
         if !generatedImages.isEmpty {
             GeneratedImagesGalleryView(urls: generatedImages, swiss: style == .swiss)

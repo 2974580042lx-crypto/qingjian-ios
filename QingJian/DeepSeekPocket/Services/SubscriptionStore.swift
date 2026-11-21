@@ -87,9 +87,22 @@ final class SubscriptionStore: NSObject, ObservableObject, ASWebAuthenticationPr
         reloadIfNeeded()
     }
     func reloadIfNeeded() {
-        guard !preview else { return }
-        do { vault = try SubscriptionKeychain.read(); canSave = true; issue = nil; publish() }
-        catch { canSave = false; issue = error.localizedDescription }
+        guard !preview, !busy else { return }
+        do {
+            vault = try SubscriptionKeychain.read()
+            canSave = true
+            issue = nil
+            publish()
+        } catch let error as SubscriptionError {
+            canSave = false
+            issue = error.localizedDescription
+        } catch {
+            // DecodingError or legacy schema corruption must NOT lock out signIn() or disconnect() (#12).
+            vault = SubscriptionVault()
+            canSave = true
+            issue = "订阅登录信息需要更新，请重新登录 ChatGPT。"
+            publish()
+        }
     }
     private func publish() {
         connected = vault.connection != nil
@@ -112,8 +125,18 @@ final class SubscriptionStore: NSObject, ObservableObject, ASWebAuthenticationPr
         guard !preview else { issue = "界面测试模式不连接真实账号。"; return }
         // Retry access after the device was locked or a previous Keychain read failed.
         if !canSave {
-            do { vault = try SubscriptionKeychain.read(); canSave = true; publish() }
-            catch { issue = error.localizedDescription; return }
+            do {
+                vault = try SubscriptionKeychain.read()
+                canSave = true
+                publish()
+            } catch is DecodingError {
+                vault = SubscriptionVault()
+                canSave = true
+                publish()
+            } catch {
+                issue = error.localizedDescription
+                return
+            }
         }
         signingIn = true; issue = nil; testResult = nil; loginStage = "正在准备官方登录"
         loginTask = Task { [weak self] in
@@ -175,19 +198,19 @@ final class SubscriptionStore: NSObject, ObservableObject, ASWebAuthenticationPr
         guard SecRandomCopyBytes(kSecRandomDefault, bytes.count, &bytes) == errSecSuccess else { throw SubscriptionError.invalidIdentity }
         return Data(bytes).base64URL
     }
-    private func validAccessToken() async throws -> String {
+    private func validAccessToken(forceRefresh: Bool = false) async throws -> String {
         guard let connection = vault.connection else { throw SubscriptionError.notConnected }
         guard !reauthenticationRequired else { throw SubscriptionError.notConnected }
         guard planAllowed else { throw SubscriptionError.planPermission }
         if let refreshTask { return try await refreshTask.value }
-        if connection.pendingRefresh == nil && connection.tokens.expiresAt.timeIntervalSinceNow > 60 { return connection.tokens.accessToken }
+        if !forceRefresh && connection.pendingRefresh == nil && connection.tokens.expiresAt.timeIntervalSinceNow > 60 { return connection.tokens.accessToken }
         let task = Task { @MainActor [weak self] () throws -> String in
             guard let self else { throw CancellationError() }
             let config = try await self.api.discovery()
             let tokens: SubscriptionTokens
             if let pending = connection.pendingRefresh { tokens = pending }
             else {
-                if let earliest = connection.tokens.earliestRefreshAt, earliest > Date() {
+                if !forceRefresh, let earliest = connection.tokens.earliestRefreshAt, earliest > Date() {
                     guard connection.tokens.expiresAt > Date() else { throw SubscriptionError.notConnected }
                     return connection.tokens.accessToken
                 }
@@ -251,6 +274,21 @@ final class SubscriptionStore: NSObject, ObservableObject, ASWebAuthenticationPr
                 accessToken: access,
                 onProgress: onProgress
             ) { event in received.value = true; onEvent(event) }
+        } catch SubscriptionError.service(_, 401) where !received.value {
+            // Issue #13: Force-refresh short-lived access token once before invalidating login state.
+            do {
+                let refreshedAccess = try await validAccessToken(forceRefresh: true)
+                try await api.stream(
+                    SubscriptionRequest(request: request, model: model, effort: effort, summary: asksSummary,
+                                        nativeWebSearch: nativeWebSearch, nativeImageGeneration: nativeImageGeneration),
+                    accessToken: refreshedAccess,
+                    onProgress: onProgress,
+                    onEvent: onEvent
+                )
+            } catch let retryError {
+                observe(retryError)
+                throw friendlyBuiltInError(retryError, nativeWebSearch: nativeWebSearch, nativeImageGeneration: nativeImageGeneration, effort: effort)
+            }
         } catch SubscriptionError.service(_, 400) where asksSummary && !received.value {
             summaryRefused = true
             do {
@@ -290,6 +328,10 @@ final class SubscriptionStore: NSObject, ObservableObject, ASWebAuthenticationPr
         var settings = AppSettings()
         settings.systemPrompt = "你是一个精准的联网信息检索助手。请使用内置联网工具搜索用户问题，并用简明中文整理最新核心事实与关键数据，严格忠于网页来源，不要编造。"
         let request = ChatRequest(settings: settings, messages: [ChatMessage(role: .user, content: query)])
+        if models.isEmpty {
+            let token = try await validAccessToken()
+            models = try await api.models(accessToken: token)
+        }
         let targetModel = models.first(where: { $0.slug == model })?.slug ?? models.first?.slug ?? model
         var summaryText = ""
         var collectedSources: [WebSource] = []

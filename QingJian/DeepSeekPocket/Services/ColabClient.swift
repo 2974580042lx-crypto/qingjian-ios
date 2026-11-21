@@ -97,9 +97,9 @@ final class ColabClient: @unchecked Sendable {
             } while removedBytes < removeBytes
             count = try await tokenCount(messages, tools: body["tools"], base: base, session: session, thinking: options.thinking)
         }
-        guard count + 64 < context else { throw ColabError.context }
+        guard count + 192 <= context else { throw ColabError.context }
         body["messages"] = messages
-        body["max_tokens"] = min(output, context - count - 64)
+        body["max_tokens"] = max(192, min(output, context - count - 64))
         return body
     }
     func stream(_ original: ChatRequest, options: ColabOptions,
@@ -240,7 +240,7 @@ final class ColabClient: @unchecked Sendable {
                 guard Date().timeIntervalSince(started) < 3600 else {
                     throw ColabRecoveryFailure("恢复等待已超时，已收到的文字已保留。")
                 }
-                if !(await lease.isActive) {
+                if !(await lease.canPoll) {
                     try await Task.sleep(nanoseconds: 500_000_000)
                     continue
                 }
@@ -325,17 +325,27 @@ private struct ColabRecoverySnapshot: Decodable {
 private final class ColabBackgroundLease {
     private var task: UIBackgroundTaskIdentifier = .invalid
     private var observers: [NSObjectProtocol] = []
+    private var didEnterBackground = false
     private let interrupt: @Sendable () -> Void
     var isActive: Bool { UIApplication.shared.applicationState == .active }
+    var canPoll: Bool { isActive || task != .invalid }
     init(interrupt: @escaping @Sendable () -> Void) {
         self.interrupt = interrupt
         observers.append(NotificationCenter.default.addObserver(forName: UIApplication.didEnterBackgroundNotification,
-            object: nil, queue: .main) { [weak self] _ in Task { @MainActor in self?.begin() } })
+            object: nil, queue: .main) { [weak self] _ in Task { @MainActor in
+                self?.didEnterBackground = true
+                self?.begin()
+            } })
         observers.append(NotificationCenter.default.addObserver(forName: UIApplication.didBecomeActiveNotification,
             object: nil, queue: .main) { [weak self] _ in Task { @MainActor in
-                self?.finishLease(); self?.interrupt()
+                guard let self else { return }
+                let wasBackgrounded = self.didEnterBackground
+                self.didEnterBackground = false
+                self.finishLease()
+                // Only interrupt SSE stream if the app actually entered background (not Control Center pull-down, #17).
+                if wasBackgrounded { self.interrupt() }
             } })
-        if !isActive { begin() }
+        if !isActive { didEnterBackground = true; begin() }
     }
     private func begin() {
         guard task == .invalid else { return }
@@ -356,6 +366,7 @@ private final class ColabBackgroundLease {
 @MainActor
 private final class ColabBackgroundLease {
     var isActive: Bool { true }
+    var canPoll: Bool { true }
     init(interrupt: @escaping @Sendable () -> Void) {}
     func end() {}
 }

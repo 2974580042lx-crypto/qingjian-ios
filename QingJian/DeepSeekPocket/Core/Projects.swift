@@ -130,6 +130,10 @@ enum DeepSeekVisionBridge {
     }
 
     static func parseResponse(_ data: Data) throws -> String {
+        try parseResponseWithUsage(data).text
+    }
+
+    static func parseResponseWithUsage(_ data: Data) throws -> (text: String, usage: TokenUsage?) {
         guard data.count <= 16_000_000,
               let root = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else {
             throw BridgeError("图片理解服务返回的数据无法读取。")
@@ -159,10 +163,19 @@ enum DeepSeekVisionBridge {
         guard !cleaned.isEmpty else {
             throw BridgeError("图片理解服务未返回有效内容。")
         }
-        return cleaned
+        var parsedUsage: TokenUsage?
+        if let usageObj = root["usage"] as? [String: Any],
+           let usageData = try? JSONSerialization.data(withJSONObject: usageObj) {
+            parsedUsage = try? JSONDecoder().decode(TokenUsage.self, from: usageData)
+        }
+        return (cleaned, parsedUsage)
     }
 
     static func describeImages(dataURLs: [String], userPrompt: String = "", key: String) async throws -> String {
+        try await describeImagesWithUsage(dataURLs: dataURLs, userPrompt: userPrompt, key: key).text
+    }
+
+    static func describeImagesWithUsage(dataURLs: [String], userPrompt: String = "", key: String) async throws -> (text: String, usage: TokenUsage?) {
         let cleanKey = key.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !cleanKey.isEmpty else {
             throw BridgeError("缺少 DeepSeek API Key。")
@@ -184,14 +197,14 @@ enum DeepSeekVisionBridge {
 
         let (data, response) = try await session.data(for: request)
         if let http = response as? HTTPURLResponse, !(200...299).contains(http.statusCode) {
-            if let _ = try? parseResponse(data) {
+            if let _ = try? parseResponseWithUsage(data) {
                 // Unexpected non-2xx with valid content; fall through to parseResponse error/status check.
             } else {
-                _ = try parseResponse(data) // Re-throws embedded API error message if present.
+                _ = try parseResponseWithUsage(data) // Re-throws embedded API error message if present.
             }
             throw BridgeError("图片理解服务请求失败（HTTP \(http.statusCode)）。")
         }
-        return try parseResponse(data)
+        return try parseResponseWithUsage(data)
     }
 
     private struct BridgeError: LocalizedError {

@@ -41,8 +41,8 @@ struct ProviderCapabilities: Equatable, Sendable {
         case .colab:
             return ProviderCapabilities(
                 provider: .colab,
-                supportsVision: false,
-                visionNote: "取决于部署模型",
+                supportsVision: true,
+                visionNote: "直接上传",
                 supportsWebSearch: WebSearchRouting.channel(for: .colab) != .directLinksOnly,
                 supportsThinking: true,
                 supportsTools: false
@@ -50,11 +50,11 @@ struct ProviderCapabilities: Equatable, Sendable {
         case .compatible:
             return ProviderCapabilities(
                 provider: .compatible,
-                supportsVision: false,
-                visionNote: "取决于所选模型",
+                supportsVision: true,
+                visionNote: "直接上传",
                 supportsWebSearch: WebSearchRouting.channel(for: .compatible) != .directLinksOnly,
                 supportsThinking: true,
-                supportsTools: false
+                supportsTools: true
             )
         }
     }

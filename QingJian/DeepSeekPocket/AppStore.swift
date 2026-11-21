@@ -59,6 +59,14 @@ final class AppStore: ObservableObject {
     let compatible = CompatibleEndpointStore()
     @Published var incomingChatFileURL: URL?
     private var colabObserver: AnyCancellable?
+    private var compatibleObserver: AnyCancellable?
+    let agentRunStore = AgentRunStore()
+    let sessionAgentPrefs = SessionAgentPreferencesStore()
+    private let visionCache = VisionDescriptionCache()
+    @Published private(set) var agentRunRevision = 0
+    @Published private(set) var isAgentPaused = false
+    private var agentPauseContinuation: CheckedContinuation<Void, Never>?
+    private var pendingSteeringNotes: [String] = []
     // The bookshelf (1.8.0): novels read into character profiles.
     let books: BookStore
     private var booksObserver: AnyCancellable?
@@ -363,6 +371,142 @@ final class AppStore: ObservableObject {
     }
 
     var isGenerating: Bool { generatingThreadID != nil }
+    func isGenerating(in threadID: UUID?) -> Bool {
+        guard let threadID else { return false }
+        return generatingThreadID == threadID
+    }
+    func permissionPolicy(for threadID: UUID?) -> ToolPermissionPolicy {
+        _ = agentRunRevision
+        return sessionAgentPrefs.preferences(for: threadID).permissionPolicy
+    }
+    func setPermissionPolicy(_ policy: ToolPermissionPolicy, for threadID: UUID) {
+        sessionAgentPrefs.update(for: threadID) { $0.permissionPolicy = policy }
+        if policy == .chatOnly && activeThreadID == threadID {
+            webSearchEnabled = false
+        }
+        agentRunRevision += 1
+    }
+    func isResearchModeEnabled(for threadID: UUID?) -> Bool {
+        _ = agentRunRevision
+        return sessionAgentPrefs.preferences(for: threadID).researchMode
+    }
+    func setResearchMode(_ enabled: Bool, for threadID: UUID) {
+        sessionAgentPrefs.update(for: threadID) { $0.researchMode = enabled }
+        agentRunRevision += 1
+    }
+    func effectiveDriveTools(for thread: ChatThread?) -> Bool {
+        _ = agentRunRevision
+        guard let thread else { return drive.connected }
+        if let proj = project(thread.projectID) {
+            return proj.driveTools ?? drive.connected
+        }
+        return sessionAgentPrefs.preferences(for: thread.id).driveEnabled ?? drive.connected
+    }
+    func effectiveGitHubTools(for thread: ChatThread?) -> Bool {
+        _ = agentRunRevision
+        guard let thread else { return github.connected }
+        if let proj = project(thread.projectID) {
+            return proj.githubTools ?? github.connected
+        }
+        return sessionAgentPrefs.preferences(for: thread.id).githubEnabled ?? github.connected
+    }
+    func effectiveWebTools(for thread: ChatThread?) -> Bool {
+        _ = agentRunRevision
+        guard let thread else { return true }
+        if let proj = project(thread.projectID) {
+            return proj.webTools ?? true
+        }
+        return sessionAgentPrefs.preferences(for: thread.id).webEnabled ?? true
+    }
+    func setConnectorEnabled(kind: String, enabled: Bool, for threadID: UUID) {
+        guard let thread = threads.first(where: { $0.id == threadID }) else { return }
+        if let projID = thread.projectID, var proj = project(projID) {
+            switch kind {
+            case "drive": proj.driveTools = enabled
+            case "github": proj.githubTools = enabled
+            case "web": proj.webTools = enabled
+            default: break
+            }
+            _ = updateProject(proj)
+        } else {
+            sessionAgentPrefs.update(for: threadID) { prefs in
+                switch kind {
+                case "drive": prefs.driveEnabled = enabled
+                case "github": prefs.githubEnabled = enabled
+                case "web": prefs.webEnabled = enabled
+                default: break
+                }
+            }
+        }
+        agentRunRevision += 1
+    }
+    func agentRunRecord(for message: ChatMessage, threadID: UUID?) -> AgentRunRecord? {
+        _ = agentRunRevision
+        return AgentRunRecord.synthesized(
+            from: message,
+            threadID: threadID,
+            existing: agentRunStore.record(for: message.id)
+        )
+    }
+    func pauseAgentRun() {
+        guard isGenerating, !isAgentPaused else { return }
+        isAgentPaused = true
+        if let msgID = live.messageID, var record = agentRunStore.record(for: msgID) {
+            record.phase = .paused
+            record.updatedAt = Date()
+            agentRunStore.save(record)
+        }
+        _ = persistNow()
+        agentRunRevision += 1
+    }
+    func resumeAgentRun() {
+        guard isAgentPaused else { return }
+        isAgentPaused = false
+        if let msgID = live.messageID, var record = agentRunStore.record(for: msgID) {
+            record.phase = .running
+            record.updatedAt = Date()
+            agentRunStore.save(record)
+        }
+        let cont = agentPauseContinuation
+        agentPauseContinuation = nil
+        cont?.resume()
+        agentRunRevision += 1
+    }
+    @discardableResult
+    func steerActiveRun(_ rawNote: String) -> Bool {
+        let clean = PendingDocumentCodec.extractEditableUserText(rawNote)
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !clean.isEmpty,
+              let threadID = activeThreadID,
+              generatingThreadID == threadID,
+              let msgID = live.messageID else { return false }
+        pendingSteeringNotes.append(clean)
+        var record = agentRunStore.record(for: msgID) ?? AgentRunRecord(messageID: msgID, threadID: threadID, phase: isAgentPaused ? .paused : .running)
+        record.appendSteeringNote(clean)
+        agentRunStore.save(record)
+        if isAgentPaused {
+            resumeAgentRun()
+        } else {
+            agentRunRevision += 1
+        }
+        return true
+    }
+    private func waitIfAgentPaused() async throws {
+        while isAgentPaused {
+            try Task.checkCancellation()
+            await withCheckedContinuation { (cont: CheckedContinuation<Void, Never>) in
+                agentPauseContinuation?.resume()
+                agentPauseContinuation = cont
+            }
+            try Task.checkCancellation()
+        }
+    }
+    private func drainSteeringNotes() -> [String] {
+        guard !pendingSteeringNotes.isEmpty else { return [] }
+        let notes = pendingSteeringNotes
+        pendingSteeringNotes.removeAll()
+        return notes
+    }
     var hasKey: Bool { !apiKey.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }
     // A project answers with the service it was set to; if a built-in study project's default service is not connected, fall back to the user's ready service.
     func provider(for thread: ChatThread?) -> AIProvider {
@@ -467,6 +611,7 @@ final class AppStore: ObservableObject {
         books = BookStore(preview: preview)
         subscriptionObserver = subscription.objectWillChange.sink { [weak self] _ in self?.objectWillChange.send() }
         colabObserver = colab.objectWillChange.sink { [weak self] _ in self?.objectWillChange.send() }
+        compatibleObserver = compatible.objectWillChange.sink { [weak self] _ in self?.objectWillChange.send() }
         booksObserver = books.objectWillChange.sink { [weak self] _ in self?.objectWillChange.send() }
         books.key = { [weak self] in self?.apiKey ?? "" }
         books.canDesignCover = { [weak self] in self?.subscription.ready == true }
@@ -1280,11 +1425,36 @@ final class AppStore: ObservableObject {
     private func beginBackgroundGenerationTask() {
         endBackgroundGenerationTask()
         guard !isPreview else { return }
-        backgroundTaskID = UIApplication.shared.beginBackgroundTask(withName: "SermoStreamGeneration") { [weak self] in
-            Task { @MainActor [weak self] in
-                self?.endBackgroundGenerationTask()
+        var capturedID: UIBackgroundTaskIdentifier = .invalid
+        capturedID = UIApplication.shared.beginBackgroundTask(withName: "SermoStreamGeneration") { [weak self] in
+            let expireWork = {
+                MainActor.assumeIsolated {
+                    guard let self else {
+                        if capturedID != .invalid { UIApplication.shared.endBackgroundTask(capturedID) }
+                        return
+                    }
+                    // Issue #8: Synchronously flush latest streamed content & cancel task before returning to UIKit.
+                    if self.canPersist, let persistence = self.persistence {
+                        try? persistence.save(self.snapshotWithLiveOverlay, allowShrink: false)
+                    }
+                    self.agentRunStore.flushToDisk()
+                    self.generationTask?.cancel()
+                    if self.backgroundTaskID == capturedID {
+                        self.backgroundTaskID = .invalid
+                    }
+                    if capturedID != .invalid {
+                        UIApplication.shared.endBackgroundTask(capturedID)
+                        capturedID = .invalid
+                    }
+                }
+            }
+            if Thread.isMainThread {
+                expireWork()
+            } else {
+                DispatchQueue.main.sync(execute: expireWork)
             }
         }
+        backgroundTaskID = capturedID
     }
 
     private func endBackgroundGenerationTask() {
@@ -1550,6 +1720,11 @@ final class AppStore: ObservableObject {
         return saved
     }
     func stopGeneration() {
+        isAgentPaused = false
+        let pauseCont = agentPauseContinuation
+        agentPauseContinuation = nil
+        pauseCont?.resume()
+        pendingSteeringNotes.removeAll()
         resolveApproval(false)
         generationTask?.cancel()
     }
@@ -1649,14 +1824,17 @@ final class AppStore: ObservableObject {
         let old = threads
         let provider = providerOverride ?? self.provider(for: threads[ti])
         let settings = self.settings(for: threads[ti])
+        let permPolicy = permissionPolicy(for: threadID)
+        let researchModeOn = isResearchModeEnabled(for: threadID)
         let webChannel = WebSearchRouting.channel(for: provider)
         let searchQuery = threads[ti].messages.last(where: { $0.role == .user })?.content ?? ""
         let directURLsPresent = !WebText.extractURLs(from: searchQuery).isEmpty
-        let useNativeOpenAIWebSearch = (provider == .chatGPT && webChannel == .nativeChatGPT)
-        let armImageGen = (provider == .chatGPT && imageGenerationEnabled)
+        let useNativeOpenAIWebSearch = permPolicy != .chatOnly && (provider == .chatGPT && webChannel == .nativeChatGPT)
+        let armImageGen = permPolicy != .chatOnly && (provider == .chatGPT && imageGenerationEnabled)
         if armImageGen { imageGenerationEnabled = false }
         let searchRequested: Bool = {
-            guard webSearchEnabled else { return false }
+            guard permPolicy != .chatOnly else { return false }
+            guard webSearchEnabled || researchModeOn else { return false }
             if useNativeOpenAIWebSearch { return false }
             switch webChannel {
             case .nativeChatGPT:
@@ -1675,26 +1853,31 @@ final class AppStore: ObservableObject {
             }.joined(separator: "\n")
         }()
 
-        // Flash, ChatGPT, and Colab read pictures directly; V4 Pro receives OCR-extracted text instead.
-        let loader: ((String) -> String?)? = provider == .colab || provider == .chatGPT || settings.model == .flash ? { ImageStore.dataURL(named: $0) } : nil
-        let proOCRImageNames: [String] = {
-            guard provider == .deepSeek, settings.model == .pro,
-                  let lastImages = threads[ti].messages.last(where: { $0.role == .user })?.images,
-                  !lastImages.isEmpty else { return [] }
-            return Array(lastImages.prefix(4))
-        }()
+        // Flash, ChatGPT, Colab, and Compatible read pictures directly (#16.2); V4 Pro uses cached/extracted vision notes (#18).
+        let supportsDirectVision = ToolCapabilityRegistry.supportsDirectVision(provider: provider, deepSeekModel: settings.model)
+        let loader: ((String) -> String?)? = supportsDirectVision ? { ImageStore.dataURL(named: $0) } : nil
+        let needsProVisionBridge = !supportsDirectVision && provider == .deepSeek && settings.model == .pro
+        let cachedVisionResolver: ((ChatMessage) -> String?)? = needsProVisionBridge ? { [visionCache] msg in
+            guard let imgs = msg.images, !imgs.isEmpty else { return nil }
+            return visionCache.cachedDescription(for: Array(imgs.prefix(4)))
+        } : nil
         let discussion = threads[ti].bookDiscussion
         let story = threads[ti].story
         let chatProject = discussion == nil ? project(threads[ti].projectID) : nil
         let pureRP = isPureRoleplay(threads[ti])
         var specs: [ToolSpec] = [], notes: [String] = []
-        let canRunTools = discussion == nil && story == nil && !pureRP
-            && (provider == .deepSeek || provider == .chatGPT || (provider == .colab && settings.colabOptions.tools))
+        let canRunTools = discussion == nil && story == nil && !pureRP && permPolicy != .chatOnly
+            && ToolCapabilityRegistry.supportsFunctionTools(
+                provider: provider,
+                colabToolsEnabled: settings.colabOptions.tools,
+                compatibleToolsEnabled: compatible.configuration.allowsTools
+            )
+        let sessionPrefs = sessionAgentPrefs.preferences(for: threadID)
         let hasStudyTools = chatProject?.studySubject != nil && canRunTools
-        let useDrive = canRunTools && (chatProject?.driveTools ?? drive.connected)
-        let useGitHub = canRunTools && (chatProject?.githubTools ?? github.connected)
-        let useWeb = canRunTools && (chatProject?.webTools ?? true)
-        let chatGPTBuiltInWebSearch = useNativeOpenAIWebSearch && (webSearchEnabled || useWeb)
+        let useDrive = canRunTools && (chatProject?.driveTools ?? sessionPrefs.driveEnabled ?? drive.connected)
+        let useGitHub = canRunTools && (chatProject?.githubTools ?? sessionPrefs.githubEnabled ?? github.connected)
+        let useWeb = canRunTools && (chatProject?.webTools ?? sessionPrefs.webEnabled ?? true)
+        let chatGPTBuiltInWebSearch = useNativeOpenAIWebSearch && (webSearchEnabled || researchModeOn || useWeb)
         if chatProject?.studySubject != nil {
             do { notes.append(try studyContext(for: threads[ti])) }
             catch { studyIssue = error.localizedDescription; errorMessage = error.localizedDescription; return false }
@@ -1734,6 +1917,13 @@ final class AppStore: ObservableObject {
             if manualBundle.includeTools { specs += OperationManualTools.specs }
             notes.append(manualBundle.note)
         }
+        if permPolicy != .chatOnly && ToolCapabilityRegistry.shouldUseAgentResearchPrompt(
+            userText: searchQuery,
+            explicitResearchMode: researchModeOn,
+            hasTools: !specs.isEmpty || chatGPTBuiltInWebSearch
+        ) {
+            notes.append(ToolCapabilityRegistry.researchAgentSystemNote)
+        }
         let usesTools = !specs.isEmpty
         // {{时间}} and the other placeholders are filled in here, for this request only.
         // Static/dynamic boundary (CC Prompt Caching optimization): keep `systemPrompt` static across minutes
@@ -1747,8 +1937,19 @@ final class AppStore: ObservableObject {
             ?? normalSystemPrompt(for: threads[ti], resolving: variables)
         let systemPrompt = ([basePrompt] + notes).filter { !$0.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }.joined(separator: "\n\n")
         let history = discussion == nil ? threads[ti].messages : BookDiscussion.history(threads[ti].messages)
+        let latestUserID = history.last(where: { $0.role == .user })?.id
+        let uncachedProImageTurns: [(content: String, images: [String], isLatest: Bool)] = {
+            guard needsProVisionBridge else { return [] }
+            let picTurns = history.filter { $0.role == .user && !($0.images ?? []).isEmpty }.suffix(ChatRequest.imageMessageLimit)
+            return picTurns.compactMap { msg in
+                let imgs = Array((msg.images ?? []).prefix(4))
+                guard !imgs.isEmpty, visionCache.cachedDescription(for: imgs) == nil else { return nil }
+                return (content: msg.content, images: imgs, isLatest: msg.id == latestUserID)
+            }
+        }()
         var built = ChatRequest(settings: settings, messages: history, imageLoader: loader,
-                                systemPrompt: systemPrompt, includeReasoning: usesTools)
+                                imageNoteResolver: cachedVisionResolver, systemPrompt: systemPrompt,
+                                includeReasoning: usesTools)
             .withTools(specs)
         if discussion == nil && story == nil && chatProject?.timeAwareness != false,
            let last = threads[ti].messages.lastIndex(where: { $0.role == .user }) {
@@ -1774,6 +1975,8 @@ final class AppStore: ObservableObject {
         live.begin(messageID: answerID, startedAt: answer.createdAt)
         studyOutputGuard = StudyOutputGuard()
         lastCommit = Date()
+        isAgentPaused = false
+        pendingSteeringNotes.removeAll()
         generatingThreadID = threadID
         generationProgress = ChatStreamProgress(phase: .connecting, elapsedSeconds: 0, receivedBytes: 0, httpStatus: nil)
         beginBackgroundGenerationTask()
@@ -1791,14 +1994,30 @@ final class AppStore: ObservableObject {
                                                                       provider: provider, subscriptionModel: subscriptionModel)
                     outgoing = outgoing.withBookMaterial(material)
                 }
-                if !proOCRImageNames.isEmpty && !key.isEmpty {
-                    if let ocrNote = await self.extractImageOCRNote(imageNames: proOCRImageNames, key: key) {
-                        outgoing = outgoing.prefixingLastUserMessage(ocrNote)
+                if !uncachedProImageTurns.isEmpty && !key.isEmpty {
+                    for turn in uncachedProImageTurns {
+                        try await self.waitIfAgentPaused()
+                        if let ocrNote = await self.extractImageOCRNote(imageNames: turn.images, key: key) {
+                            if turn.isLatest {
+                                outgoing = outgoing.prefixingLastUserMessage(ocrNote)
+                            } else {
+                                outgoing = outgoing.prefixingUserMessage(matching: turn.content, with: ocrNote)
+                            }
+                        }
+                        try Task.checkCancellation()
                     }
-                    try Task.checkCancellation()
                 }
                 if searchRequested {
+                    try await self.waitIfAgentPaused()
                     self.searchingThreadID = threadID
+                    let deepSearchID = "web-deep-\(answerID.uuidString.prefix(6))"
+                    self.record(ToolActivity(
+                        id: deepSearchID,
+                        title: webChannel == .nativeChatGPT ? "正在进行 ChatGPT 联网检索" : "正在深度联网探索与核对网页",
+                        status: .running,
+                        detail: nil,
+                        kind: "web"
+                    ), threadID: threadID, answerID: answerID)
                     let result: WebSearchResult
                     if webChannel == .nativeChatGPT && self.subscription.ready && !directURLsPresent {
                         result = try await self.subscription.quickWebSearch(query: searchQuery, model: subscriptionModel)
@@ -1816,20 +2035,16 @@ final class AppStore: ObservableObject {
                        let mi = self.threads[ti].messages.firstIndex(where: { $0.id == answerID }) {
                         self.threads[ti].messages[mi].webSources = result.sources
                         self.threads[ti].messages[mi].searchUsage = result.usage
-                        if !result.searchLog.isEmpty {
-                            var activities = self.threads[ti].messages[mi].toolActivity ?? []
-                            activities.append(ToolActivity(
-                                id: "web-deep-\(answerID.uuidString.prefix(6))",
-                                title: webChannel == .nativeChatGPT
-                                    ? "ChatGPT 联网检索 · \(result.sources.count) 篇来源"
-                                    : "深度联网探索 · 已核对 \(result.sources.count) 篇网页",
-                                status: .done,
-                                detail: result.searchLog,
-                                kind: "web"
-                            ))
-                            self.threads[ti].messages[mi].toolActivity = activities
-                        }
                     }
+                    self.record(ToolActivity(
+                        id: deepSearchID,
+                        title: webChannel == .nativeChatGPT
+                            ? "ChatGPT 联网检索 · \(result.sources.count) 篇来源"
+                            : "深度联网探索 · 已核对 \(result.sources.count) 篇网页",
+                        status: .done,
+                        detail: result.searchLog.isEmpty ? nil : result.searchLog,
+                        kind: "web"
+                    ), threadID: threadID, answerID: answerID)
                     self.recordUsage(result.usage, model: nil, at: Date(), provider: webChannel == .nativeChatGPT ? .chatGPT : nil)
                     self.persistNow()
                     try Task.checkCancellation()
@@ -1848,14 +2063,30 @@ final class AppStore: ObservableObject {
                         nativeWebSearch: chatGPTBuiltInWebSearch, nativeImageGeneration: armImageGen,
                         onProgress: onProgress, onEvent: onEvent)
                     self.storeUsage(total, threadID: threadID, answerID: answerID)
-                } else if provider == .chatGPT {
-                    try await self.subscription.stream(request: outgoing, model: subscriptionModel, effort: subscriptionEffort,
-                                                       summary: true, nativeWebSearch: chatGPTBuiltInWebSearch,
-                                                       nativeImageGeneration: armImageGen,
-                                                       onProgress: onProgress, onEvent: onEvent)
                 } else {
-                    try await self.streamModel(outgoing, provider: provider, colabOptions: settings.colabOptions, onProgress: onProgress,
-                        onRestart: { self.restartColabOutput(threadID: threadID, messageID: answerID) }, onEvent: onEvent)
+                    var streamReq = outgoing
+                    for pass in 0..<4 {
+                        try await self.waitIfAgentPaused()
+                        let priorText = self.live.content
+                        if provider == .chatGPT {
+                            try await self.subscription.stream(request: streamReq, model: subscriptionModel, effort: subscriptionEffort,
+                                                               summary: true, nativeWebSearch: chatGPTBuiltInWebSearch,
+                                                               nativeImageGeneration: armImageGen && pass == 0,
+                                                               onProgress: onProgress, onEvent: onEvent)
+                        } else {
+                            try await self.streamModel(streamReq, provider: provider, colabOptions: settings.colabOptions, onProgress: onProgress,
+                                onRestart: { self.restartColabOutput(threadID: threadID, messageID: answerID, content: priorText) }, onEvent: onEvent)
+                        }
+                        let steered = self.drainSteeringNotes()
+                        guard !steered.isEmpty, pass < 3 else { break }
+                        self.flushPending()
+                        let currentText = self.live.content
+                        if !currentText.isEmpty {
+                            streamReq = streamReq.appending([APIMessage(role: "assistant", content: currentText)])
+                            onEvent(StreamEvent(content: "\n\n"))
+                        }
+                        streamReq = streamReq.appending([APIMessage(role: "user", content: "【用户中途补充要求】\n" + steered.joined(separator: "\n"))])
+                    }
                 }
                 self.finish(threadID: threadID, messageID: answerID, state: .complete)
             } catch {
@@ -1884,14 +2115,24 @@ final class AppStore: ObservableObject {
 
     private func extractImageOCRNote(imageNames: [String], key: String) async -> String? {
         guard !imageNames.isEmpty else { return nil }
+        if let cached = visionCache.cachedDescription(for: imageNames) {
+            return cached
+        }
+        generationProgress = ChatStreamProgress(phase: .thinking, elapsedSeconds: 0, receivedBytes: 0, httpStatus: nil)
+        lastConnectionDiagnostic = "正在识别附图内容（共 \(imageNames.count) 张）…"
         let dataURLs = imageNames.compactMap { ImageStore.dataURL(named: $0) }
         var hasReadableImage = !dataURLs.isEmpty
         if !dataURLs.isEmpty {
             do {
-                let visionText = try await DeepSeekVisionBridge.describeImages(dataURLs: dataURLs, key: key)
-                    .trimmingCharacters(in: .whitespacesAndNewlines)
+                let (rawVisionText, visionUsage) = try await DeepSeekVisionBridge.describeImagesWithUsage(dataURLs: dataURLs, key: key)
+                if let visionUsage {
+                    recordUsage(visionUsage, model: .flash, at: Date(), provider: .deepSeek)
+                }
+                let visionText = rawVisionText.trimmingCharacters(in: .whitespacesAndNewlines)
                 if !visionText.isEmpty {
-                    return "【用户附图内容（已自动提取图中全部文字与画面信息）】\n\(visionText)"
+                    let formatted = "【用户附图内容（已自动提取图中全部文字与画面信息）】\n\(visionText)"
+                    visionCache.storeDescription(formatted, for: imageNames)
+                    return formatted
                 }
             } catch {
                 if error is CancellationError || Task.isCancelled { return nil }
@@ -1929,10 +2170,12 @@ final class AppStore: ObservableObject {
                 ? "（当前未能自动提取附图内容，\(DeepSeekModel.pro.title) 暂无法查看图片细节，请根据文字作答或请用户补充描述。）"
                 : nil
         }
-        return """
+        let ocrFormatted = """
         以下为你附带的 \(imageNames.count) 张图片通过 DeepSeek OCR 提取的文字内容（\(DeepSeekModel.pro.title) 暂不直接接收图像像素，仅提供图中文字识别结果）：
         \(blocks.joined(separator: "\n\n"))
         """
+        visionCache.storeDescription(ocrFormatted, for: imageNames)
+        return ocrFormatted
     }
     // One answer that may call tools: stream, run what the model asked for, send the
     // results back, repeat. Text and thinking from every round land in the same answer.
@@ -1947,6 +2190,7 @@ final class AppStore: ObservableObject {
         let provider = threads.first(where: { $0.id == threadID })?.messages.first(where: { $0.id == answerID })?.provider ?? .deepSeek
         var total: TokenUsage?
         for round in 0..<ToolLoop.maxRounds {
+            try await waitIfAgentPaused()
             let last = round == ToolLoop.maxRounds - 1
             if last { request = request.answeringWithoutTools() }
             let buffer = ToolRoundBuffer()
@@ -1971,20 +2215,51 @@ final class AppStore: ObservableObject {
             total = TokenUsage.combined(total, buffer.usage)
             storeUsage(total, threadID: threadID, answerID: answerID)
             let calls = buffer.collector.calls
-            guard !calls.isEmpty, !last else { break }
+            if !buffer.reasoning.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty && (!calls.isEmpty || round > 0) {
+                var run = agentRunStore.record(for: answerID) ?? AgentRunRecord(
+                    messageID: answerID,
+                    threadID: threadID,
+                    phase: isAgentPaused ? .paused : .running
+                )
+                run.appendPlanningNote(buffer.reasoning)
+                agentRunStore.save(run, flushImmediately: false)
+                agentRunRevision += 1
+            }
+            let steered = drainSteeringNotes()
+            if calls.isEmpty {
+                if !steered.isEmpty, !last {
+                    if !buffer.content.isEmpty || !buffer.reasoning.isEmpty || !buffer.subscriptionItems.isEmpty {
+                        var assistantTurn = APIMessage(role: "assistant", content: buffer.content)
+                        if !buffer.reasoning.isEmpty { assistantTurn.reasoningContent = buffer.reasoning }
+                        assistantTurn.subscriptionItems = buffer.subscriptionItems
+                        request = request.appending([assistantTurn])
+                    }
+                    request = request.appending([APIMessage(role: "user", content: "【用户中途补充要求】\n" + steered.joined(separator: "\n"))])
+                    if !buffer.content.isEmpty { onEvent(StreamEvent(content: "\n\n")) }
+                    continue
+                }
+                break
+            }
+            guard !last else { break }
             try Task.checkCancellation()
+            try await waitIfAgentPaused()
             request = request.appending([.assistantCalls(calls, content: buffer.content, reasoning: buffer.reasoning, subscriptionItems: buffer.subscriptionItems)])
             for call in calls {
+                try await waitIfAgentPaused()
                 let result = await runTool(call, threadID: threadID, answerID: answerID)
                 try Task.checkCancellation()
                 request = request.appending([.toolResult(ToolLoop.clipped(result), callID: call.id)])
+            }
+            let allSteered = steered + drainSteeringNotes()
+            if !allSteered.isEmpty {
+                request = request.appending([APIMessage(role: "user", content: "【用户中途补充要求】\n" + allSteered.joined(separator: "\n"))])
             }
             if !buffer.content.isEmpty { onEvent(StreamEvent(content: "\n\n")) }
         }
         return total
     }
 
-    // Runs one call and returns what the model is told. Writes wait for the user's OK.
+    // Runs one call and returns what the model is told. Writes (and `.alwaysAsk` policies) wait for the user's OK.
     private func runTool(_ call: ToolCall, threadID: UUID, answerID: UUID) async -> String {
         var activity = ToolActivity(id: call.id + "-" + String(UUID().uuidString.prefix(6)), title: "调用工具 \(call.name)",
                                     status: .running, detail: nil)
@@ -1999,12 +2274,29 @@ final class AppStore: ObservableObject {
         activity.kind = tool.kind
         record(activity, threadID: threadID, answerID: answerID)
         do {
+            let policy = permissionPolicy(for: threadID)
+            let needsPolicyConfirm = ToolCapabilityRegistry.shouldConfirmToolCall(
+                name: call.name,
+                isIntrinsicWrite: tool.confirm != nil,
+                policy: policy
+            )
             if let confirm = tool.confirm {
                 let text = try await confirm()
                 try Task.checkCancellation()
                 activity.title = text.title
                 record(activity, threadID: threadID, answerID: answerID)
-                guard await askApproval(ToolApproval(title: text.title, detail: text.detail)) else {
+                guard await askApproval(ToolApproval(threadID: threadID, title: text.title, detail: text.detail)) else {
+                    activity.status = .declined
+                    activity.detail = "你没有允许这次操作。"
+                    record(activity, threadID: threadID, answerID: answerID)
+                    return "用户没有允许这次操作。不要再次尝试，除非用户明确要求。"
+                }
+            } else if needsPolicyConfirm {
+                let previewArgs = call.arguments.trimmingCharacters(in: .whitespacesAndNewlines)
+                let detail = previewArgs.isEmpty || previewArgs == "{}"
+                    ? "当前对话权限设为「每次询问」，确认后执行该步骤。"
+                    : String(previewArgs.prefix(500))
+                guard await askApproval(ToolApproval(threadID: threadID, title: tool.title, detail: detail)) else {
                     activity.status = .declined
                     activity.detail = "你没有允许这次操作。"
                     record(activity, threadID: threadID, answerID: answerID)
@@ -2012,6 +2304,7 @@ final class AppStore: ObservableObject {
                 }
             }
             try Task.checkCancellation()
+            try await waitIfAgentPaused()
             try requireToolAccess(call, threadID: threadID)
             let result = try await tool.perform()
             activity.status = .done
@@ -2074,13 +2367,19 @@ final class AppStore: ObservableObject {
         let provider = thread.messages.last?.provider ?? self.provider(for: thread)
         let colabTools = settings(for: thread).colabOptions.tools
         let canRunTools = thread.bookDiscussion == nil && thread.story == nil && !isPureRoleplay(thread)
-            && (provider == .deepSeek || provider == .chatGPT || (provider == .colab && colabTools))
+            && permissionPolicy(for: thread.id) != .chatOnly
+            && ToolCapabilityRegistry.supportsFunctionTools(
+                provider: provider,
+                colabToolsEnabled: colabTools,
+                compatibleToolsEnabled: compatible.configuration.allowsTools
+            )
+        let sessionPrefs = sessionAgentPrefs.preferences(for: thread.id)
         let studyOK = proj?.studySubject != nil && canRunTools
         return (
             studySubject: studyOK ? proj?.studySubject : nil,
-            usesDrive: canRunTools && (proj?.driveTools ?? drive.connected),
-            usesGitHub: canRunTools && (proj?.githubTools ?? github.connected),
-            usesWeb: canRunTools && (proj?.webTools ?? true)
+            usesDrive: canRunTools && (proj?.driveTools ?? sessionPrefs.driveEnabled ?? drive.connected),
+            usesGitHub: canRunTools && (proj?.githubTools ?? sessionPrefs.githubEnabled ?? github.connected),
+            usesWeb: canRunTools && (proj?.webTools ?? sessionPrefs.webEnabled ?? true)
         )
     }
 
@@ -2125,7 +2424,7 @@ final class AppStore: ObservableObject {
                 case .search(let query):
                     if channel == .nativeChatGPT, subReady, let self, WebText.extractURLs(from: query).isEmpty {
                         let result = try await self.subscription.quickWebSearch(query: query, model: subModel)
-                        await self.noteSearch(result, threadID: threadID, answerID: answerID)
+                        await self.noteSearch(result, threadID: threadID, answerID: answerID, provider: .chatGPT)
                         return result.context
                     }
                     if (channel == .directLinksOnly || key.isEmpty) && WebText.extractURLs(from: query).isEmpty {
@@ -2169,6 +2468,10 @@ final class AppStore: ObservableObject {
         guard let thread = threads.first(where: { $0.id == threadID }) else {
             throw ToolError.disabledTool(call.name)
         }
+        let policy = permissionPolicy(for: threadID)
+        guard policy != .chatOnly else {
+            throw ToolError.disabledTool(call.name)
+        }
         let pureRP = isPureRoleplay(thread)
         if OperationManualTools.names.contains(call.name) {
             guard !pureRP, thread.bookDiscussion == nil, thread.story == nil,
@@ -2181,25 +2484,32 @@ final class AppStore: ObservableObject {
             _ = try studyScope(for: thread)
             let provider = thread.messages.last?.provider ?? provider(for: thread)
             guard project(thread.projectID)?.studySubject != nil,
-                  provider == .deepSeek || provider == .chatGPT || (provider == .colab && settings(for: thread).colabOptions.tools) else {
+                  ToolCapabilityRegistry.supportsFunctionTools(
+                      provider: provider,
+                      colabToolsEnabled: settings(for: thread).colabOptions.tools,
+                      compatibleToolsEnabled: compatible.configuration.allowsTools
+                  ) else {
                 throw ToolError.disabledTool(call.name)
             }
             return
         }
+        let sessionPrefs = sessionAgentPrefs.preferences(for: threadID)
         try ProjectToolAccess(
             project: project(thread.projectID),
             provider: thread.messages.last?.provider ?? provider(for: thread),
             colabTools: settings(for: thread).colabOptions.tools,
-            driveDefault: drive.connected,
-            githubDefault: github.connected,
-            webDefault: true,
-            pureRoleplay: pureRP
+            compatibleTools: compatible.configuration.allowsTools,
+            driveDefault: sessionPrefs.driveEnabled ?? drive.connected,
+            githubDefault: sessionPrefs.githubEnabled ?? github.connected,
+            webDefault: sessionPrefs.webEnabled ?? true,
+            pureRoleplay: pureRP,
+            permissionPolicy: policy
         ).require(call.name)
     }
 
     // A search the model ran: its sources show under the answer and its cost is counted.
-    private func noteSearch(_ result: WebSearchResult, threadID: UUID, answerID: UUID) {
-        recordUsage(result.usage, model: nil, at: Date())
+    private func noteSearch(_ result: WebSearchResult, threadID: UUID, answerID: UUID, provider: AIProvider? = nil) {
+        recordUsage(result.usage, model: nil, at: Date(), provider: provider)
         guard let ti = threads.firstIndex(where: { $0.id == threadID }),
               let mi = threads[ti].messages.firstIndex(where: { $0.id == answerID }) else { return }
         var sources = threads[ti].messages[mi].webSources ?? []
@@ -2220,6 +2530,21 @@ final class AppStore: ObservableObject {
         var list = threads[ti].messages[mi].toolActivity ?? []
         if let index = list.firstIndex(where: { $0.id == activity.id }) { list[index] = activity } else { list.append(activity) }
         threads[ti].messages[mi].toolActivity = list
+
+        var run = agentRunStore.record(for: answerID) ?? AgentRunRecord(
+            messageID: answerID,
+            threadID: threadID,
+            phase: isAgentPaused ? .paused : .running
+        )
+        run.upsertToolStep(
+            id: activity.id,
+            kind: activity.kind,
+            title: activity.title,
+            status: activity.status,
+            detail: activity.detail
+        )
+        agentRunStore.save(run, flushImmediately: false)
+        agentRunRevision += 1
     }
 
     // MARK: Automatic backup
@@ -2434,6 +2759,11 @@ final class AppStore: ObservableObject {
         persistence.saveInBackground(snapshotWithLiveOverlay)
     }
     private func finish(threadID: UUID, messageID: UUID, state: MessageState, note: String? = nil) {
+        isAgentPaused = false
+        let pauseCont = agentPauseContinuation
+        agentPauseContinuation = nil
+        pauseCont?.resume()
+        pendingSteeringNotes.removeAll()
         flushPending(force: true)
         live.end()
         pendingTarget = nil
@@ -2449,6 +2779,18 @@ final class AppStore: ObservableObject {
         if state == .complete && threads[ti].messages[mi].content.isEmpty && !hasGeneratedImages {
             threads[ti].messages[mi].state = .failed
             threads[ti].messages[mi].note = "没有收到最终回答。可提高输出上限或关闭深度思考后重试。"
+        }
+        if var run = agentRunStore.record(for: messageID) {
+            let finalState = threads[ti].messages[mi].state
+            let mappedPhase: AgentRunRecord.Phase = switch finalState {
+            case .complete: .completed
+            case .stopped: .stopped
+            case .failed: .failed
+            case .streaming: .running
+            }
+            run.finish(phase: mappedPhase)
+            agentRunStore.save(run, flushImmediately: true)
+            agentRunRevision += 1
         }
         threads[ti].updatedAt = Date()
         // 「跟着原著走」: take the hidden mark out of the answer, and move on when it was there.
@@ -2744,7 +3086,7 @@ final class AppStore: ObservableObject {
         guard settings.shouldSuggestReplies, !isGenerating, canPersist,
               activeThreadID == threadID,
               let thread = threads.first(where: { $0.id == threadID }), !isStudyThread(thread),
-              isReady(self.provider(for: thread)),
+              isReady(auxiliaryProvider(for: thread)),
               let answer = thread.messages.last, answer.id == messageID,
               answer.role == .assistant, answer.state == .complete,
               answer.replySuggestions == nil,
@@ -4049,6 +4391,7 @@ private final class ToolRoundBuffer {
 
 struct ToolApproval: Identifiable, Equatable {
     let id = UUID()
+    let threadID: UUID
     let title: String
     let detail: String
 }

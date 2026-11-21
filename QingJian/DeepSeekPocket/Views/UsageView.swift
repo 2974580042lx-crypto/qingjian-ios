@@ -4,6 +4,7 @@ import SwiftUI
 @MainActor
 struct UsageCalendarView: View {
     let ledger: UsageLedger
+    var showsDetailLink: Bool = true
     @State private var selected = Date()
     private let calendar: Calendar = {
         var value = Calendar(identifier: .gregorian)
@@ -28,13 +29,17 @@ struct UsageCalendarView: View {
                 Text("少")
                 ForEach(0..<5, id: \.self) { shade($0).frame(width: 10, height: 10).clipShape(RoundedRectangle(cornerRadius: 2)) }
                 Text("多")
-            }.font(TypeScale.serif(10)).foregroundStyle(Ink.ink3)
+            }.font(TypeScale.ui(10)).foregroundStyle(Ink.ink3)
             let day = ledger.day(selected, calendar: calendar)
             HStack(spacing: 8) {
                 Text(selected.formatted(.dateTime.month().day().weekday(.abbreviated))).fontWeight(.semibold)
-                Text("\(day.tokens.formatted()) tokens · \(Pricing.label(day.cost)) · \(day.requests) 次").foregroundStyle(Ink.ink2)
+                if day.cost > 0 {
+                    Text("\(day.tokens.formatted()) tokens · \(Pricing.label(day.cost)) · \(day.requests) 次").foregroundStyle(Ink.ink2)
+                } else {
+                    Text("\(day.tokens.formatted()) tokens · \(day.requests) 次").foregroundStyle(Ink.ink2)
+                }
             }
-            .font(TypeScale.serif(13)).monospacedDigit()
+            .font(TypeScale.ui(13)).monospacedDigit()
             .padding(.top, 10).overlay(alignment: .top) { InkRule() }
             .accessibilityIdentifier("usage-selected-day")
             HStack(alignment: .top) {
@@ -44,13 +49,15 @@ struct UsageCalendarView: View {
                 Spacer()
                 fact("常用模型", ledger.favouriteModel?.title ?? "—")
             }
-            NavigationLink {
-                UsageDetailsView(ledger: ledger)
-            } label: {
-                Label("查看明细与导出", systemImage: "list.bullet.rectangle")
-                    .font(TypeScale.serif(14).weight(.semibold))
+            if showsDetailLink {
+                NavigationLink {
+                    UsageDetailsView(ledger: ledger)
+                } label: {
+                    Label("查看明细与导出", systemImage: "list.bullet.rectangle")
+                        .font(TypeScale.ui(14, weight: .semibold))
+                }
+                .padding(.top, 4)
             }
-            .padding(.top, 4)
         }
         .padding(.vertical, 6)
         .accessibilityElement(children: .contain)
@@ -119,8 +126,10 @@ struct UsageCalendarView: View {
         VStack(alignment: .leading, spacing: 3) {
             Text(title).font(TypeScale.tiny).foregroundStyle(Ink.ink3)
             HStack(alignment: .firstTextBaseline, spacing: 5) {
-                Text(compact(usage.tokens)).font(TypeScale.serif(20).weight(.semibold)).monospacedDigit()
-                Text(Pricing.label(usage.cost)).font(TypeScale.tiny).foregroundStyle(Ink.ink3).monospacedDigit()
+                Text(compact(usage.tokens)).font(TypeScale.ui(20, weight: .semibold)).monospacedDigit()
+                if usage.cost > 0 {
+                    Text(Pricing.label(usage.cost)).font(TypeScale.tiny).foregroundStyle(Ink.ink3).monospacedDigit()
+                }
             }
         }
     }
@@ -128,7 +137,7 @@ struct UsageCalendarView: View {
     private func fact(_ title: String, _ value: String) -> some View {
         VStack(alignment: .leading, spacing: 2) {
             Text(title).font(TypeScale.tiny).foregroundStyle(Ink.ink3)
-            Text(value).font(TypeScale.serif(13).weight(.semibold))
+            Text(value).font(TypeScale.ui(13, weight: .semibold))
         }
     }
 
@@ -218,6 +227,12 @@ struct UsageDetailsView: View {
         List {
             Group {
             Section {
+                UsageCalendarView(ledger: ledger, showsDetailLink: false)
+            } header: {
+                Text("每日活跃日历（点击方格查看当天用量）")
+            }
+
+            Section {
                 Picker("日期范围", selection: $period) {
                     ForEach(UsagePeriod.allCases) { Text($0.rawValue).tag($0) }
                 }
@@ -266,6 +281,9 @@ struct UsageDetailsView: View {
                 }
                 if let tokens = total.colabTokens, tokens > 0 {
                     LabeledContent("Colab · 免费", value: "\(tokens.formatted()) tokens")
+                }
+                if let compat = total.compatibleTokens, compat > 0 {
+                    LabeledContent("其他模型（兼容端点）", value: "\(compat.formatted()) tokens")
                 }
                 let other = unclassified(total)
                 if other > 0 {
@@ -326,7 +344,7 @@ struct UsageDetailsView: View {
     }
 
     private func unclassified(_ usage: DayUsage) -> Int {
-        max(0, usage.tokens - usage.flashTokens - usage.proTokens - (usage.colabTokens ?? 0) - usage.chatGPTTotalTokens)
+        max(0, usage.tokens - usage.flashTokens - usage.proTokens - (usage.colabTokens ?? 0) - (usage.compatibleTokens ?? 0) - usage.chatGPTTotalTokens)
     }
 
     private func exportCSV() {

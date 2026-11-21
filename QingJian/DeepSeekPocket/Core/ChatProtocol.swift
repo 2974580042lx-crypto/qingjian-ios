@@ -142,6 +142,18 @@ struct ChatRequest: Encodable, Sendable {
         copy.messages[index] = APIMessage(role: "user", content: note + "\n" + original.content, images: original.images)
         return copy
     }
+    /// Prefixes a specific user message matching `originalContent` (or ending with `\n` + `originalContent`) with `note`.
+    func prefixingUserMessage(matching originalContent: String, with note: String) -> ChatRequest {
+        guard let index = messages.lastIndex(where: {
+            $0.role == "user" && ($0.content == originalContent || $0.content.hasSuffix("\n" + originalContent))
+        }) else {
+            return self
+        }
+        var copy = self
+        let target = copy.messages[index]
+        copy.messages[index] = APIMessage(role: "user", content: note + "\n" + target.content, images: target.images)
+        return copy
+    }
     func withBookMaterial(_ material: String) -> ChatRequest {
         var copy = prefixingLastUserMessage(material)
         while copy.messages.reduce(0, { $0 + $1.content.utf8.count + ($1.reasoningContent?.utf8.count ?? 0) }) > Self.contextByteBudget,
@@ -174,10 +186,12 @@ struct ChatRequest: Encodable, Sendable {
     }
 
     // imageLoader turns a stored picture name into a data URL; nil sends text only.
+    // imageNoteResolver supplies cached vision/OCR text for models without direct vision (e.g. V4 Pro).
     // systemPrompt replaces the settings' prompt, e.g. a project's instructions and documents.
     // includeReasoning sends earlier DeepSeek thinking back, which DeepSeek expects
     // when a request carries tools; without tools it would only cost upload time.
-    init(settings: AppSettings, messages: [ChatMessage], imageLoader: ((String) -> String?)? = nil, systemPrompt: String? = nil,
+    init(settings: AppSettings, messages: [ChatMessage], imageLoader: ((String) -> String?)? = nil,
+         imageNoteResolver: ((ChatMessage) -> String?)? = nil, systemPrompt: String? = nil,
          includeReasoning: Bool = false) {
         var config = settings.validated()
         if let systemPrompt { config.systemPrompt = systemPrompt }
@@ -210,11 +224,19 @@ struct ChatRequest: Encodable, Sendable {
         let recentCutoff = max(0, history.count - 4)
         for (idx, message) in history.enumerated() {
             var urls: [String] = []
-            if let imageLoader, pictureIDs.contains(message.id) {
-                urls = (message.images ?? []).compactMap { imageLoader($0) }
+            var resolvedImageNote: String? = nil
+            if pictureIDs.contains(message.id) {
+                if let imageLoader {
+                    urls = (message.images ?? []).compactMap { imageLoader($0) }
+                } else if let note = imageNoteResolver?(message), !note.isEmpty {
+                    resolvedImageNote = note
+                }
             }
             let isRecent = idx >= recentCutoff
-            let bodyText = Self.microcompact(message.content, isRecentTurn: isRecent)
+            var bodyText = Self.microcompact(message.content, isRecentTurn: isRecent)
+            if let resolvedImageNote {
+                bodyText = resolvedImageNote + "\n" + bodyText
+            }
             var item = APIMessage(role: message.role.rawValue, content: bodyText, images: urls)
             item.reasoningContent = reasoning(of: message)
             outgoing.append(item)
@@ -261,7 +283,10 @@ struct SSEDecoder {
         let chunk: APIChunk
         do { chunk = try JSONDecoder().decode(APIChunk.self, from: data) }
         catch { throw ChatError.malformedStream }
-        if chunk.error != nil { throw ChatError.server("DeepSeek 在生成过程中返回错误，请重试。") }
+        if let apiErr = chunk.error {
+            let detail = (apiErr.message ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
+            throw ChatError.server(detail.isEmpty ? "模型服务在生成过程中返回错误，请重试。" : "生成中断：\(String(detail.prefix(200)))")
+        }
         guard chunk.choices != nil || chunk.usage != nil else { throw ChatError.malformedStream }
         let choice = chunk.choices?.first
         return StreamEvent(content: choice?.delta?.content ?? "",
@@ -296,6 +321,7 @@ struct SSEDecoder {
 // lines that separate events, joining several JSON chunks into one payload.
 // Decode UTF-8 only after a whole line arrives, so split Chinese scalars are safe.
 struct SSEByteDecoder {
+    static let maxLineBytes = 8 * 1024 * 1024
     private var decoder = SSEDecoder()
     private var lineBytes: [UInt8] = []
     private var skipNextLF = false
@@ -312,6 +338,7 @@ struct SSEByteDecoder {
         }
         if byte == 0x0A { return try consumeLine() }
         lineBytes.append(byte)
+        guard lineBytes.count <= Self.maxLineBytes else { throw ChatError.malformedStream }
         return nil
     }
 

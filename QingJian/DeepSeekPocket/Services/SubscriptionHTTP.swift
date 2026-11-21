@@ -42,9 +42,9 @@ struct SubscriptionTokens: Codable, Sendable {
 final class SubscriptionHTTP: @unchecked Sendable {
     private let session: URLSession
     init(configuration: URLSessionConfiguration? = nil) {
-        let config = configuration ?? .ephemeral
+        let config = (configuration?.copy() as? URLSessionConfiguration) ?? .ephemeral
         config.urlCache = nil; config.httpCookieStorage = nil
-        config.timeoutIntervalForRequest = 90; config.timeoutIntervalForResource = 600
+        config.timeoutIntervalForRequest = 300; config.timeoutIntervalForResource = 1800
         session = URLSession(configuration: config, delegate: SubscriptionNoRedirect(), delegateQueue: nil)
     }
     deinit { session.invalidateAndCancel() }
@@ -94,7 +94,7 @@ final class SubscriptionHTTP: @unchecked Sendable {
                 onProgress: @escaping @MainActor (ChatStreamProgress) -> Void,
                 onEvent: @escaping @MainActor (StreamEvent) -> Void) async throws {
         try Task.checkCancellation()
-        var request = URLRequest(url: URL(string: "https://api.openai.com/v1/responses")!, timeoutInterval: 90)
+        var request = URLRequest(url: URL(string: "https://api.openai.com/v1/responses")!, timeoutInterval: 300)
         request.httpMethod = "POST"; request.httpBody = try JSONEncoder().encode(payload)
         request.setValue("Bearer \(accessToken)", forHTTPHeaderField: "Authorization")
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
@@ -121,8 +121,14 @@ final class SubscriptionHTTP: @unchecked Sendable {
             let now = ProcessInfo.processInfo.systemUptime
             if now - last >= 1 { progress.elapsedSeconds = Int(now - start); await onProgress(progress); last = now }
             if let event = try decoder.consume(byte) {
+                let prevPhase = progress.phase
                 if !event.content.isEmpty { progress.phase = .answering }
                 else if !event.reasoning.isEmpty && progress.phase != .answering { progress.phase = .thinking }
+                if progress.phase != prevPhase {
+                    progress.elapsedSeconds = Int(ProcessInfo.processInfo.systemUptime - start)
+                    await onProgress(progress)
+                    last = now
+                }
                 await onEvent(event)
                 if event.isDone { break }
             }

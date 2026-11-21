@@ -9,6 +9,7 @@ final class CompatibleEndpointStore: ObservableObject {
 
     private let storageKey = "qingjian.compatible.configuration"
     private let keyPrefix = "qingjian.compatible.api-key."
+    private var keyCache: [String: String] = [:]
 
     init() {
         if let data = UserDefaults.standard.data(forKey: storageKey),
@@ -19,14 +20,17 @@ final class CompatibleEndpointStore: ObservableObject {
 
     func apiKey(for preset: CompatiblePresetID? = nil) -> String {
         let id = (preset ?? configuration.activePreset).rawValue
-        return (try? KeychainStore.read(service: keyPrefix + id)) ?? ""
+        if let cached = keyCache[id] { return cached }
+        let loaded = (try? KeychainStore.read(service: keyPrefix + id)) ?? ""
+        keyCache[id] = loaded
+        return loaded
     }
 
     var activeAPIKey: String { apiKey(for: configuration.activePreset) }
 
     func save(preset: CompatiblePresetID, baseURL: String, model: String, key: String) throws {
         let cleanKey = key.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !cleanKey.contains("\n"), !cleanKey.contains("\r") else { throw ColabError.invalidKey }
+        guard !cleanKey.contains("\n"), !cleanKey.contains("\r") else { throw CompatibleEndpointError.invalidKey }
 
         var next = configuration
         next.set(CompatiblePresetConfig(
@@ -37,10 +41,20 @@ final class CompatibleEndpointStore: ObservableObject {
 
         let data = try JSONEncoder().encode(next)
         try KeychainStore.save(cleanKey, service: keyPrefix + preset.rawValue)
+        keyCache[preset.rawValue] = cleanKey
         UserDefaults.standard.set(data, forKey: storageKey)
         configuration = next
         issue = nil
         status = "已保存"
+    }
+
+    func setToolsEnabled(_ enabled: Bool) {
+        var next = configuration
+        next.toolsEnabled = enabled
+        if let data = try? JSONEncoder().encode(next) {
+            UserDefaults.standard.set(data, forKey: storageKey)
+        }
+        configuration = next
     }
 
     func probe(preset: CompatiblePresetID, baseURL: String, model: String, key: String) async {
@@ -70,8 +84,12 @@ final class CompatibleEndpointStore: ObservableObject {
         let url = try configuration.validatedURL()
         let model = configuration.activeModel
         let key = activeAPIKey
-        try await CompatibleEndpointClient(baseURL: url, model: model, key: key)
-            .stream(request, onProgress: onProgress, onEvent: onEvent)
+        try await CompatibleEndpointClient(
+            baseURL: url,
+            model: model,
+            key: key,
+            toolsEnabled: configuration.allowsTools
+        ).stream(request, onProgress: onProgress, onEvent: onEvent)
         status = "在线"
         issue = nil
     }
