@@ -56,8 +56,21 @@ enum SystemPickerPresentation {
                         onError("请先完成或取消当前选择。")
                         return
                     }
-                    top.present(picker, animated: true, completion: shown)
-                    if picker.presentingViewController == nil { onError("系统选择器未能打开，请重试。") }
+                    // UIKit can establish the presenting relationship on a later run-loop turn,
+                    // especially for the out-of-process Photos picker. Keep its delegate alive.
+                    var presented = false
+                    top.present(picker, animated: true) {
+                        presented = true
+                        shown()
+                    }
+                    let presentationDeadline = clock.now.advanced(by: .seconds(4))
+                    while !presented, picker.presentingViewController == nil, picker.viewIfLoaded?.window == nil,
+                          clock.now < presentationDeadline {
+                        try? await Task.sleep(for: .milliseconds(50))
+                    }
+                    if !presented, picker.presentingViewController == nil, picker.viewIfLoaded?.window == nil {
+                        onError("系统选择器未能打开，请重试。")
+                    }
                     return
                 }
                 try? await Task.sleep(for: .milliseconds(40))

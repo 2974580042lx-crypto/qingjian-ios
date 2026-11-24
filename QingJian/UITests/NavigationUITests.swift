@@ -16,6 +16,8 @@ final class NavigationUITests: XCTestCase {
             XCTAssertTrue(cancel.waitForExistence(timeout: 12), "Expected system picker for " + id + "\n" + app.debugDescription)
             XCTAssertFalse(app.alerts.firstMatch.exists)
             cancel.tap()
+            let dismissed = XCTNSPredicateExpectation(predicate: NSPredicate(format: "exists == false"), object: cancel)
+            XCTAssertEqual(XCTWaiter.wait(for: [dismissed], timeout: 8), .completed, app.debugDescription)
             XCTAssertTrue(add.waitForExistence(timeout: 8))
         }
     }
@@ -28,7 +30,7 @@ final class NavigationUITests: XCTestCase {
         XCTAssertTrue(add.waitForExistence(timeout: 8))
         add.tap()
         app.buttons["chat-add-photos"].tap()
-        let photo = app.collectionViews.cells.firstMatch
+        let photo = app.images.matching(identifier: "PXGGridLayout-Info").firstMatch
         XCTAssertTrue(photo.waitForExistence(timeout: 12), app.debugDescription)
         photo.tap()
         let confirm = app.buttons.matching(NSPredicate(format: "label IN %@", ["Add", "Done", "添加", "完成"])).firstMatch
@@ -38,6 +40,7 @@ final class NavigationUITests: XCTestCase {
         app.buttons["发送消息"].tap()
         XCTAssertTrue(app.staticTexts["这是界面预览中的示例回答。"].waitForExistence(timeout: 8), app.debugDescription)
         XCTAssertFalse(app.buttons["移除这张图片"].exists)
+        capture(app, name: "image-sent-in-preview-chat")
     }
 
     @MainActor func testFontChangeKeepsSettingsAndUnsavedPrompt() throws {
