@@ -727,7 +727,7 @@ final class BookStore: ObservableObject {
     private func readSegment(_ index: Int, of id: UUID, chapters: [BookChapter], key: String) async throws {
         guard let book = self.book(id), book.segments.indices.contains(index) else { return }
         let segment = book.segments[index]
-        let request = BookReading.segmentRequest(book: book, segment: segment, chapters: chapters)
+        let request = try BookReading.segmentRequest(book: book, segment: segment, chapters: chapters)
         var lastError: Error = ChatError.invalidResponse
         // One retry: a note that did not parse usually comes back fine the second time.
         for _ in 0..<2 {

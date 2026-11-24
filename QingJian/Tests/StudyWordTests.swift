@@ -34,6 +34,16 @@ final class StudyWordTests: XCTestCase {
             source: StudySource(kind: .userStatement, threadID: scope.threadID, messageID: messageID, text: "我记得，是适应", quote: "我记得，是适应", messageDate: now.addingTimeInterval(1)))
     }
 
+    func testReviewAndResumeDoNotSilentlyReplaceUnfinishedRound() throws {
+        let start = try store.drawWords(scope: scope, mode: "smart", count: 2, unitID: "required-1", now: now)
+        XCTAssertEqual(start.words.count, 2)
+        XCTAssertTrue(try store.drawWords(scope: scope, mode: "review", count: 2, unitID: "", now: now).words.isEmpty)
+        XCTAssertThrowsError(try store.drawWords(scope: scope, mode: "continue", count: 2, unitID: "basic-1", now: now))
+        XCTAssertThrowsError(try store.drawWords(scope: scope, mode: "invalid", count: 2, unitID: "", now: now))
+        let nextDay = try store.drawWords(scope: scope, mode: "continue", count: 2, unitID: "required-1", now: now.addingTimeInterval(86400))
+        XCTAssertEqual(nextDay.words.map { $0.word.id }, start.words.map { $0.word.id })
+    }
+
     func testNestedDuplicateGradingFieldsAreRejected() {
         let raw = #"{"items":[{"word":"adapt","rating":"again","rating":"easy"}]}"#
         XCTAssertThrowsError(try StudyToolAction(ToolCall(id: "test", name: "study_grade_word", arguments: raw)))

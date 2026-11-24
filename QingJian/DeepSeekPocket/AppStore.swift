@@ -3573,7 +3573,7 @@ final class AppStore: ObservableObject {
         if let checkpointID {
             guard let checkpoint = source.storyCheckpoints?.first(where: { $0.id == checkpointID }) else { return false }
             messages = checkpoint.messages
-            state = checkpoint.session
+            state = StoryPlay.bounded(checkpoint.session, by: messages)
             if label.isEmpty { label = checkpoint.name }
         }
         if label.isEmpty { label = "新分线" }

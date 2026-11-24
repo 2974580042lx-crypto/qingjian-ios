@@ -68,10 +68,16 @@ enum StoryPlay {
             count += 1
             state = old.storyState ?? state
         }
-        let trusted = Set(edited.prefix(count).map(\.id))
-        state?.memory?.facts.removeAll { !$0.sources.allSatisfy(trusted.contains) }
-        if let cursor = state?.memory?.throughMessageID, !trusted.contains(cursor) { state?.memory?.throughMessageID = nil }
+        if let snapshot = state { state = bounded(snapshot, by: edited.prefix(count)) }
         return (state, count)
+    }
+
+    static func bounded<S: Sequence>(_ session: StorySession, by messages: S) -> StorySession where S.Element == ChatMessage {
+        let trusted = Set(messages.map(\.id))
+        var result = session
+        result.memory?.facts.removeAll { !$0.sources.allSatisfy(trusted.contains) }
+        if let cursor = result.memory?.throughMessageID, !trusted.contains(cursor) { result.memory?.throughMessageID = nil }
+        return result
     }
 
     static func checkpointEnd(_ id: UUID?, in messages: [ChatMessage]) -> Int? {

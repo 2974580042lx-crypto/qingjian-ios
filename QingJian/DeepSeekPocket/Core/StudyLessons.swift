@@ -472,7 +472,7 @@ extension StudyMemoryStore {
                     answer: resolvedAnswer,
                     outcome: resolvedOutcome,
                     weakPoint: resolvedWeak,
-                    source: source,
+                    source: old.flatMap { answer.isEmpty && outcome.isEmpty ? $0.source : nil } ?? source,
                     createdAt: old?.createdAt ?? now,
                     updatedAt: now,
                     isDeleted: false

@@ -29,6 +29,26 @@ final class BookTests: XCTestCase {
         XCTAssertThrowsError(try StoryPlay.merge(response, into: StoryMemory(), fresh: [turn]))
     }
 
+    func testBookmarksFollowUniqueParagraphAndRetainAmbiguousExcerpt() {
+        let mark = ReaderSavedMark(chapter: 0, paragraph: 0, excerpt: "相遇", note: "人物初见")
+        let doc = NovelDocument(chapter: 0, text: "新增序言\n相遇是在雨夜")
+        XCTAssertEqual(doc.locateMark(mark), 1)
+        XCTAssertNil(NovelDocument(chapter: 0, text: "序言\n相遇甲\n相遇乙").locateMark(mark))
+        XCTAssertNil(NovelDocument(chapter: 1, text: "相遇").locateMark(mark))
+        XCTAssertFalse(ReaderVolumePolicy.shouldDeactivate(activated: true, unchangedCategory: false))
+        XCTAssertFalse(ReaderVolumePolicy.shouldDeactivate(activated: false, unchangedCategory: true))
+        XCTAssertTrue(ReaderVolumePolicy.shouldDeactivate(activated: true, unchangedCategory: true))
+    }
+
+    func testUnavailableReadingSegmentFailsBeforeModelRequest() {
+        let book = Book(title: "原书", characterCount: 1, chapterTitles: ["首章"], segments: [], notes: [])
+        let chapters = [BookChapter(title: "首章", text: "正文")]
+        for bad in [BookSegment(first: 1, last: 0), BookSegment(first: -1, last: 0), BookSegment(first: 0, last: Int.max)] {
+            XCTAssertThrowsError(try BookReading.segmentRequest(book: book, segment: bad, chapters: chapters))
+            XCTAssertThrowsError(try BookReading.parseSegment(#"{"plot":"摘要"}"#, segment: bad, chapters: chapters))
+        }
+    }
+
     func testShortPrologueAndBriefChapterSurviveImport() {
         let chapters = ChapterSplitter.split("序言。\n第一章 初见\n只有三字。\n第二章 大雨\n" + body)
         XCTAssertEqual(chapters.map(\.text), ["序言。", "只有三字。", body])
@@ -102,6 +122,11 @@ final class BookTests: XCTestCase {
         later.storyState = session
         var edited = later; edited.content = "没有进门"
         let boundary = StoryPlay.editBoundary(original: [first, later], edited: [first, edited])
+        session.memory?.throughMessageID = later.id
+        let restored = StoryPlay.bounded(session, by: [first])
+        XCTAssertTrue(restored.memory?.facts.isEmpty == true)
+        XCTAssertNil(restored.memory?.throughMessageID)
+        XCTAssertEqual(session.memory?.facts.count, 1)
         XCTAssertEqual(boundary.count, 1)
         XCTAssertEqual(boundary.state?.sceneNote, "门外")
         XCTAssertNil(boundary.state?.memory)
@@ -331,9 +356,9 @@ final class BookTests: XCTestCase {
     func testBooksReadWithFlashUnlessSetToPro() {
         var book = Book(title: "书", characterCount: 1, chapterTitles: ["一"], segments: [BookSegment(first: 0, last: 0)], notes: [nil])
         let chapters = [BookChapter(title: "一", text: "正文")]
-        XCTAssertEqual(BookReading.segmentRequest(book: book, segment: book.segments[0], chapters: chapters).model, DeepSeekModel.flash.rawValue)
+        XCTAssertEqual(try BookReading.segmentRequest(book: book, segment: book.segments[0], chapters: chapters).model, DeepSeekModel.flash.rawValue)
         book.readingModel = .pro
-        XCTAssertEqual(BookReading.segmentRequest(book: book, segment: book.segments[0], chapters: chapters).model, DeepSeekModel.pro.rawValue)
+        XCTAssertEqual(try BookReading.segmentRequest(book: book, segment: book.segments[0], chapters: chapters).model, DeepSeekModel.pro.rawValue)
     }
     func testDialogueIsAttributedToTheSubjectOfTheLeadIn() {
         let chapters = [BookChapter(title: "一", text: [

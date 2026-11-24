@@ -382,7 +382,10 @@ extension StudyMemoryStore {
         let modeLower = rawMode.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
         let isShuffle = ["shuffle", "random", "乱序", "随机"].contains(modeLower)
             || ["random", "shuffle", "乱序", "随机"].contains(rawUnitID.trimmingCharacters(in: .whitespacesAndNewlines).lowercased())
-        let normalizedMode = isShuffle ? "shuffle" : (modeLower.isEmpty ? "smart" : modeLower)
+        let normalizedMode = isShuffle ? "shuffle" : (["", "start", "new"].contains(modeLower) ? "smart" : modeLower)
+        guard ["smart", "shuffle", "review", "continue", "resume", "units_overview", "units", "单元"].contains(normalizedMode) else {
+            throw StudyMemoryError.invalid("抽背模式无法识别，原批次已保留。")
+        }
         let resolvedUnitID = Self.normalizeUnitID(rawUnitID, in: pack)
 
         return try transaction {
@@ -414,7 +417,9 @@ extension StudyMemoryStore {
             }
 
             if normalizedMode == "continue" || normalizedMode == "resume" {
-                let sessions = try wordSessions(scope.projectID).filter { !$0.completed }
+                let sessions = try wordSessions(scope.projectID).filter {
+                    !$0.completed && (resolvedUnitID.isEmpty || $0.unitID == resolvedUnitID || $0.unitID == resolvedUnitID + "·乱序")
+                }
                 if var existing = sessions.first(where: { $0.threadID == scope.threadID }) ?? sessions.first {
                     existing.threadID = scope.threadID
                     existing.paused = false
@@ -428,6 +433,7 @@ extension StudyMemoryStore {
                         return StudyWordDrawResult(mode: "continue", totalInPack: pack.cards.count, learnedCount: learnedTotal, dueCount: dueTotal, unitID: existing.unitID.isEmpty ? nil : existing.unitID, words: remaining, units: nil)
                     }
                 }
+                throw StudyMemoryError.invalid("没有找到这个单元可继续的批次，请先开始一轮抽背。")
             }
 
             var candidates: [StudyWord]
@@ -465,8 +471,11 @@ extension StudyMemoryStore {
                 var pool = dueCards
                 let dueSet = Set(pool.map(\.id))
                 for w in weakCards where !dueSet.contains(w.id) { pool.append(w) }
-                if pool.isEmpty { pool = practicedCards.sorted { (lookup[$0.id]?.due ?? .distantFuture) < (lookup[$1.id]?.due ?? .distantFuture) } }
-                chosen = Array((pool.isEmpty ? freshCards : pool).prefix(count))
+                guard !pool.isEmpty else {
+                    return StudyWordDrawResult(mode: "review", totalInPack: pack.cards.count, learnedCount: learnedTotal, dueCount: dueTotal,
+                                               unitID: resolvedUnitID.isEmpty ? nil : resolvedUnitID, words: [], units: nil)
+                }
+                chosen = Array(pool.prefix(count))
             } else {
                 chosen = Array((dueCards + freshCards).prefix(count))
                 if chosen.count < count {

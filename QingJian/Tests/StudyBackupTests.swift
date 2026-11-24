@@ -88,6 +88,14 @@ final class StudyBackupTests: XCTestCase {
     override func tearDownWithError() throws {
         if root.lastPathComponent.hasPrefix("sermo-backup-tests-") { try FileManager.default.removeItem(at: root) }
     }
+    func testImageCapacityOverflowStopsBeforeWritingABackup() throws {
+        let fixture = try BackupFixture(root: root)
+        var snapshot = fixture.snapshot
+        let thread = try XCTUnwrap(snapshot.threads.firstIndex(where: { !$0.messages.isEmpty && $0.projectID != nil }))
+        snapshot.threads[thread].messages[0].images = ["capacity-one.jpg", "capacity-two.jpg"]
+        XCTAssertThrowsError(try StudyBackupCodec.imageCapacity(snapshot: snapshot, learning: fixture.store.exportAllStudyData()) { _ in Int.max })
+    }
+
     func testCorruptReadingMaterialRejectedBeforeRestoring() throws {
         let passage = StudyReadingPassage(id: "sample", title: "练习", year: 2020, textNumber: 1,
             paragraphs: ["One paragraph."], questions: [.init(id: "q", number: 1, stem: "Choose.", options: ["A","B","C","D"], answer: 9,

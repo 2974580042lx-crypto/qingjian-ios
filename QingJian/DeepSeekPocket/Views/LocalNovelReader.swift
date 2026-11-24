@@ -499,6 +499,7 @@ struct ReaderBookmarksView: View {
     let bookID: UUID
     let jump: (Int, Int) -> Void
     @State private var search = ""
+    @State private var jumpIssue: String?
     @State private var editingMark: ReaderSavedMark?
     @State private var exportURL: URL?
     @State private var exportError: String?
@@ -524,7 +525,15 @@ struct ReaderBookmarksView: View {
                         }
                         ForEach(visibleMarks) { mark in
                             VStack(alignment: .leading, spacing: 10) {
-                                Button { jump(mark.chapter, mark.paragraph) } label: {
+                                Button {
+                                    let chapters = books.chapters(of: bookID)
+                                    guard chapters.indices.contains(mark.chapter),
+                                          let index = NovelDocument(chapter: mark.chapter, text: chapters[mark.chapter].text).locateMark(mark) else {
+                                        jumpIssue = "原书位置已变化，无法唯一定位。书签摘录和备注仍保留。"
+                                        return
+                                    }
+                                    jump(mark.chapter, index)
+                                } label: {
                                     VStack(alignment: .leading, spacing: 6) {
                                         Text(book?.chapterLabel(mark.chapter) ?? "").font(TypeScale.body).foregroundStyle(appearance.ink)
                                         Text(mark.excerpt).font(TypeScale.label).foregroundStyle(appearance.secondary).lineLimit(3)
@@ -555,6 +564,7 @@ struct ReaderBookmarksView: View {
                     Text(exportError).font(TypeScale.label).foregroundStyle(.red).listRowBackground(appearance.surface)
                 }
             }
+            .inlineFeedback(jumpIssue ?? books.errorMessage) { jumpIssue = nil; books.errorMessage = nil }
             .searchable(text: $search, prompt: "搜索摘录、备注或章节")
             .scrollContentBackground(.hidden).background(appearance.paper).navigationTitle("书签")
             .toolbar {

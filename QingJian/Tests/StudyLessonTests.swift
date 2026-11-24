@@ -32,6 +32,18 @@ final class StudyLessonTests: XCTestCase {
         try store.performLesson(action("study_record_practice", practiceArgs(message: message, outcome: outcome, source: source,
             area: scope.subject == .history ? "中国古代史" : "马原")), scope: scope, message: message)
     }
+    func testEditingWeakPointDoesNotPromoteModelInferenceToConfirmedScore() throws {
+        let executor = StudyToolExecutor(store: store, scope: politics, documents: [])
+        let m = ChatMessage(role: .user, content: "整理错题")
+        let added = try executor.perform(action("study_save_practice", ["area":"马原","kind":"single_choice","question":"测试",
+            "answer":"A","outcome":"wrong","source_kind":"model_inference"]), sourceMessage: m)
+        let id = try XCTUnwrap(StudyCoding.decode(StudyLessonReceipt.self, from: Data(added.utf8)).practice?.record_id)
+        let changed = try executor.perform(action("study_save_practice", ["record_id":id,"weak_point":"概念"]), sourceMessage: .init(role: .user, content: "易混淆"))
+        let entry = try XCTUnwrap(StudyCoding.decode(StudyLessonReceipt.self, from: Data(changed.utf8)).practice)
+        XCTAssertEqual(entry.sourceKind, .modelInference)
+        XCTAssertFalse(entry.countsForAccuracy)
+    }
+
     func testRepeatedPracticeDoesNotDuplicateQuestionOrResetKindWhenEditingWeakPoint() throws {
         let msg = ChatMessage(role: .user, content: "这道马原选择题我选错了")
         let call = try action("study_save_practice", ["kind":"single_choice","area":"马原","question":"模拟题","answer":"B","outcome":"wrong"])

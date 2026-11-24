@@ -20,9 +20,16 @@ enum BookReading {
 
     // MARK: One segment
 
-    static func segmentRequest(book: Book, segment: BookSegment, chapters: [BookChapter]) -> ChatRequest {
+    private static func chapterRange(_ segment: BookSegment, in chapters: [BookChapter]) throws -> ClosedRange<Int> {
+        guard chapters.indices.contains(segment.first), chapters.indices.contains(segment.last), segment.first <= segment.last else {
+            throw ChatError.server("这份读书笔记的章节与本地原书不一致，未生成或覆盖笔记。")
+        }
+        return segment.first...segment.last
+    }
+
+    static func segmentRequest(book: Book, segment: BookSegment, chapters: [BookChapter]) throws -> ChatRequest {
         var parts = ["书名：《\(book.title)》", "以下是第 \(segment.first + 1) 到第 \(segment.last + 1) 章的原文（方括号里是章号）。", ""]
-        for index in segment.first...segment.last where chapters.indices.contains(index) {
+        for index in try chapterRange(segment, in: chapters) {
             parts.append("【\(index + 1)｜\(chapters[index].title)】")
             parts.append(chapters[index].text)
             parts.append("")
@@ -57,7 +64,7 @@ enum BookReading {
         guard let plot = payload.plot?.trimmingCharacters(in: .whitespacesAndNewlines), !plot.isEmpty else {
             throw ChatError.server("这一段的笔记缺少剧情概括。")
         }
-        let range = chapters[max(0, segment.first)...min(chapters.count - 1, segment.last)]
+        let range = chapters[try chapterRange(segment, in: chapters)]
         var note = SegmentNote(segment: segment, plot: String(plot.prefix(2000)))
         for item in payload.characters ?? [] {
             guard let name = clean(item.name, 20), let notes = clean(item.notes, 600) else { continue }

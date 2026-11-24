@@ -558,6 +558,13 @@ struct NovelDocument: Equatable {
         return max(0, low - 1)
     }
     /// BookReference offsets are UTF-16 relative to a trimmed paragraph, not to the chapter.
+    func locateMark(_ mark: ReaderSavedMark) -> Int? {
+        guard mark.chapter == chapter, !mark.excerpt.isEmpty else { return nil }
+        if paragraphs.indices.contains(mark.paragraph), paragraphs[mark.paragraph].hasPrefix(mark.excerpt) { return mark.paragraph }
+        let matches = paragraphs.indices.lazy.filter { paragraphs[$0].hasPrefix(mark.excerpt) }.prefix(2)
+        return matches.count == 1 ? matches.first : nil
+    }
+
     func referenceOffset(_ ref: BookReference) -> Int? {
         guard ref.chapter == chapter, paragraphs.indices.contains(ref.paragraph), !ref.text.isEmpty else { return nil }
         let body = paragraphs[ref.paragraph] as NSString
@@ -593,4 +600,5 @@ final class ReaderPositionProbe {
 
 enum ReaderVolumePolicy {
     static func listens(enabled: Bool, active: Bool, panel: Bool) -> Bool { enabled && active && !panel }
+    static func shouldDeactivate(activated: Bool, unchangedCategory: Bool) -> Bool { activated && unchangedCategory }
 }

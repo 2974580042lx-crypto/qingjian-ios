@@ -10,6 +10,7 @@ final class ReaderVolumeKeys: ObservableObject {
     @Published var issue: String?
     private var generation = UUID()
     private var observation: NSKeyValueObservation?
+    private var activated = false
     private var reverse = false
     private var lastPress = Date.distantPast
     private var previous: (AVAudioSession.Category, AVAudioSession.Mode, AVAudioSession.CategoryOptions)?
@@ -23,6 +24,7 @@ final class ReaderVolumeKeys: ObservableObject {
         do {
             try session.setCategory(.ambient, mode: .default)
             try session.setActive(true)
+            activated = true
             issue = nil
             let token = generation
             observation = session.observe(\.outputVolume, options: [.old, .new]) { [weak self] _, change in
@@ -49,8 +51,12 @@ final class ReaderVolumeKeys: ObservableObject {
         guard let previous else { return }
         self.previous = nil
         let session = AVAudioSession.sharedInstance()
-        try? session.setActive(false, options: .notifyOthersOnDeactivation)
-        try? session.setCategory(previous.0, mode: previous.1, options: previous.2)
+        let unchanged = session.category == .ambient && session.mode == .default
+        if ReaderVolumePolicy.shouldDeactivate(activated: activated, unchangedCategory: unchanged) {
+            try? session.setActive(false, options: .notifyOthersOnDeactivation)
+        }
+        activated = false
+        if unchanged { try? session.setCategory(previous.0, mode: previous.1, options: previous.2) }
     }
 }
 
