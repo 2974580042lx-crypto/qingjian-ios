@@ -113,7 +113,7 @@ jobs:
           path: ${{ runner.temp }}/Attachments.xcresult
 
   tests:
-    runs-on: macos-15
+    runs-on: ${{ github.event.inputs.offline_only == 'true' && 'macos-15-intel' || 'macos-15' }}
     timeout-minutes: 35
     steps:
       - name: Checkout

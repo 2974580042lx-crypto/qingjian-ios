@@ -3144,7 +3144,7 @@ final class AppStore: ObservableObject {
         let deliverablesRef = self.deliverables
         let imagesDir = try? ImageStore.directory()
         return try await Task.detached(priority: .utility) {
-            let deliverablesBundle = deliverablesRef.exportBackupBundle()
+            let deliverablesBundle = try deliverablesRef.exportBackupBundle()
             let payload = try UnifiedBackupCodec.capture(
                 snapshot: snap,
                 learning: learning,
@@ -4635,7 +4635,11 @@ final class AppStore: ObservableObject {
         let oldPrefs = UnifiedBackupCodec.collectPreferences()
         let oldProfile = Self.readCurrentLocalProfile()
         let oldStudyArchive = try? studyMemory?.exportAllStudyData()
-        let oldDeliverablesBundle = deliverables.exportBackupBundle()
+        var oldDeliverablesBundle: [String: Data]?
+        if payload.deliverablesManifest != nil {
+            do { oldDeliverablesBundle = try deliverables.exportBackupBundle(maxTotalBytes: .max) }
+            catch { errorMessage = "无法保留当前成果，恢复已停止：\(error.localizedDescription)"; return }
+        }
         var addedImagePaths: [URL] = []
         do {
             try UnifiedBackupCodec.validate(payload)
@@ -4741,7 +4745,7 @@ final class AppStore: ObservableObject {
             for added in addedImagePaths { try? FileManager.default.removeItem(at: added) }
             ImageStore.clearThumbnails()
             try? books.restoreMetadata(oldBooks, personas: oldPersonas, overwriteExisting: true)
-            if !oldDeliverablesBundle.isEmpty {
+            if let oldDeliverablesBundle {
                 try? deliverables.restoreBackupBundle(oldDeliverablesBundle, mode: .replace)
                 workspaceRevision += 1
             }

@@ -272,22 +272,25 @@ final class ProjectDeliverableStore: @unchecked Sendable {
         if FileManager.default.fileExists(atPath: url.path) { try FileManager.default.removeItem(at: url) }
     }
 
-    func exportBackupBundle(maxTotalBytes: Int = 48 * 1024 * 1024) -> [String: Data] {
+    func exportBackupBundle(maxTotalBytes: Int = 48 * 1024 * 1024) throws -> [String: Data] {
         lock.lock(); defer { lock.unlock() }
-        var bundle: [String: Data] = [:]
-        var included: [ProjectDeliverable] = []
-        var remaining = maxTotalBytes
-        for item in items.sorted(by: { $0.createdAt > $1.createdAt }) {
+        let manifest = try encoded(items)
+        var bundle = ["manifest.json": manifest]
+        guard maxTotalBytes >= manifest.count else { throw DocumentStudioError.invalidSpecification("成果目录超过备份容量。") }
+        var remaining = maxTotalBytes - manifest.count
+        for item in items {
             let url = fileURL(for: item)
-            guard let size = try? url.resourceValues(forKeys: [.fileSizeKey]).fileSize,
-                  size == item.byteCount, size <= remaining,
-                  let data = try? Data(contentsOf: url, options: .mappedIfSafe), data.count == size else { continue }
+            guard let size = try url.resourceValues(forKeys: [.fileSizeKey]).fileSize, size == item.byteCount else {
+                throw DocumentStudioError.invalidSpecification("成果文件不完整：\(item.fileName)")
+            }
+            guard size <= remaining else {
+                throw DocumentStudioError.invalidSpecification("成果文件超过备份容量，无法创建完整备份。")
+            }
+            let data = try Data(contentsOf: url, options: .mappedIfSafe)
+            guard data.count == size else { throw DocumentStudioError.invalidSpecification("成果文件在备份期间发生变化。") }
             bundle[item.relativePath] = data
-            included.append(item)
             remaining -= size
         }
-        guard !included.isEmpty, let manifest = try? encoded(included) else { return [:] }
-        bundle["manifest.json"] = manifest
         return bundle
     }
 

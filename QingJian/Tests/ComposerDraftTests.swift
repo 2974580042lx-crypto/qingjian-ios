@@ -59,6 +59,17 @@ final class ComposerDraftTests: XCTestCase {
         for expected in ["## AB", "## AB (2)", "## ab (3)"] { XCTAssertTrue(text.contains(expected)) }
     }
 
+    func testCompatibleToolArgumentAliasesPreserveIntegerIDsAndFragments() throws {
+        let json = #"{"index":0,"function":{"name":"lookup","args":{"record":9007199254740993}}}"#
+        let delta = try JSONDecoder().decode(ToolCallDelta.self, from: Data(json.utf8))
+        var collector = ToolCallCollector()
+        collector.consume([delta])
+        let call = try XCTUnwrap(collector.calls.first)
+        XCTAssertEqual(try call.argumentObject()["record"] as? Int64, 9007199254740993)
+        let malformed = ToolCall(id: "test", name: "lookup", arguments: "{")
+        XCTAssertThrowsError(try malformed.argumentObject())
+    }
+
     func testOversizedToolFragmentsDoNotProduceAnExecutableCall() throws {
         var collector = ToolCallCollector()
         collector.consume([ToolCallDelta(index: 0, name: "sample", arguments: "{}"), ToolCallDelta(index: 0, arguments: String(repeating: " ", count: 400_001))])

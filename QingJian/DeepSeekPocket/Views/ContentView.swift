@@ -2044,7 +2044,9 @@ struct ChatScreen: View {
                             ForEach(pendingDocuments) { doc in
                                 HStack(spacing: 6) {
                                     Button {
+                                        guard let owner = store.activeThread, !store.isHidden(owner) else { return }
                                         previewingDocument = DocumentPreviewTarget(
+                                            threadID: owner.id,
                                             title: doc.fileExtension.isEmpty ? doc.name : "\(doc.name).\(doc.fileExtension)",
                                             text: doc.text
                                         )
@@ -2088,7 +2090,7 @@ struct ChatScreen: View {
                         }
                     }
                     .sheet(item: $previewingDocument) { target in
-                        if let thread = store.activeThread, !store.isHidden(thread) { DocumentPreviewSheet(target: target) }
+                        if let thread = store.activeThread, thread.id == target.threadID, !store.isHidden(thread) { DocumentPreviewSheet(target: target) }
                     }
                 }
                 if !pendingImages.isEmpty || loadingPhotos {
@@ -3779,6 +3781,7 @@ enum MessageTime {
 
 private struct DocumentPreviewTarget: Identifiable {
     let id = UUID()
+    let threadID: UUID
     let title: String
     let text: String
 }

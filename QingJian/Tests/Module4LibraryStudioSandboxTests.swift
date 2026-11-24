@@ -240,7 +240,7 @@ final class Module4LibraryStudioSandboxTests: XCTestCase {
         XCTAssertEqual(storeA.versions(inGroup: v1.groupID).map(\.version), [2, 1])
 
         // Backup export & restore into clean storeB
-        let manifest = storeA.exportBackupBundle()
+        let manifest = try storeA.exportBackupBundle()
         XCTAssertFalse(manifest.isEmpty)
 
         let storeB = ProjectDeliverableStore(rootDirectory: rootB)

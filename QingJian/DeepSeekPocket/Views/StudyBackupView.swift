@@ -70,10 +70,16 @@ struct StudyCloudBackupSection: View {
             Text("保存学习项目、对话、资料、进度和周报。图片原已压缩存储，接近52MB时提醒并压缩备份副本；超额时生成标明缺图的保底包，不宣称图片完整。使用当前Google账号私人目录，不含凭据；前台通常至少间隔5分钟，旧云端版本保留。")
         }
         .onAppear { cloud.refreshRecoveryFiles(); cloud.refreshImageCapacity() }
-        .confirmationDialog("以本机内容另存一个云端版本？", isPresented: $keepLocal) {
-            Button("保留本机，另存新版本") { cloud.syncNow(keepLocal: true) }
-        } message: {
-            Text("当前账号：\(store.drive.accountLabel)\n云端最近版本：\(cloud.files.first?.name ?? "尚未读取")\n已有云端版本会保留。")
+        .safeAreaInset(edge: .bottom) {
+            if keepLocal {
+                VStack(alignment: .leading) {
+                    Text("在 \(store.drive.accountLabel) 另存本机版本，已有云端版本保留。")
+                    HStack {
+                        Button("取消") { keepLocal = false }
+                        Button("另存新版本") { keepLocal = false; cloud.syncNow(keepLocal: true) }
+                    }
+                }.padding().background(.regularMaterial)
+            }
         }
         .sheet(item: $cloud.preview) { preview in
             StudyRestorePreviewView(cloud: cloud, preview: preview)

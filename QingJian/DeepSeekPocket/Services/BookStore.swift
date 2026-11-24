@@ -259,12 +259,16 @@ final class BookStore: ObservableObject {
         }
     }
 
-    @discardableResult private func save(_ book: Book) -> Bool {
+    @discardableResult private func save(_ book: Book, inserting: Bool = false) -> Bool {
         guard isPreview || canPersist else { errorMessage = "请先解锁手机后再保存书架。"; return false }
-        if let index = books.firstIndex(where: { $0.id == book.id }) { books[index] = book } else { books.insert(book, at: 0) }
-        guard !isPreview else { return true }
+        let index = books.firstIndex(where: { $0.id == book.id })
+        guard index != nil || inserting else { return false }
         do {
-            try Self.encoder.encode(book).write(to: Self.folder(book.id).appendingPathComponent("book.json"), options: [.atomic, .completeFileProtectionUntilFirstUserAuthentication])
+            if !isPreview {
+                try Self.encoder.encode(book).write(to: Self.folder(book.id).appendingPathComponent("book.json"),
+                                                    options: [.atomic, .completeFileProtectionUntilFirstUserAuthentication])
+            }
+            if let index { books[index] = book } else { books.insert(book, at: 0) }
             return true
         } catch {
             errorMessage = "书架没能保存：\(error.localizedDescription)"
@@ -434,7 +438,13 @@ final class BookStore: ObservableObject {
             cachedChapters = (book.id, prepared.chapters)
             book.coverDesign = .local(title: book.title)
             book.coverRevision = UUID()
-            guard save(book) else { return nil }
+            guard save(book, inserting: true) else {
+                cachedChapters = nil
+                if !isPreview, let folder = try? Self.root().appendingPathComponent(book.id.uuidString) {
+                    try? FileManager.default.removeItem(at: folder)
+                }
+                return nil
+            }
             requestCover(book.id, automatic: true)
             return book.id
         } catch {

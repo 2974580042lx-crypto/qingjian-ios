@@ -5,12 +5,13 @@ import Foundation
 
 /// A small JSON value, enough to write a tool's parameter schema.
 indirect enum JSONValue: Codable, Equatable, Sendable {
-    case string(String), number(Double), bool(Bool), array([JSONValue]), object([String: JSONValue]), null
+    case string(String), number(Double), integer(Int64), bool(Bool), array([JSONValue]), object([String: JSONValue]), null
     init(from decoder: Decoder) throws {
         let c = try decoder.singleValueContainer()
         if c.decodeNil() { self = .null }
         else if let value = try? c.decode(Bool.self) { self = .bool(value) }
         else if let value = try? c.decode(String.self) { self = .string(value) }
+        else if let value = try? c.decode(Int64.self) { self = .integer(value) }
         else if let value = try? c.decode(Double.self) { self = .number(value) }
         else if let value = try? c.decode([JSONValue].self) { self = .array(value) }
         else { self = .object(try c.decode([String: JSONValue].self)) }
@@ -20,6 +21,7 @@ indirect enum JSONValue: Codable, Equatable, Sendable {
         switch self {
         case .string(let value): try container.encode(value)
         case .number(let value): try container.encode(value)
+        case .integer(let value): try container.encode(value)
         case .bool(let value): try container.encode(value)
         case .array(let value): try container.encode(value)
         case .object(let value): try container.encode(value)
@@ -53,12 +55,37 @@ struct ToolSpec: Encodable, Equatable, Sendable {
 
 /// One complete call the model asked for. `arguments` is the model's JSON text,
 /// which may be invalid: each tool validates it before doing anything.
+private struct WireToolFunction: Codable {
+    let name: String?
+    let arguments: String?
+    enum CodingKeys: String, CodingKey { case name, arguments, args, parameters }
+    init(name: String, arguments: String) { self.name = name; self.arguments = arguments }
+    init(from decoder: Decoder) throws {
+        let values = try decoder.container(keyedBy: CodingKeys.self)
+        name = try values.decodeIfPresent(String.self, forKey: .name)
+        guard let key = [CodingKeys.arguments, .args, .parameters].first(where: { values.contains($0) }),
+              try !values.decodeNil(forKey: key) else { arguments = nil; return }
+        if let text = try? values.decode(String.self, forKey: key) {
+            arguments = text
+        } else if let object = try? values.decode([String: JSONValue].self, forKey: key) {
+            arguments = String(decoding: try JSONEncoder().encode(object), as: UTF8.self)
+        } else {
+            arguments = "工具参数需要是对象"
+        }
+    }
+    func encode(to encoder: Encoder) throws {
+        var out = encoder.container(keyedBy: CodingKeys.self)
+        try out.encodeIfPresent(name, forKey: .name)
+        try out.encodeIfPresent(arguments, forKey: .arguments)
+    }
+}
+
 struct ToolCall: Codable, Equatable, Sendable {
     let id: String
     let name: String
     let arguments: String
     private enum CodingKeys: String, CodingKey { case id, type, function }
-    private struct Function: Codable { let name: String; let arguments: String }
+    private typealias Function = WireToolFunction
     init(id: String, name: String, arguments: String) {
         self.id = id; self.name = name; self.arguments = arguments
     }
@@ -66,7 +93,7 @@ struct ToolCall: Codable, Equatable, Sendable {
         let container = try decoder.container(keyedBy: CodingKeys.self)
         id = try container.decode(String.self, forKey: .id)
         let function = try container.decode(Function.self, forKey: .function)
-        name = function.name; arguments = function.arguments
+        name = function.name ?? ""; arguments = function.arguments ?? ""
     }
     func encode(to encoder: Encoder) throws {
         var container = encoder.container(keyedBy: CodingKeys.self)
@@ -94,7 +121,7 @@ struct ToolCallDelta: Decodable, Equatable, Sendable {
     var name: String?
     var arguments: String?
     private enum CodingKeys: String, CodingKey { case index, id, function }
-    private struct Function: Decodable { let name: String?; let arguments: String? }
+    private typealias Function = WireToolFunction
     init(index: Int, id: String? = nil, name: String? = nil, arguments: String? = nil) {
         self.index = index; self.id = id; self.name = name; self.arguments = arguments
     }
