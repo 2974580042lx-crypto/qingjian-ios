@@ -924,7 +924,11 @@ struct ChatScreen: View {
             if focused && shouldFollowOutput { scrollBox.scrollToBottom() }
         }
         .onChange(of: store.unlockedProjectIDs) { _, _ in
-            if let thread = store.activeThread, store.isHidden(thread) { previewingDocument = nil }
+            if let thread = store.activeThread, store.isHidden(thread) {
+                previewingDocument = nil
+                attachmentReport = nil
+                reportDetails = nil
+            }
             restoreAttachments()
         }
         .onChange(of: store.attachmentThreadIDs) { old, new in
@@ -963,6 +967,8 @@ struct ChatScreen: View {
             draftPushTask?.cancel(); draftPushTask = nil
             if let old = draftThreadID, old != newID, store.draft(of: old) != localDraft { store.setDraft(localDraft, threadID: old) }
             previewingDocument = nil
+            attachmentReport = nil
+            reportDetails = nil
             refreshRounds()
             loadDraft()
             refreshContextStats()
@@ -1329,6 +1335,8 @@ struct ChatScreen: View {
     private func carryDraftImagesToNewVersion(from origin: UUID?) {
         guard let origin, let current = store.activeThread, current.id != origin,
               current.parentThreadID == origin, !store.isHidden(current),
+              let source = store.threads.first(where: { $0.id == origin }), !store.isHidden(source),
+              source.keepsOutOfMemory != true || current.keepsOutOfMemory == true,
               imagesByThread[current.id]?.isEmpty != false,
               let images = imagesByThread[origin], !images.isEmpty else { return }
         // A retry/edit creates a new path. Manual version selection never calls this.
@@ -1696,7 +1704,7 @@ struct ChatScreen: View {
             if !details.isEmpty || successes < urls.count {
                 let location = origin == store.activeThreadID ? "当前对话" : "原来对话"
                 var report = "已将 \(successes)/\(urls.count) 份文件挂入\(location)的待发送区。"
-                if !details.isEmpty { report += "\n\n" + details.joined(separator: "\n\n") }
+                if origin == store.activeThreadID, let owner = store.activeThread, !store.isHidden(owner), !details.isEmpty { report += "\n\n" + details.joined(separator: "\n\n") }
                 attachmentReport = report
             }
         }
@@ -2029,7 +2037,7 @@ struct ChatScreen: View {
                 if fileImportThreadID != nil {
                     HStack(spacing: 8) {
                         ProgressView()
-                        Text(fileImportProgress).font(TypeScale.tiny).foregroundStyle(Ink.ink3).lineLimit(2)
+                        Text(fileImportThreadID == store.activeThreadID && store.activeThread.map({ !store.isHidden($0) }) == true ? fileImportProgress : "正在为原对话读取文件…").font(TypeScale.tiny).foregroundStyle(Ink.ink3).lineLimit(2)
                         Spacer(minLength: 4)
                         Button("取消") { fileImportTask?.cancel() }.font(TypeScale.label)
                     }
@@ -3787,6 +3795,7 @@ private struct DocumentPreviewTarget: Identifiable {
 }
 
 private struct MessageDocumentCards: View {
+    @EnvironmentObject private var store: AppStore
     let attachments: [MessageDocumentAttachment]
     let swiss: Bool
     @State private var previewTarget: DocumentPreviewTarget?
@@ -3796,7 +3805,8 @@ private struct MessageDocumentCards: View {
             ForEach(attachments) { item in
                 Button {
                     let fullTitle = item.fileExtension.isEmpty ? item.name : "\(item.name).\(item.fileExtension)"
-                    previewTarget = DocumentPreviewTarget(title: fullTitle, text: item.text)
+                    guard let owner = store.activeThread, !store.isHidden(owner) else { return }
+                    previewTarget = DocumentPreviewTarget(threadID: owner.id, title: fullTitle, text: item.text)
                 } label: {
                     HStack(spacing: 8) {
                         Image(systemName: "doc.text.fill")
@@ -3826,7 +3836,7 @@ private struct MessageDocumentCards: View {
             }
         }
         .sheet(item: $previewTarget) { target in
-            DocumentPreviewSheet(target: target)
+            if let owner = store.activeThread, owner.id == target.threadID, !store.isHidden(owner) { DocumentPreviewSheet(target: target) }
         }
     }
 }

@@ -154,7 +154,7 @@ enum ProjectLibraryChunker {
         let normalized = rawText
             .replacingOccurrences(of: "\r\n", with: "\n")
             .replacingOccurrences(of: "\r", with: "\n")
-        let lines = normalized.components(separatedBy: "\n")
+        var unread = normalized[...]
 
         var chunks: [Chunk] = []
         var currentLines: [String] = []
@@ -181,7 +181,10 @@ enum ProjectLibraryChunker {
             }
         }
 
-        for line in lines {
+        while !unread.isEmpty {
+            let end = unread.firstIndex(of: "\n") ?? unread.endIndex
+            let line = String(unread[..<end])
+            unread = end == unread.endIndex ? unread[end...] : unread[unread.index(after: end)...]
             let trimmed = line.trimmingCharacters(in: .whitespaces)
             if let pageMarker = extractPDFPageLabel(trimmed) {
                 if currentLen > 0 { flush(withOverlap: false) }

@@ -265,7 +265,9 @@ final class ColabClient: @unchecked Sendable {
                     try await Task.sleep(nanoseconds: 2_000_000_000)
                     continue
                 }
-                guard snapshot.nextCursor == cursor + snapshot.events.count else {
+                // hasMore promises a new page; an empty page would poll the same cursor endlessly.
+                guard !(snapshot.hasMore && snapshot.events.isEmpty),
+                      snapshot.nextCursor == cursor + snapshot.events.count else {
                     throw ColabRecoveryFailure("恢复数据次序异常，已收到的文字已保留。")
                 }
                 for data in snapshot.events {

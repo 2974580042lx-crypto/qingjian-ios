@@ -656,6 +656,9 @@ enum DocumentStudioCompiler {
             throw DocumentStudioError.invalidSpecification("至少需要 1 张工作表才能生成 XLSX。")
         }
 
+        guard spec.sheets.count <= 20 else {
+            throw DocumentStudioError.invalidSpecification("每个工作簿最多支持 20 张工作表，请拆分后生成。")
+        }
         var sharedStrings: [String] = []
         var stringIndexMap: [String: Int] = [:]
 
@@ -674,7 +677,7 @@ enum DocumentStudioCompiler {
         var totalRows = 0
 
         var usedSheetNames = Set<String>()
-        for (i, sheet) in spec.sheets.prefix(20).enumerated() {
+        for (i, sheet) in spec.sheets.enumerated() {
             let sheetNum = i + 1
             let baseName = sanitizeExcelSheetName(sheet.name, fallback: "工作表\(sheetNum)")
             var safeSheetName = baseName
@@ -774,8 +777,8 @@ enum DocumentStudioCompiler {
         </styleSheet>
         """
 
-        let styleRelID = "rId\(spec.sheets.prefix(20).count + 1)"
-        let ssRelID = "rId\(spec.sheets.prefix(20).count + 2)"
+        let styleRelID = "rId\(spec.sheets.count + 1)"
+        let ssRelID = "rId\(spec.sheets.count + 2)"
         workbookRelsXML += "<Relationship Id=\"\(styleRelID)\" Type=\"http://schemas.openxmlformats.org/officeDocument/2006/relationships/styles\" Target=\"styles.xml\"/>\n"
         workbookRelsXML += "<Relationship Id=\"\(ssRelID)\" Type=\"http://schemas.openxmlformats.org/officeDocument/2006/relationships/sharedStrings\" Target=\"sharedStrings.xml\"/>\n"
 

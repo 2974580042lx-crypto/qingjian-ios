@@ -36,6 +36,18 @@ final class ComposerDraftTests: XCTestCase {
         XCTAssertTrue(disk.ids().isEmpty)
     }
 
+    func testUnavailableDraftDirectoryLeavesSourceUntouched() throws {
+        let blocked = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        defer { try? FileManager.default.removeItem(at: blocked) }
+        let original = Data([5, 7])
+        try original.write(to: blocked)
+        let disk = AttachmentDraftStore(directory: blocked)
+        let draft = AttachmentDraft(lastUserMessage: nil, images: [], documents: [PendingDocument(name: "笔记", fileExtension: "txt", text: "原文")])
+        XCTAssertThrowsError(try disk.save(draft, for: UUID(), isPrivate: false))
+        XCTAssertEqual(try Data(contentsOf: blocked), original)
+        XCTAssertEqual(draft.documents.first?.text, "原文")
+    }
+
     func testVersionAllocationAndColdReload() throws {
         let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
         defer { try? FileManager.default.removeItem(at: root) }
@@ -52,11 +64,46 @@ final class ComposerDraftTests: XCTestCase {
         XCTAssertEqual(Set(items.map(\.groupID)).count, 1)
     }
 
+    func testFailedCatalogReadNeverOverwritesOlderFiles() throws {
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        defer { try? FileManager.default.removeItem(at: root) }
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        let manifest = root.appendingPathComponent("manifest.json")
+        let damaged = Data("incomplete".utf8)
+        try damaged.write(to: manifest)
+        let store = ProjectDeliverableStore(rootDirectory: root)
+        XCTAssertThrowsError(try store.saveDeliverable(projectID: nil, threadID: UUID(), messageID: UUID(), title: "草稿",
+                                                       format: .pdf, data: Data([1]), sourcePreview: "", summary: ""))
+        XCTAssertThrowsError(try store.exportBackupBundle())
+        XCTAssertEqual(try Data(contentsOf: manifest), damaged)
+    }
+
+    func testOnlyRemovedAttachmentsDisappearAfterRestart() throws {
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let disk = AttachmentDraftStore(directory: root), a = UUID(), b = UUID()
+        let retained = PendingDocument(name: "资料", fileExtension: "txt", text: "正文")
+        let original = AttachmentDraft(lastUserMessage: nil, images: [.init(id: UUID(), jpeg: Data([1]))], documents: [retained])
+        let edited = AttachmentDraft(lastUserMessage: nil, images: [], documents: [retained])
+        try disk.save(original, for: a, isPrivate: false)
+        try disk.save(original, for: b, isPrivate: false)
+        try disk.save(edited, for: a, isPrivate: false)
+        try disk.remove(b)
+        let reopened = AttachmentDraftStore(directory: root)
+        XCTAssertEqual(reopened.ids(), [a])
+        XCTAssertEqual(try reopened.load(a, lastUserMessage: nil, isPrivate: false, isLocked: false), edited)
+    }
+
     func testSheetNamesSurviveSanitizationCollisions() throws {
         let tables = ["A/B", "AB", "ab"].map { XlsxSheetSpec(name: $0, headers: ["列"], rows: [["值"]]) }
         let workbook = try DocumentStudioCompiler.compileXLSX(XlsxWorkbookSpec(sheets: tables))
         let text = try OfficeAndDocumentExtractor.extractXLSX(workbook.data)
         for expected in ["## AB", "## AB (2)", "## ab (3)"] { XCTAssertTrue(text.contains(expected)) }
+    }
+
+    func testTooManySheetsFailWithoutTruncatingTheWorkbook() {
+        let sheet = XlsxSheetSpec(name: "原始数据", headers: ["值"], rows: [["1"]])
+        XCTAssertThrowsError(try DocumentStudioCompiler.compileXLSX(.init(sheets: Array(repeating: sheet, count: 21))))
     }
 
     func testCompatibleToolArgumentAliasesPreserveIntegerIDsAndFragments() throws {

@@ -73,6 +73,7 @@ final class ProjectDeliverableStore: @unchecked Sendable {
     private let rootDirectory: URL
     private let lock = NSLock()
     private var items: [ProjectDeliverable] = []
+    private var needsManifestLoad = true
 
     private struct ManifestFile: Codable {
         var version: Int = 1
@@ -81,7 +82,7 @@ final class ProjectDeliverableStore: @unchecked Sendable {
 
     init(rootDirectory: URL = ProjectDeliverableStore.defaultRootDirectory()) {
         self.rootDirectory = rootDirectory
-        loadManifest()
+        try? loadManifestIfNeeded()
     }
 
     static func defaultRootDirectory() -> URL {
@@ -186,6 +187,7 @@ final class ProjectDeliverableStore: @unchecked Sendable {
         let relativePath = "files/\(id.uuidString).\(format.fileExtension)"
 
         lock.lock(); defer { lock.unlock() }
+        try loadManifestIfNeeded()
         let matchedBase: ProjectDeliverable?
         if let baseID = baseDeliverableID {
             guard let found = items.first(where: { $0.id == baseID }), found.format == format,
@@ -266,6 +268,7 @@ final class ProjectDeliverableStore: @unchecked Sendable {
 
     func deleteDeliverable(_ id: UUID) throws {
         lock.lock(); defer { lock.unlock() }
+        try loadManifestIfNeeded()
         guard let removed = items.first(where: { $0.id == id }) else { return }
         try commit(items.filter { $0.id != id })
         let url = fileURL(for: removed)
@@ -274,6 +277,7 @@ final class ProjectDeliverableStore: @unchecked Sendable {
 
     func exportBackupBundle(maxTotalBytes: Int = 48 * 1024 * 1024) throws -> [String: Data] {
         lock.lock(); defer { lock.unlock() }
+        try loadManifestIfNeeded()
         let manifest = try encoded(items)
         var bundle = ["manifest.json": manifest]
         guard maxTotalBytes >= manifest.count else { throw DocumentStudioError.invalidSpecification("成果目录超过备份容量。") }
@@ -300,6 +304,7 @@ final class ProjectDeliverableStore: @unchecked Sendable {
         decoder.dateDecodingStrategy = .iso8601
         let incoming = try decoder.decode(ManifestFile.self, from: manifest)
         lock.lock(); defer { lock.unlock() }
+        try loadManifestIfNeeded()
         try FileManager.default.createDirectory(at: filesDirectory, withIntermediateDirectories: true)
         var created: [URL] = []
         var seen = Set<UUID>()
@@ -348,15 +353,23 @@ final class ProjectDeliverableStore: @unchecked Sendable {
         return cleaned.isEmpty ? "Sermo交付文档" : String(cleaned.prefix(80))
     }
 
-    private func loadManifest() {
-        guard FileManager.default.fileExists(atPath: manifestURL.path),
-              let data = try? Data(contentsOf: manifestURL) else { return }
+    // During initialization or under lock. A damaged/temporarily inaccessible catalog
+    // must never be treated as an empty library and overwritten by the next save.
+    private func loadManifestIfNeeded() throws {
+        guard needsManifestLoad else { return }
+        let data: Data
+        do { data = try Data(contentsOf: manifestURL) }
+        catch let error as CocoaError where error.code == .fileReadNoSuchFile {
+            needsManifestLoad = false
+            return
+        }
         let decoder = JSONDecoder()
         decoder.dateDecodingStrategy = .iso8601
-        guard let decoded = try? decoder.decode(ManifestFile.self, from: data) else { return }
-        lock.lock()
+        guard let decoded = try? decoder.decode(ManifestFile.self, from: data), decoded.version == 1 else {
+            throw DocumentStudioError.invalidSpecification("成果目录无法读取，已保留原文件。")
+        }
         items = decoded.items
-        lock.unlock()
+        needsManifestLoad = false
     }
 }
 
