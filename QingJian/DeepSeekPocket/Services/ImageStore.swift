@@ -40,6 +40,18 @@ enum ImageStore {
         return jpeg
     }
 
+    static func prepared(file url: URL) throws -> Data {
+        guard let size = try url.resourceValues(forKeys: [.fileSizeKey]).fileSize, size <= 40 * 1024 * 1024 else {
+            throw ChatError.server("图片超过 40 MB 或无法确定大小，请选择压缩后的照片。")
+        }
+        guard let source = CGImageSourceCreateWithURL(url as CFURL, nil),
+              let cg = resized(source, maxPixel: maxPixel),
+              let jpeg = UIImage(cgImage: cg).jpegData(compressionQuality: 0.78) else {
+            throw ChatError.server("无法读取这张图片，请换一张普通照片或截图。")
+        }
+        return jpeg
+    }
+
     static func save(_ jpeg: Data) throws -> String {
         let name = UUID().uuidString + ".jpg"
         let folder = try directory()

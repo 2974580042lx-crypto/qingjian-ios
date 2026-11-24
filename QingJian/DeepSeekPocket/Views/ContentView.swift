@@ -18,6 +18,8 @@ struct ContentView: View {
     @State private var showProjects = previewFlag("projects", "project")
     @State private var initialProjectID: UUID? = nil
     @State private var showAllChats = previewFlag("all-chats")
+    @State private var intakeToReview: ShareIntakeItem?
+    @State private var reviewingBackup = false
     @State private var showBooks = previewFlag("books")
     @State private var showSidebar = previewFlag("sidebar")
     @State private var keyboardVisible = false
@@ -53,6 +55,8 @@ struct ContentView: View {
                     ChatScreen(openHistory: { showSidebar = true },
                                openSettings: { showSettings = true },
                                openProject: { id in initialProjectID = id; showProjects = true },
+                               reviewIncoming: { intakeToReview = store.pendingShareIntake },
+                               reviewBackup: { reviewingBackup = true },
                                keyboardVisible: $keyboardVisible,
                                composerPanelHeight: $composerPanelHeight,
                                bottomInset: bottomInset,
@@ -75,7 +79,9 @@ struct ContentView: View {
             if open { store.refreshBalance() }
         }
         .sheet(isPresented: $showSettings) { SettingsView().environmentObject(store).environmentObject(profile) }
-        .sheet(item: Binding(get: { showSettings ? nil : store.unifiedRestorePreview }, set: { store.unifiedRestorePreview = $0 })) { preview in
+        .sheet(item: Binding(get: { reviewingBackup && !showSettings ? store.unifiedRestorePreview : nil }, set: { value in
+            if reviewingBackup { store.unifiedRestorePreview = value }
+        }), onDismiss: { reviewingBackup = false }) { preview in
             UnifiedRestorePreviewSheet(preview: preview)
                 .environmentObject(store)
         }
@@ -119,7 +125,7 @@ struct ContentView: View {
                 break
             }
         }
-        .sheet(item: $store.pendingShareIntake, onDismiss: { store.advanceShareIntakeQueue() }) { item in
+        .sheet(item: $intakeToReview, onDismiss: { store.advanceShareIntakeQueue() }) { item in
             ShareIntakeSheet(
                 item: item,
                 onSendToCurrentChat: { chosen in
@@ -192,7 +198,7 @@ enum ChatPhotoPicker {
     private static var current: Coordinator?
 
     @discardableResult
-    static func present(limit: Int, window: UIWindow?, onError: @escaping (String) -> Void,
+    static func present(limit: Int, window: UIWindow? = nil, onError: @escaping (String) -> Void,
                         picked: @escaping ([PHPickerResult]) -> Void) -> Bool {
         // A picker that never appeared (or vanished unannounced) must not block the next tap.
         if let open = current, !SystemPickerPresentation.isWaiting(open.picker), open.picker?.presentingViewController == nil { current = nil }
@@ -320,6 +326,8 @@ struct ChatScreen: View {
     let openHistory: () -> Void
     let openSettings: () -> Void
     var openProject: (UUID) -> Void = { _ in }
+    let reviewIncoming: () -> Void
+    let reviewBackup: () -> Void
     @Binding var keyboardVisible: Bool
     @Binding var composerPanelHeight: CGFloat
     let bottomInset: CGFloat
@@ -490,7 +498,6 @@ struct ChatScreen: View {
         guard let thread = store.activeThread, !store.isHidden(thread) else { return [] }
         return Array(thread.messages.suffix(visibleMessageCount))
     }
-    private var navigationSpace: CGFloat { 0 }
     // Read in body, so switching the look in Settings redraws this page.
     private var style: InterfaceStyle { InterfaceStyle.current }
     private var swiss: Bool { style == .swiss }
@@ -555,24 +562,28 @@ struct ChatScreen: View {
                         try? FileManager.default.removeItem(at: incomingImage)
                     }
                 }
-                guard let raw = try? Data(contentsOf: incomingImage),
-                      let uiImage = UIImage(data: raw),
-                      let jpeg = uiImage.jpegData(compressionQuality: 0.88) else {
-                    store.errorMessage = "这张外部图片未能读取，请重试。"
-                    return
-                }
-                if pendingImages.count < 4 {
-                    pendingImages.append(PendingImage(data: jpeg, preview: uiImage))
-                } else {
-                    store.errorMessage = "当前待发送图片已满 4 张，请先发送或移除一张。"
-                }
+                guard let origin else { return }
+                do {
+                    let jpeg = try await Task.detached(priority: .userInitiated) {
+                        try ImageStore.prepared(file: incomingImage)
+                    }.value
+                    guard let thread = store.threads.first(where: { $0.id == origin }), !store.isHidden(thread) else {
+                        attachmentReport = "原对话已删除或上锁，图片未添加。"
+                        return
+                    }
+                    guard (imagesByThread[origin]?.count ?? 0) < 4 else {
+                        attachmentReport = "待发送图片已满 4 张，请先发送或移除一张。"
+                        return
+                    }
+                    guard let preview = UIImage(data: jpeg) else { throw ChatError.server("图片无法预览。") }
+                    imagesByThread[origin, default: []].append(PendingImage(data: jpeg, preview: preview))
+                } catch { attachmentReport = error.localizedDescription }
             }
         }
         if let prefill = store.incomingChatPrefillText {
             store.incomingChatPrefillText = nil
             localDraft = OralDrillPromptBuilder.mergeIntoDraft(existing: localDraft, spoken: prefill)
             scheduleDraftPush()
-            focusComposer(true)
         }
     }
     /// Hands any typing still waiting to the store, before sending or leaving the chat.
@@ -586,11 +597,6 @@ struct ChatScreen: View {
         localDraft = store.activeDraft
         lastPushedDraft = localDraft
     }
-    private var errorPresented: Binding<Bool> {
-        Binding(get: { store.errorMessage != nil && editedMessage == nil },
-                set: { if !$0 { store.errorMessage = nil } })
-    }
-
     private func refreshContextStats() {
         guard let thread = store.activeThread, !thread.messages.isEmpty else {
             cachedContext = nil
@@ -620,6 +626,9 @@ struct ChatScreen: View {
     private var composerLayoutSignature: Int {
         var hasher = Hasher()
         hasher.combine(composerHeightBucket)
+        hasher.combine(store.pendingShareIntake?.id)
+        hasher.combine(store.unifiedRestorePreview?.id)
+        hasher.combine(store.errorMessage)
         hasher.combine(attachmentReport)
         hasher.combine(store.noticeMessage)
         hasher.combine(store.composerNotice?.id)
@@ -915,6 +924,7 @@ struct ChatScreen: View {
             if open && timeReveal.offset != 0 { timeReveal.offset = 0 }
         }
         .onReceive(NotificationCenter.default.publisher(for: UIApplication.willResignActiveNotification)) { _ in
+            flushDraft()
             if timeReveal.offset != 0 { timeReveal.offset = 0 }
         }
         .onAppear {
@@ -933,6 +943,7 @@ struct ChatScreen: View {
         // Something else changed the draft (a suggestion put in, a file read in, a send
         // clearing it): show that, but not the echo of our own typing coming back.
         .onChange(of: store.activeDraft) { _, new in
+            guard draftThreadID == store.activeThreadID else { return }
             if new != localDraft && new != lastPushedDraft { localDraft = new; lastPushedDraft = new }
         }
         .onChange(of: store.activeThreadID) { _, newID in
@@ -1110,9 +1121,6 @@ struct ChatScreen: View {
 
     private var chatWithAlerts: some View {
         chatWithInput
-        .alert("暂时没有完成", isPresented: errorPresented) {
-            Button("知道了") { store.errorMessage = nil }
-        } message: { Text(store.errorMessage ?? "") }
         .task {
             if ProcessInfo.processInfo.arguments.contains("--preview-multiline-keyboard") {
                 store.setDraft("第一行输入\n第二行输入\n第三行输入\n第四行输入\n第五行输入\n第六行输入")
@@ -1952,6 +1960,16 @@ struct ChatScreen: View {
         let steerDraft = localDraft.trimmingCharacters(in: .whitespacesAndNewlines)
         let canSteerCurrentRun = isCurrentGenerating && !steerDraft.isEmpty && pendingImages.isEmpty && pendingDocuments.isEmpty
         return VStack(spacing: 8) {
+            if let incoming = store.pendingShareIntake {
+                ComposerNoticeBar(text: "收到「\(incoming.title)」", actionTitle: "查看", action: reviewIncoming)
+            }
+            if let backup = store.unifiedRestorePreview {
+                ComposerNoticeBar(text: "备份已就绪：\(backup.fileName)", actionTitle: "查看", action: reviewBackup)
+            }
+            if let issue = store.errorMessage {
+                ComposerNoticeBar(text: issue, actionTitle: "详情", action: { reportDetails = issue },
+                                  dismiss: { store.errorMessage = nil })
+            }
             if let notice = store.noticeMessage {
                 ComposerNoticeBar(text: notice, actionTitle: "详情", action: { reportDetails = notice },
                                   dismiss: { store.noticeMessage = nil })
@@ -1986,7 +2004,7 @@ struct ChatScreen: View {
 
             if !store.canChat {
                 Button { focusComposer(false); openSettings() } label: {
-                    Label(store.activeProvider == .chatGPT ? "在设置里登录 ChatGPT 订阅，就能用这个项目" : "在设置里填好 DeepSeek API Key，就能开始聊天",
+                    Label(store.chatUnavailableMessage,
                           systemImage: store.activeProvider == .chatGPT ? "person.crop.circle" : "key")
                         .font(TypeScale.caption).foregroundStyle(Ink.ink3)
                 }.padding(.bottom, 2)

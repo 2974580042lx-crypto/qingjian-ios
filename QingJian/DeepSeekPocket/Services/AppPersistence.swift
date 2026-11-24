@@ -77,7 +77,7 @@ final class AppPersistence: @unchecked Sendable {
             let drasticByteDrop = oldSize > 100 * 1024 && data.count * 5 < oldSize
             let drasticThreadDrop = lastNonEmptyThreadCount >= 1 && newNonEmpty == 0
             if drasticByteDrop || drasticThreadDrop {
-                let copy = try? createSafetyCopy(prefix: "before-shrink", keep: 5)
+                let copy = try? copyCurrentFile(prefix: "before-shrink", keep: 5)
                 throw ChatError.server(copy == nil
                     ? "对话记录异常减少，已停止覆盖原文件。未能创建安全副本。"
                     : "对话记录异常减少，已保留原文件，并在 Safety 目录创建了副本。")
@@ -88,6 +88,9 @@ final class AppPersistence: @unchecked Sendable {
     }
     @discardableResult
     func createSafetyCopy(prefix: String = "manual-safety", keep: Int = 5) throws -> URL? {
+        try queue.sync { try copyCurrentFile(prefix: prefix, keep: keep) }
+    }
+    private func copyCurrentFile(prefix: String, keep: Int) throws -> URL? {
         guard FileManager.default.fileExists(atPath: file.path) else { return nil }
         let formatter = DateFormatter()
         formatter.locale = Locale(identifier: "en_US_POSIX")

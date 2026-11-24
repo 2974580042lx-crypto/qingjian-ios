@@ -640,16 +640,7 @@ final class AppStore: ObservableObject {
     }
 
     func advanceShareIntakeQueue() {
-        if pendingShareIntake != nil {
-            pendingShareIntake = nil
-        }
-        guard !queuedShareIntakes.isEmpty else { return }
-        let next = queuedShareIntakes.removeFirst()
-        Task { @MainActor [weak self] in
-            try? await Task.sleep(nanoseconds: 240_000_000)
-            guard let self, self.pendingShareIntake == nil else { return }
-            self.pendingShareIntake = next
-        }
+        pendingShareIntake = queuedShareIntakes.isEmpty ? nil : queuedShareIntakes.removeFirst()
     }
 
     func drainShortcutsShareInbox() {
@@ -4461,10 +4452,10 @@ final class AppStore: ObservableObject {
             }
         case .legacyShelf(let shelf):
             Task {
-                _ = try? persistence?.createSafetyCopy(prefix: "before-restore")
                 let tempURL = FileManager.default.temporaryDirectory.appendingPathComponent("legacy-shelf-\(UUID().uuidString).json")
                 defer { try? FileManager.default.removeItem(at: tempURL) }
                 do {
+                    _ = try persistence?.createSafetyCopy(prefix: "before-restore")
                     let encoder = JSONEncoder()
                     encoder.dateEncodingStrategy = .iso8601
                     try encoder.encode(shelf).write(to: tempURL, options: .atomic)
@@ -4474,8 +4465,12 @@ final class AppStore: ObservableObject {
                 }
             }
         case .legacyChat(let incomingSnapshot):
-            _ = try? persistence?.createSafetyCopy(prefix: "before-restore")
-            restoreLegacyChatSnapshot(incomingSnapshot, replace: mode == .replace)
+            do {
+                _ = try persistence?.createSafetyCopy(prefix: "before-restore")
+                restoreLegacyChatSnapshot(incomingSnapshot, replace: mode == .replace)
+            } catch {
+                errorMessage = "恢复前的安全副本创建失败，已停止导入：\(error.localizedDescription)"
+            }
         }
     }
 

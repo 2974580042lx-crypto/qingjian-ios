@@ -235,11 +235,21 @@ final class SubscriptionStore: NSObject, ObservableObject, ASWebAuthenticationPr
     private func observe(_ error: Error) {
         if let failure = error as? SubscriptionError, failure.requiresSignIn { reauthenticationRequired = true }
     }
+    private func loadCatalog() async throws -> [SubscriptionModel] {
+        let access = try await validAccessToken()
+        do {
+            return try await api.models(accessToken: access)
+        } catch SubscriptionError.service(_, 401) {
+            try Task.checkCancellation()
+            let refreshed = try await validAccessToken(forceRefresh: true)
+            return try await api.models(accessToken: refreshed)
+        }
+    }
     func refreshModels() async {
         guard !busy else { return }
         loadingModels = true; issue = nil
         defer { loadingModels = false }
-        do { models = try await api.models(accessToken: validAccessToken()) }
+        do { models = try await loadCatalog() }
         catch { observe(error); issue = error.localizedDescription }
     }
     func disconnect() {
@@ -260,9 +270,8 @@ final class SubscriptionStore: NSObject, ObservableObject, ASWebAuthenticationPr
         guard includedUsageConfirmed else { throw SubscriptionError.creditsNotConfirmed }
         guard !signingIn else { throw SubscriptionError.notConnected }
         requestCount += 1; defer { requestCount -= 1 }
+        if models.isEmpty { models = try await loadCatalog() }
         let access = try await validAccessToken()
-        try Task.checkCancellation()
-        if models.isEmpty { models = try await api.models(accessToken: access) }
         try Task.checkCancellation()
         guard models.contains(where: { $0.slug == model }) else { throw SubscriptionError.modelUnavailable }
         let asksSummary = summary && !summaryRefused
@@ -329,8 +338,7 @@ final class SubscriptionStore: NSObject, ObservableObject, ASWebAuthenticationPr
         settings.systemPrompt = "你是一个精准的联网信息检索助手。请使用内置联网工具搜索用户问题，并用简明中文整理最新核心事实与关键数据，严格忠于网页来源，不要编造。"
         let request = ChatRequest(settings: settings, messages: [ChatMessage(role: .user, content: query)])
         if models.isEmpty {
-            let token = try await validAccessToken()
-            models = try await api.models(accessToken: token)
+            models = try await loadCatalog()
         }
         let targetModel = models.first(where: { $0.slug == model })?.slug ?? models.first?.slug ?? model
         var summaryText = ""

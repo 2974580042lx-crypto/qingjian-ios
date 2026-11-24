@@ -228,7 +228,7 @@ struct BookshelfView: View {
     // SwiftUI's .fileImporter does not open from this sheet while the chat page
     // underneath has one of its own, so the system picker is presented directly.
     private func pickBook() {
-        DocumentPicker.presentMany([.plainText, .text, UTType(filenameExtension: "txt") ?? .plainText, .epub], asCopy: true) { urls in
+        DocumentPicker.presentMany([.plainText, .text, UTType(filenameExtension: "txt") ?? .plainText, .epub], asCopy: true, onError: { books.errorMessage = $0 }) { urls in
             Task {
                 var imported: [UUID] = []
                 for url in urls {
@@ -1419,7 +1419,7 @@ private struct BookCoverActions: View {
             }
         }
         Button("从文件选择封面", systemImage: "folder") {
-            DocumentPicker.present([.image], asCopy: true) { url in
+            DocumentPicker.present([.image], asCopy: true, onError: { books.errorMessage = $0 }) { url in
                 Task {
                     do {
                         let data = try await Task.detached(priority: .userInitiated) {
