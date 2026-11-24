@@ -6,6 +6,13 @@ final class HighlightMarksTests: XCTestCase {
         try AttributedString(markdown: text, options: .init(interpretedSyntax: .inlineOnlyPreservingWhitespace))
     }
 
+    func testLongPassageNeverLeaksInternalDelimiters() {
+        let paragraph = Array(repeating: "甲**雨🌧️**乙", count: 180).joined(separator: " ")
+        let parsed = HighlightMarks.parseInline(paragraph)
+        XCTAssertEqual(String(parsed.characters), Array(repeating: "甲雨🌧️乙", count: 180).joined(separator: " "))
+        XCTAssertEqual(HighlightMarks.boldRanges(in: parsed).count, 180)
+    }
+
     func testFindsEachBoldPhraseInOrder() throws {
         let value = try parse("先读**目录**，再读**每章头尾**，最后**写一句话**。")
         let phrases = HighlightMarks.boldRanges(in: value).map { String(value[$0].characters) }

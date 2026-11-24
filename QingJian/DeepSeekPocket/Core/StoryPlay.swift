@@ -114,14 +114,19 @@ enum StoryPlay {
         var next = old
         for item in result.facts.prefix(20) {
             let text = item.text.trimmingCharacters(in: .whitespacesAndNewlines)
-            let sources = item.sources.compactMap(UUID.init(uuidString:)).filter { allowed.contains($0) }
-            guard !text.isEmpty, !sources.isEmpty, let kind = StoryFactKind(rawValue: item.kind) else { continue }
+            let sources = item.sources.compactMap(UUID.init(uuidString:))
+            guard !text.isEmpty, !sources.isEmpty, sources.count == item.sources.count,
+                  sources.allSatisfy(allowed.contains), let kind = StoryFactKind(rawValue: item.kind) else {
+                throw ChatError.server("场记引用的事实或消息无法核对，原记忆已保留。")
+            }
             let id = item.id.flatMap(UUID.init(uuidString:))
             if let index = next.facts.firstIndex(where: { $0.id == id }) {
                 guard !next.facts[index].locked else { continue }
                 next.facts[index].text = String(text.prefix(240))
                 next.facts[index].kind = kind
                 next.facts[index].sources = Array(sources.prefix(4))
+            } else if let key = item.id, !key.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                throw ChatError.server("要更正的剧情记忆已经不存在，请重新整理。")
             } else if !next.facts.contains(where: { $0.text == text }) {
                 next.facts.append(StoryFact(kind: kind, text: String(text.prefix(240)), sources: Array(sources.prefix(4))))
             }

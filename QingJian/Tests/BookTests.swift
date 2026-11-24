@@ -5,6 +5,30 @@ import Compression
 final class BookTests: XCTestCase {
     private let body = String(repeating: "他推开门，看见院子里的桂花落了一地。", count: 5)
 
+    func testCitationLocatesExactUTF16ExcerptAndRejectsReplacedText() {
+        let doc = NovelDocument(chapter: 1, text: "开篇\n\n灯🌧️下有人")
+        let body = doc.paragraphs[1] as NSString
+        let ref = BookReference(bookID: UUID(), chapter: 1, chapterTitle: "雨", paragraph: 1,
+                                offset: body.range(of: "有人").location, text: "有人")
+        XCTAssertEqual(doc.referenceOffset(ref), (doc.text as NSString).range(of: "有人").location)
+        var broken = ref; broken.offset = Int.max
+        XCTAssertNil(doc.referenceOffset(broken))
+        XCTAssertNil(NovelDocument(chapter: 1, text: "另一个版本").referenceOffset(ref))
+    }
+
+    func testHistoricalThoughtsRejectEditedEarlierDialogueButAllowLaterTurns() {
+        let a = ChatMessage(role: .user, content: "在桥边等"), b = ChatMessage(role: .assistant, content: "好")
+        var edited = a; edited.content = "在院里等"
+        XCTAssertFalse(InnerThoughts.sameContext([a,b], [edited,b], through: b.id))
+        XCTAssertTrue(InnerThoughts.sameContext([a,b], [a,b,.init(role: .user, content: "我来了")], through: b.id))
+    }
+
+    func testInvalidSceneFactNeverAdvancesMemoryCursor() {
+        let turn = ChatMessage(role: .assistant, content: "天亮了")
+        let response = #"{"facts":[{"kind":"scene","text":"天亮","sources":["\#(turn.id.uuidString)","unknown"]}]}"#
+        XCTAssertThrowsError(try StoryPlay.merge(response, into: StoryMemory(), fresh: [turn]))
+    }
+
     func testShortPrologueAndBriefChapterSurviveImport() {
         let chapters = ChapterSplitter.split("序言。\n第一章 初见\n只有三字。\n第二章 大雨\n" + body)
         XCTAssertEqual(chapters.map(\.text), ["序言。", "只有三字。", body])
@@ -30,10 +54,12 @@ final class BookTests: XCTestCase {
 
     func testNestedEPUBWithEscapedHashAndAmpersand() throws {
         let contents = "<container><rootfiles><rootfile full-path='EPUB/book.opf'/></rootfiles></container>"
-        let opf = "<package><manifest><item id='one' href='../Text/A%23B&amp;C.xhtml#p' media-type='application/xhtml+xml'/></manifest><spine><itemref idref='one'/></spine></package>"
+        let opf = "<package><manifest><item id='two' href='../Text/A%23B&amp;C.xhtml#z' media-type='application/xhtml+xml'/><item id='one' href='../Text/A%23B&amp;C.xhtml#p' media-type='application/xhtml+xml'/></manifest><spine><itemref idref='one'/><itemref idref='two'/></spine></package>"
         let files = [("META-INF/container.xml", contents, false), ("EPUB/book.opf", opf, false)]
         let page = ("Text/A#B&C.xhtml", "<html><body><p>门开了。</p></body></html>", false)
-        XCTAssertTrue(try EpubBook.pages(from: zip(files + [page])).pages.first?.text.contains("门开了。") == true)
+        let pages = try EpubBook.pages(from: zip(files + [page])).pages
+        XCTAssertEqual(pages.count, 1)
+        XCTAssertTrue(pages.first?.text.contains("门开了。") == true)
         XCTAssertThrowsError(try EpubBook.pages(from: zip(files)))
     }
 
@@ -431,6 +457,7 @@ final class BookTests: XCTestCase {
         XCTAssertTrue(book.pages[1].text.contains("第一段 完。"))
         let chapters = EpubBook.chapters(from: book.pages)
         XCTAssertEqual(chapters.map(\.title), ["第一章 雨夜", "第二章 来客"])
+        XCTAssertTrue(chapters[0].text.contains("封面"))
         let prepared = try BookImport.prepare(data, fileName: "下载.epub")
         XCTAssertEqual(prepared.title, "测试之书")
         XCTAssertEqual(prepared.chapters.count, 2)

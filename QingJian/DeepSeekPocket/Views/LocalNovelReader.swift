@@ -10,6 +10,7 @@ struct LocalNovelReader: View {
     let bookID: UUID
     let initialChapter: Int
     let initialParagraph: Int?
+    var initialReference: BookReference? = nil
     let close: () -> Void
     let opened: () -> Void
     @AppStorage("sermo.reader.font") private var fontChoice = "follow"
@@ -143,7 +144,7 @@ struct LocalNovelReader: View {
         .environment(\.readerAppearance, appearance)
         .statusBarHidden(true)
         .preferredColorScheme(palette == "follow" ? (InterfaceStyle.isNight ? .dark : nil) : (appearance.isDark ? .dark : .light))
-        .inlineFeedback(loadIssue) { loadIssue = nil }
+        .inlineFeedback(loadIssue ?? books.errorMessage) { loadIssue = nil; books.errorMessage = nil }
         .task(id: bookID) {
             guard !prepared else { configureVolume(); return }
             do {
@@ -154,7 +155,15 @@ struct LocalNovelReader: View {
                 chapterEnds = loaded.map { total += ($0.text as NSString).length; return total }
                 chapter = min(max(0, initialChapter), loaded.count - 1)
                 document = NovelDocument(chapter: chapter, text: loaded[chapter].text)
-                currentOffset = document.restoredOffset(bookmark: book?.bookmark, requestedParagraph: initialParagraph)
+                if let ref = initialReference {
+                    guard let exact = document.referenceOffset(ref) else {
+                        loadIssue = "当前原书与保存的节选不一致，无法定位。原引用仍可查看。"
+                        return
+                    }
+                    currentOffset = exact
+                } else {
+                    currentOffset = document.restoredOffset(bookmark: book?.bookmark, requestedParagraph: initialParagraph)
+                }
                 jump = ReaderJump(offset: currentOffset)
                 prepared = true; originalBrightness = UIScreen.main.brightness
                 ReaderAppDelegate.setReaderOrientation(orientation)

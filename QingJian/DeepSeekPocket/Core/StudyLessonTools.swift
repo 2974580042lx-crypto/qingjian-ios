@@ -127,10 +127,10 @@ extension StudyToolExecutor {
                 recordRef: action.optionalText("record_id"),
                 action: action.optionalText("action", default: "save"),
                 area: action.optionalText("area"),
-                kind: action.optionalText("kind", default: "oral"),
+                kind: action.optionalText("kind"),
                 question: action.optionalText("question"),
                 answer: action.optionalText("answer"),
-                outcome: action.optionalText("outcome", default: "unknown"),
+                outcome: action.optionalText("outcome"),
                 weakPoint: action.optionalText("weak_point"),
                 sourceKind: action.optionalText("source_kind", default: "user_statement"),
                 message: message

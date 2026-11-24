@@ -3,6 +3,13 @@ import Foundation
 // A separately generated, fictional voice supplement based on visible dialogue.
 // It is not the model's private reasoning and never becomes conversation history.
 enum InnerThoughts {
+    static func sameContext(_ before: [ChatMessage], _ after: [ChatMessage], through id: UUID) -> Bool {
+        guard let end = before.firstIndex(where: { $0.id == id }), after.indices.contains(end) else { return false }
+        return zip(before[...end], after[...end]).allSatisfy {
+            $0.id == $1.id && $0.role == $1.role && $0.content == $1.content && $0.discussionCharacter == $1.discussionCharacter
+        }
+    }
+
     static func request(settings: AppSettings, systemPrompt: String, messages: [ChatMessage], answerID: UUID,
                         character: String, isStory: Bool = true) throws -> ChatRequest {
         guard let index = messages.firstIndex(where: { $0.id == answerID }), messages[index].role == .assistant,

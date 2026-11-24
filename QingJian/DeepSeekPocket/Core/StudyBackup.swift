@@ -222,6 +222,16 @@ enum StudyBackupCodec {
             if row.kind == "pending" { guard try StudyCoding.decode(StudyPendingOperation.self, from: row.payload).scopeProject == row.projectID else { throw StudyMemoryError.conflict } }
             if row.kind == "weekly_report" { guard try StudyCoding.decode(StudyWeeklyReport.self, from: row.payload).projectID == row.projectID else { throw StudyMemoryError.conflict } }
             if row.kind == "archived_project" { guard try StudyCoding.decode(StudyArchivedProject.self, from: row.payload).project.id == row.projectID else { throw StudyMemoryError.conflict } }
+            if row.kind == "reading_passage" {
+                let passage = try StudyCoding.decode(StudyReadingPassage.self, from: row.payload)
+                guard passage.id == row.id else { throw StudyBackupError.invalid("阅读资料编号与备份目录不一致。") }
+                try StudyReadingPack.validate(passage)
+            }
+            if row.kind == "word_pack" { _ = try StudyWordPack.decode(row.payload) }
+            if row.kind == "word_progress" {
+                let progress = try StudyCoding.decode(StudyWordProgress.self, from: row.payload)
+                guard row.id == progress.wordID else { throw StudyBackupError.invalid("词条进度与备份目录不一致。") }
+            }
             if row.kind == "temporary_map" { _ = try StudyTemporaryMap.decode(row.payload) }
         }
         for id in projectIDs {

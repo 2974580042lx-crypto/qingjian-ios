@@ -43,8 +43,8 @@ struct StudyToolAction {
 
     init(_ call: ToolCall) throws {
         guard StudyTools.names.contains(call.name) else { throw ToolError.unknownTool(call.name) }
-        try Self.rejectDuplicateKeys(call.arguments)
         let arguments = try call.argumentObject()
+        try Self.rejectDuplicateKeys(call.arguments)
         let legacyMemory: Set<String> = ["category", "text", "source_kind", "evidence_quote"]
         let allowed: Set<String>
         if let fields = StudyLessonTools.fields[call.name] { allowed = fields }
@@ -139,14 +139,14 @@ struct StudyToolAction {
         return command
     }
 
-    // Scan JSON strings at the object root so duplicate keys cannot silently replace a value.
+    // JSONDecoder otherwise accepts repeated keys, including inside individual grading items.
     private static func rejectDuplicateKeys(_ text: String) throws {
         let bytes = Array(text.utf8)
-        var index = 0, depth = 0, keys = Set<String>()
+        var index = 0, scopes: [Set<String>] = []
         while index < bytes.count {
             let byte = bytes[index]
-            if byte == 123 || byte == 91 { depth += 1 }
-            if byte == 125 || byte == 93 { depth -= 1 }
+            if byte == 123 { scopes.append([]) }
+            if byte == 125 { _ = scopes.popLast() }
             if byte != 34 { index += 1; continue }
             let start = index; index += 1
             while index < bytes.count {
@@ -158,9 +158,9 @@ struct StudyToolAction {
             let token = Data(bytes[start...index]); index += 1
             var next = index
             while next < bytes.count && [9, 10, 13, 32].contains(bytes[next]) { next += 1 }
-            if depth == 1, next < bytes.count, bytes[next] == 58 {
+            if !scopes.isEmpty, next < bytes.count, bytes[next] == 58 {
                 let key = try JSONDecoder().decode(String.self, from: token)
-                guard keys.insert(key).inserted else { throw StudyMemoryError.invalid("学习操作包含重复字段。") }
+                guard scopes[scopes.count - 1].insert(key).inserted else { throw StudyMemoryError.invalid("学习操作包含重复字段。") }
             }
         }
     }

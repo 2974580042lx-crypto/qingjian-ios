@@ -11,7 +11,7 @@ struct StudyReadingPassage: Codable, Equatable, Identifiable, Sendable {
         let verification: String
         let source: String
         let sourceURL: String?
-        var verifiedAnswer: Int? { verification == "verified" ? answer : nil }
+        var verifiedAnswer: Int? { verification == "verified" ? answer.flatMap { (0..<4).contains($0) ? $0 : nil } : nil }
     }
     let id: String
     let title: String
@@ -39,22 +39,25 @@ struct StudyReadingPack: Codable, Sendable {
         let pack = try StudyCoding.decode(Self.self, from: data)
         guard pack.schema == "sermo.readings.v1", !pack.passages.isEmpty, pack.passages.count <= 400,
               Set(pack.passages.map(\.id)).count == pack.passages.count else { throw StudyMemoryError.invalid("阅读资料格式或篇目标识有误。") }
-        for p in pack.passages {
-            guard p.id.range(of: #"^[a-zA-Z0-9_-]{1,100}$"#, options: .regularExpression) != nil,
-                  (1900...2200).contains(p.year), (1...4).contains(p.textNumber), !p.title.isEmpty,
-                  !p.source.isEmpty, (1...40).contains(p.paragraphs.count),
-                  p.paragraphs.allSatisfy({ !$0.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty && $0.count <= 15_000 && !$0.contains("\u{FFFD}") }),
-                  (1...20).contains(p.questions.count), Set(p.questions.map(\.number)).count == p.questions.count,
-                  Set(p.questions.map(\.id)).count == p.questions.count else { throw StudyMemoryError.invalid("篇目内容缺失、乱码或标识重复：\(p.id)") }
-            for q in p.questions {
-                guard !q.id.isEmpty, (1...100).contains(q.number), !q.stem.isEmpty, q.stem.count <= 4000,
-                      q.options.count == 4, q.options.allSatisfy({ !$0.isEmpty && $0.count <= 4000 }),
-                      q.answer.map({ (0...3).contains($0) }) ?? true,
-                      q.verification != "verified" || q.answer != nil else { throw StudyMemoryError.invalid("题目或选项不完整：\(q.id)") }
-            }
-        }
+        for p in pack.passages { try validate(p) }
         return pack
     }
+
+    static func validate(_ p: StudyReadingPassage) throws {
+        guard p.id.range(of: #"^[a-zA-Z0-9_-]{1,100}$"#, options: .regularExpression) != nil,
+              (1900...2200).contains(p.year), (1...4).contains(p.textNumber), !p.title.isEmpty,
+              !p.source.isEmpty, (1...40).contains(p.paragraphs.count),
+              p.paragraphs.allSatisfy({ !$0.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty && $0.count <= 15_000 && !$0.contains("\u{FFFD}") }),
+              (1...20).contains(p.questions.count), Set(p.questions.map(\.number)).count == p.questions.count,
+              Set(p.questions.map(\.id)).count == p.questions.count else { throw StudyMemoryError.invalid("篇目内容缺失、乱码或标识重复：\(p.id)") }
+        for q in p.questions {
+            guard !q.id.isEmpty, (1...100).contains(q.number), !q.stem.isEmpty, q.stem.count <= 4000,
+                  q.options.count == 4, q.options.allSatisfy({ !$0.isEmpty && $0.count <= 4000 }),
+                  q.answer.map({ (0...3).contains($0) }) ?? true,
+                  q.verification != "verified" || q.answer != nil else { throw StudyMemoryError.invalid("题目或选项不完整：\(q.id)") }
+        }
+    }
+
 }
 
 struct StudyReadingCatalogEntry: Codable, Equatable, Identifiable, Sendable {

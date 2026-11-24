@@ -205,7 +205,7 @@ struct BookReferencesView: View {
             .toolbar { ToolbarItem(placement: .topBarLeading) { ClaudeSheetCloseButton(label: "完成") { dismiss() } } }
             .sheet(item: $reading) { ref in
                 NavigationStack {
-                    ChapterReaderView(bookID: ref.bookID, chapter: ref.chapter, paragraph: ref.paragraph, opened: { reading = nil; dismiss() })
+                    ChapterReaderView(bookID: ref.bookID, chapter: ref.chapter, paragraph: ref.paragraph, reference: ref, opened: { reading = nil; dismiss() })
                         .environmentObject(store).environmentObject(books)
                 }
             }

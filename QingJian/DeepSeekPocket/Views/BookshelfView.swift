@@ -946,18 +946,19 @@ struct ChapterReaderView: View {
     @Environment(\.dismiss) private var dismiss
     let bookID: UUID
     let chapter: Int
+    let reference: BookReference?
     let paragraph: Int?
     let opened: () -> Void
     @State private var visible = false
     @State private var launched = false
-    init(bookID: UUID, chapter: Int, paragraph: Int? = nil, opened: @escaping () -> Void) {
-        self.bookID = bookID; self.chapter = chapter; self.paragraph = paragraph; self.opened = opened
+    init(bookID: UUID, chapter: Int, paragraph: Int? = nil, reference: BookReference? = nil, opened: @escaping () -> Void) {
+        self.bookID = bookID; self.chapter = chapter; self.paragraph = paragraph; self.reference = reference; self.opened = opened
     }
     var body: some View {
         AppBackground()
             .onAppear { if !launched { launched = true; visible = true } }
             .fullScreenCover(isPresented: $visible, onDismiss: { dismiss() }) {
-                LocalNovelReader(bookID: bookID, initialChapter: chapter, initialParagraph: paragraph,
+                LocalNovelReader(bookID: bookID, initialChapter: chapter, initialParagraph: paragraph, initialReference: reference,
                                  close: { visible = false }, opened: opened)
                     .environmentObject(store).environmentObject(books)
             }

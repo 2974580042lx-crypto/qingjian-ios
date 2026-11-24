@@ -337,6 +337,7 @@ final class NovelCanvasController: UIViewController, UITextViewDelegate {
     }
 
     func scrollViewDidScroll(_ scrollView: UIScrollView) {
+        guard let style, scrollView === (style.paged ? horizontal : vertical) else { return }
         if scrollView === horizontal { showNearby() }
         reportPosition(force: false)
     }

@@ -71,7 +71,9 @@ enum ZipArchive {
         }
         let body = data.subdata(in: (data.startIndex + start)..<(data.startIndex + end))
         switch entry.method {
-        case 0: return body
+        case 0:
+            guard body.count == entry.size else { throw ChatError.server("EPUB 内文件长度不符。") }
+            return body
         case 8: return try inflate(body, size: entry.size)
         default: throw ChatError.server("EPUB 用了不支持的压缩方式。")
         }
@@ -89,7 +91,7 @@ enum ZipArchive {
                 return compression_decode_buffer(to, size, from, data.count, nil, COMPRESSION_ZLIB)
             }
         }
-        guard written > 0 else { throw ChatError.server("EPUB 里有内容解压失败。") }
+        guard written == size else { throw ChatError.server("EPUB 里有内容解压失败。") }
         return output.prefix(written)
     }
 }
@@ -123,12 +125,17 @@ enum EpubBook {
         var order = matches(#"<(?:\w+:)?itemref\b[^>]*>"#, in: opf).compactMap { attribute("idref", in: $0) }.compactMap { manifest[$0] }
         if order.isEmpty { order = manifest.values.sorted() }
         var pages: [Page] = []
+        var loaded = Set<String>(), expandedBytes = 0
         for href in order {
             let path = base.isEmpty ? href : base + "/" + href
             let resource = path.components(separatedBy: "#")[0]
-            guard let page = file(resource.removingPercentEncoding ?? resource) else {
+            let resolved = normalize(resource.removingPercentEncoding ?? resource)
+            guard loaded.insert(resolved).inserted else { continue }
+            guard let page = file(resolved) else {
                 throw ChatError.server("无法读取 EPUB 中的章节：\(href)")
             }
+            expandedBytes += page.count
+            guard expandedBytes <= 128 * 1024 * 1024 else { throw ChatError.server("EPUB 正文解压后超过 128 MB，请分卷后导入。") }
             let html = text(page)
             let body = plainText(fromHTML: html)
             guard !body.isEmpty else { continue }
@@ -147,7 +154,12 @@ enum EpubBook {
             if let title = page.title, !page.text.hasPrefix(title) { return title + "\n" + page.text }
             return page.text
         }.joined(separator: "\n")
-        let byHeadings = ChapterSplitter.split(joined)
+        var byHeadings = ChapterSplitter.split(joined)
+        if byHeadings.count >= 3, byHeadings[0].title == "开篇", byHeadings[0].text.count < 200 {
+            // Keep cover/front matter without inserting a new numbered chapter in an existing EPUB.
+            let front = byHeadings.removeFirst()
+            byHeadings[0].text = front.text + "\n" + byHeadings[0].text
+        }
         if byHeadings.count >= max(2, pages.count / 2), byHeadings.first?.title.hasPrefix("第 ") != true { return byHeadings }
         var result: [BookChapter] = []
         var carry = ""

@@ -301,7 +301,10 @@ extension StudyMemoryStore {
         let kind: StudySource.Kind = message.content.isEmpty ? .modelInference : .userStatement
         let source = StudySource.from(message: message, scope: scope, kind: kind, quote: quote)
 
+        let signature = ["topic", scope.threadID.uuidString, message.id.uuidString, title, outlineID, phase, level, note, pendingPrompt]
+        let operation = "free/" + StudyCoding.hash(try StudyCoding.encode(signature))
         return try transaction {
+            if let prior = try read(StudyLessonReceipt.self, projectID: scope.projectID, kind: "lesson_operation", id: operation) { return prior }
             let sessions = try lessonSessions(scope.projectID)
             let topics = try rows(projectID: scope.projectID, kind: "topic").map { try StudyCoding.decode(StudyTopic.self, from: $0) }
             var cleanTitle = title.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -383,7 +386,9 @@ extension StudyMemoryStore {
             try write(session, projectID: scope.projectID, kind: "topic_session", id: session.id.uuidString)
             try write(StudyTopicEvent(id: UUID(), action: "study_save_topic", before: old, after: topic, session: session, source: source, date: now),
                       projectID: scope.projectID, kind: "topic_event", id: op)
-            return StudyLessonReceipt(status: "committed", message: "已保存专题进度《\(topic.title)》。", topic: topicView(topic, session), practice: nil)
+            let receipt = StudyLessonReceipt(status: "committed", message: "已保存专题进度《\(topic.title)》。", topic: topicView(topic, session), practice: nil)
+            try write(receipt, projectID: scope.projectID, kind: "lesson_operation", id: operation)
+            return receipt
         }
     }
 
@@ -418,7 +423,10 @@ extension StudyMemoryStore {
         let quote = message.content.isEmpty ? "" : String(message.content.prefix(4000))
         let source = StudySource.from(message: message, scope: scope, kind: resolvedSourceKind, quote: quote)
 
+        let signature = ["practice", scope.threadID.uuidString, message.id.uuidString, recordRef, action, area, kind, question, answer, outcome, weakPoint, sourceKind]
+        let operation = "free/" + StudyCoding.hash(try StudyCoding.encode(signature))
         return try transaction {
+            if let prior = try read(StudyLessonReceipt.self, projectID: scope.projectID, kind: "lesson_operation", id: operation) { return prior }
             let all = try rows(projectID: scope.projectID, kind: "practice").map { try StudyCoding.decode(StudyPractice.self, from: $0) }
             let cleanRef = recordRef.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
             let old: StudyPractice?
@@ -431,7 +439,9 @@ extension StudyMemoryStore {
                 old = nil
             }
 
-            let isDelete = ["delete", "remove", "forget"].contains(action.trimmingCharacters(in: .whitespacesAndNewlines).lowercased())
+            let verb = action.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+            let isDelete = ["delete", "remove", "forget"].contains(verb)
+            guard isDelete || verb.isEmpty || verb == "save" else { throw StudyMemoryError.invalid("练习操作无法识别，请使用 save 或 delete。") }
             let next: StudyPractice
             if isDelete {
                 guard var existing = old else { throw StudyMemoryError.invalid("删除练习记录时请提供 record_id。") }
@@ -442,7 +452,8 @@ extension StudyMemoryStore {
                 next = existing
             } else {
                 let validAreas = scope.subject == .history ? StudyLessonTools.historyAreas : StudyLessonTools.politicsAreas
-                let resolvedArea = validAreas.contains(area) ? area : (old?.area ?? validAreas[0])
+                guard area.isEmpty || validAreas.contains(area) else { throw StudyMemoryError.invalid("练习板块不属于当前科目。") }
+                let resolvedArea = area.isEmpty ? (old?.area ?? validAreas[0]) : area
                 let resolvedKind = StudyPracticeKind(rawValue: kind) ?? old?.kind ?? .oral
                 let trimmedQ = question.trimmingCharacters(in: .whitespacesAndNewlines)
                 let resolvedQuestion = trimmedQ.isEmpty ? (old?.question ?? "题干未完整提供") : trimmedQ
@@ -472,12 +483,14 @@ extension StudyMemoryStore {
             try write(next, projectID: scope.projectID, kind: "practice", id: next.id.uuidString)
             try write(StudyPracticeEvent(id: UUID(), before: old, after: next, source: source, date: now),
                       projectID: scope.projectID, kind: "practice_event", id: op)
-            return StudyLessonReceipt(
+            let receipt = StudyLessonReceipt(
                 status: "committed",
                 message: next.isDeleted ? "已移出有效练习记录。" : (old == nil ? "已保存本次练习记录。" : "已更新原练习记录。"),
                 topic: nil,
                 practice: StudyPracticeView(next)
             )
+            try write(receipt, projectID: scope.projectID, kind: "lesson_operation", id: operation)
+            return receipt
         }
     }
 }

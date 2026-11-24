@@ -51,9 +51,15 @@ struct BookDiscussionIndex: Sendable {
 
     func limited(to session: BookDiscussionSession) -> Self {
         guard let end = session.readThrough else { return self }
+        var low = 0, high = entries.count
+        while low < high {
+            let mid = low + (high - low) / 2
+            if session.permits(chapter: entries[mid].chapter, paragraph: entries[mid].paragraph) { low = mid + 1 }
+            else { high = mid }
+        }
         return Self(bookID: bookID,
                     titles: Array(titles.enumerated().prefix { $0.offset <= end.chapter }.map(\.element)),
-                    entries: Array(entries.prefix { session.permits(chapter: $0.chapter, paragraph: $0.paragraph) }))
+                    entries: Array(entries.prefix(low)))
     }
 
     static func terms(_ queries: [String], names: [String]) -> [String] {

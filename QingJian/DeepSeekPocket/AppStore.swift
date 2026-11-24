@@ -4218,7 +4218,15 @@ final class AppStore: ObservableObject {
         let subscriptionModel = config.subscriptionModel
         let variables = PromptVariables.Context(now: Date(), userName: userName,
             modelName: modelTitle(for: provider))
-        let story = answer.storyState ?? thread.story
+        let story: StorySession?
+        if thread.story != nil, thread.messages.last?.id != messageID {
+            guard let end = thread.messages.firstIndex(where: { $0.id == messageID }),
+                  let historical = thread.messages[...end].last(where: { $0.storyState != nil })?.storyState else {
+                errorMessage = "这条旧回答没有当时的人物状态，无法还原当时的心声。"
+                return
+            }
+            story = historical
+        } else { story = answer.storyState ?? thread.story }
         let prompt: String
         let sourceMessages: [ChatMessage]
         if let story {
@@ -4272,6 +4280,7 @@ final class AppStore: ObservableObject {
                 guard self.thoughtsRequestID == requestID,
                       let ti = self.threads.firstIndex(where: { $0.id == threadID }), !self.isHidden(self.threads[ti]),
                       let mi = self.threads[ti].messages.firstIndex(where: { $0.id == messageID }),
+                      InnerThoughts.sameContext(thread.messages, self.threads[ti].messages, through: messageID),
                       self.threads[ti].messages[mi].content == originalContent,
                       self.threads[ti].messages[mi].state == .complete else { return }
                 let old = self.threads

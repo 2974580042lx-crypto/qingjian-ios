@@ -34,6 +34,11 @@ final class StudyWordTests: XCTestCase {
             source: StudySource(kind: .userStatement, threadID: scope.threadID, messageID: messageID, text: "我记得，是适应", quote: "我记得，是适应", messageDate: now.addingTimeInterval(1)))
     }
 
+    func testNestedDuplicateGradingFieldsAreRejected() {
+        let raw = #"{"items":[{"word":"adapt","rating":"again","rating":"easy"}]}"#
+        XCTAssertThrowsError(try StudyToolAction(ToolCall(id: "test", name: "study_grade_word", arguments: raw)))
+    }
+
     func testRepeatedGradeAndInvalidBatchDoNotChangeCounts() throws {
         let msg = ChatMessage(role: .user, content: "记得 adapt")
         let batch = [(word: "adapt", rating: "good")]

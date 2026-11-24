@@ -171,44 +171,36 @@ enum HighlightMarks {
     }
 
     private static func applyMarkedBold(in attributed: AttributedString) -> AttributedString {
-        var copy = attributed
-        var safety = 0
-        while safety < 128, let pair = findNextSentinelPair(in: copy) {
-            safety += 1
-            let innerRange = pair.open.upperBound ..< pair.close.lowerBound
-            var subRanges: [(Range<AttributedString.Index>, InlinePresentationIntent)] = []
-            for run in copy.runs {
-                let lower = max(run.range.lowerBound, innerRange.lowerBound)
-                let upper = min(run.range.upperBound, innerRange.upperBound)
-                guard lower < upper, run.inlinePresentationIntent?.contains(.code) != true else { continue }
-                var intent = run.inlinePresentationIntent ?? []
-                intent.insert(.stronglyEmphasized)
-                subRanges.append((lower..<upper, intent))
-            }
-            for (range, intent) in subRanges {
-                copy[range].inlinePresentationIntent = intent
-            }
-            copy.removeSubrange(pair.close)
-            copy.removeSubrange(pair.open)
-        }
-        return copy
-    }
-
-    private static func findNextSentinelPair(
-        in attributed: AttributedString
-    ) -> (open: Range<AttributedString.Index>, close: Range<AttributedString.Index>)? {
+        // Copy attributed slices from the original, so removing a delimiter cannot
+        // invalidate a later range. The number of emphasis spans is unbounded.
+        var result = AttributedString()
         let chars = attributed.characters
-        var i = chars.startIndex
-        var openRange: Range<AttributedString.Index>?
-        while i < chars.endIndex {
-            let next = chars.index(after: i)
-            if chars[i] == "\u{E000}" {
-                openRange = i..<next
-            } else if chars[i] == "\u{E001}", let open = openRange, i >= open.upperBound {
-                return (open: open, close: i..<next)
+        var bold = false
+        for run in attributed.runs {
+            var start = run.range.lowerBound
+            var i = start
+            func append(until end: AttributedString.Index) {
+                guard start < end else { return }
+                var piece = AttributedString(attributed[start..<end])
+                if bold, run.inlinePresentationIntent?.contains(.code) != true {
+                    var intent = run.inlinePresentationIntent ?? []
+                    intent.insert(.stronglyEmphasized)
+                    piece.inlinePresentationIntent = intent
+                }
+                result.append(piece)
             }
-            i = next
+            while i < run.range.upperBound {
+                let c = chars[i]
+                let next = chars.index(after: i)
+                if c == "\u{E000}" || c == "\u{E001}" {
+                    append(until: i)
+                    bold = c == "\u{E000}"
+                    start = next
+                }
+                i = next
+            }
+            append(until: run.range.upperBound)
         }
-        return nil
+        return result
     }
 }

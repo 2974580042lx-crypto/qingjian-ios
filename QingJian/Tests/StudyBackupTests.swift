@@ -88,6 +88,16 @@ final class StudyBackupTests: XCTestCase {
     override func tearDownWithError() throws {
         if root.lastPathComponent.hasPrefix("sermo-backup-tests-") { try FileManager.default.removeItem(at: root) }
     }
+    func testCorruptReadingMaterialRejectedBeforeRestoring() throws {
+        let passage = StudyReadingPassage(id: "sample", title: "练习", year: 2020, textNumber: 1,
+            paragraphs: ["One paragraph."], questions: [.init(id: "q", number: 1, stem: "Choose.", options: ["A","B","C","D"], answer: 9,
+            explanation: nil, verification: "verified", source: "测试", sourceURL: nil)], source: "测试", sourceURL: nil, topic: nil)
+        let project = UUID(), payload = try StudyCoding.encode(passage)
+        let archive = StudyMemoryArchive(version: 1, rows: [.init(projectID: project, kind: "reading_passage", id: passage.id, payload: payload)])
+        XCTAssertNil(passage.questions.first?.verifiedAnswer)
+        XCTAssertThrowsError(try StudyBackupCodec.validateArchive(archive, projectIDs: [project]))
+    }
+
     func testCloudDuplicateIDMustAgreeAcrossAllVersions() throws {
         let good = StudyDriveFile(id: "first", name: "备份", appProperties: ["backupID":"same","sha256":"hash"])
         let other = StudyDriveFile(id: "second", name: "备份", appProperties: ["backupID":"same","sha256":"other"])

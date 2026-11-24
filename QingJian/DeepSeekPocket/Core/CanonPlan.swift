@@ -17,6 +17,7 @@ enum CanonPlan {
     private static let markerPattern = #"\s*[〔【\[［(（]\s*本段完\s*[〕】\]］)）]\s*\z"#
 
     static func strip(_ text: String) -> (text: String, finished: Bool) {
+        guard let end = text.last(where: { !$0.isWhitespace }), "〕】]］)）".contains(end) else { return (text, false) }
         var clean = text
         var finished = false
         while let range = clean.range(of: markerPattern, options: .regularExpression) {
@@ -28,6 +29,7 @@ enum CanonPlan {
 
     static func visibleTail(_ text: String, streaming: Bool) -> String {
         let clean = strip(text).text
+        guard let last = clean.last, "〔【[［(（本段完".contains(last) || last.isWhitespace else { return clean }
         let partial = streaming ? #"[〔【\[［(（]\s*(?:本(?:段(?:完)?)?)?\z"# : #"[〔【\[［(（]\s*本(?:段(?:完)?)?\z"#
         guard let range = clean.range(of: partial, options: .regularExpression) else { return clean }
         return String(clean[..<range.lowerBound])

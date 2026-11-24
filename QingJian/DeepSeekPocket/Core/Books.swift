@@ -557,6 +557,16 @@ struct NovelDocument: Equatable {
         }
         return max(0, low - 1)
     }
+    /// BookReference offsets are UTF-16 relative to a trimmed paragraph, not to the chapter.
+    func referenceOffset(_ ref: BookReference) -> Int? {
+        guard ref.chapter == chapter, paragraphs.indices.contains(ref.paragraph), !ref.text.isEmpty else { return nil }
+        let body = paragraphs[ref.paragraph] as NSString
+        let size = (ref.text as NSString).length
+        guard ref.offset >= 0, ref.offset <= body.length, size <= body.length - ref.offset,
+              body.substring(with: NSRange(location: ref.offset, length: size)) == ref.text else { return nil }
+        return starts[ref.paragraph] + ref.offset
+    }
+
     func restoredOffset(bookmark: BookBookmark?, requestedParagraph: Int?) -> Int {
         let saved = bookmark?.chapter == chapter ? bookmark : nil
         let target = requestedParagraph ?? saved?.paragraph ?? 0

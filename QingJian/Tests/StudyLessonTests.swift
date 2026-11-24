@@ -32,6 +32,20 @@ final class StudyLessonTests: XCTestCase {
         try store.performLesson(action("study_record_practice", practiceArgs(message: message, outcome: outcome, source: source,
             area: scope.subject == .history ? "中国古代史" : "马原")), scope: scope, message: message)
     }
+    func testRepeatedPracticeDoesNotDuplicateQuestionOrResetKindWhenEditingWeakPoint() throws {
+        let msg = ChatMessage(role: .user, content: "这道马原选择题我选错了")
+        let call = try action("study_save_practice", ["kind":"single_choice","area":"马原","question":"模拟题","answer":"B","outcome":"wrong"])
+        let executor = StudyToolExecutor(store: store, scope: politics, documents: [])
+        let first = try StudyCoding.decode(StudyLessonReceipt.self, from: Data(executor.perform(call, sourceMessage: msg).utf8))
+        _ = try executor.perform(call, sourceMessage: msg)
+        let ref = try XCTUnwrap(first.practice?.record_id)
+        let change = try action("study_save_practice", ["record_id":ref,"weak_point":"概念混淆"])
+        let updated = try StudyCoding.decode(StudyLessonReceipt.self, from: Data(executor.perform(change, sourceMessage: .init(role: .user, content: "补充薄弱点")).utf8))
+        XCTAssertEqual(updated.practice?.kind, .singleChoice)
+        XCTAssertEqual(updated.practice?.outcome, .wrong)
+        XCTAssertEqual(try store.reviewInput(projectID: politics.projectID).practices.count, 1)
+    }
+
     func testUnknownOutlineAndPhaseNeverStartATopic() throws {
         func save(_ ref: String, _ phase: String) throws {
             _ = try store.saveTopicFree(scope: history, title: "陌生考点", outlineID: ref, phase: phase, level: "", note: "", pendingPrompt: "", message: .init(role: .user, content: "开始"))
