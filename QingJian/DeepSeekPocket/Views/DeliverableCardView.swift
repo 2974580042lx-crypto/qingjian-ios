@@ -116,6 +116,7 @@ struct DeliverableFileRowList: View {
 /// "继续在对话中修改" handoff sheet for any Sermo-created deliverable.
 @MainActor
 struct DeliverableDetailSheet: View {
+    @StateObject private var systemPickers = DocumentPicker()
     @EnvironmentObject private var store: AppStore
     @Environment(\.dismiss) private var dismiss
 
@@ -159,7 +160,9 @@ struct DeliverableDetailSheet: View {
         }
     }
 
-    var body: some View {
+    var body: some View { pickerContent.systemPickerHost(systemPickers) }
+
+    @ViewBuilder private var pickerContent: some View {
         NavigationStack {
             VStack(spacing: 0) {
                 headerMetaStrip
@@ -411,7 +414,7 @@ struct DeliverableDetailSheet: View {
             statusBanner = "找不到该成果文件，可能已被清理。"
             return
         }
-        DocumentPicker.presentExport(
+        systemPickers.presentExport(
             url,
             onError: { msg in statusBanner = msg },
             onSaved: { _ in

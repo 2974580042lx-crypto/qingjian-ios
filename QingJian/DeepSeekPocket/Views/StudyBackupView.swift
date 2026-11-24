@@ -2,10 +2,13 @@ import SwiftUI
 import UniformTypeIdentifiers
 
 struct StudyCloudBackupSection: View {
+    @StateObject private var systemPickers = DocumentPicker()
     @EnvironmentObject private var store: AppStore
     @ObservedObject var cloud: StudyBackupController
     @State private var keepLocal = false
-    var body: some View {
+    var body: some View { pickerContent.systemPickerHost(systemPickers) }
+
+    @ViewBuilder private var pickerContent: some View {
         Section {
             Toggle("自动备份学习项目到 Drive", isOn: Binding(get: { cloud.state.enabled }, set: cloud.setEnabled)).tint(Ink.seal)
             LabeledContent("Google账号", value: store.drive.accountLabel)
@@ -48,7 +51,7 @@ struct StudyCloudBackupSection: View {
                 }
             }
             Button("从本地学习备份恢复") {
-                DocumentPicker.present([.json, .data], asCopy: true, onError: { cloud.issue = $0 }) { url in
+                systemPickers.present([.json, .data], asCopy: true, onError: { cloud.issue = $0 }) { url in
                     cloud.prepareLocalRestore(url)
                 }
             }.disabled(cloud.busy || !store.canRestoreStudyBackup)

@@ -4,6 +4,7 @@ import UIKit
 
 @MainActor
 struct SettingsView: View {
+    @StateObject private var systemPickers = DocumentPicker()
     var embedded = false
     @EnvironmentObject private var store: AppStore
     @EnvironmentObject private var profile: ProfileStore
@@ -24,7 +25,9 @@ struct SettingsView: View {
     @State private var loadedSettings = false
     @State private var showProfile = ProcessInfo.processInfo.arguments.contains("--preview-profile")
     @State private var showAbout = false
-    var body: some View {
+    var body: some View { pickerContent.systemPickerHost(systemPickers) }
+
+    @ViewBuilder private var pickerContent: some View {
         NavigationStack {
             Form {
                 Section {
@@ -438,7 +441,7 @@ struct SettingsView: View {
                         .disabled(store.isGenerating || !store.canPersist || store.unifiedBackupBusy)
                         Button {
                             let types = [UTType(filenameExtension: "sermobackup"), .json, .data].compactMap { $0 }
-                            DocumentPicker.present(types, asCopy: true, onError: { store.errorMessage = $0 }) { url in
+                            systemPickers.present(types, asCopy: true, onError: { store.errorMessage = $0 }) { url in
                                 store.prepareBackupRestore(url, removeWhenDone: true)
                             }
                         } label: {

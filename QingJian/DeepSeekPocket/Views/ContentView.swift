@@ -190,13 +190,7 @@ private struct ConversationPanelTarget: Identifiable {
     var id: UUID { threadID }
 }
 
-private struct ChatPhotoRequest: Identifiable {
-    let id = UUID()
-    let threadID: UUID
-    let limit: Int
-}
-
-private struct ChatPhotoLibrarySheet: UIViewControllerRepresentable {
+struct ChatPhotoLibrarySheet: UIViewControllerRepresentable {
     let limit: Int
     let selected: ([PHPickerResult]) -> Void
 
@@ -219,27 +213,6 @@ private struct ChatPhotoLibrarySheet: UIViewControllerRepresentable {
 
 @MainActor
 enum ChatPhotoPicker {
-    private static var current: Coordinator?
-
-    @discardableResult
-    static func present(limit: Int, window: UIWindow? = nil, onError: @escaping (String) -> Void,
-                        picked: @escaping ([PHPickerResult]) -> Void) -> Bool {
-        // A picker that never appeared (or vanished unannounced) must not block the next tap.
-        if let open = current, !SystemPickerPresentation.isWaiting(open.picker), open.picker?.presentingViewController == nil { current = nil }
-        guard current == nil else { onError("相册已打开，请先完成当前选择。"); return false }
-        let picker = makePicker(limit: limit)
-        let coordinator = Coordinator(picked: picked)
-        coordinator.picker = picker
-        picker.delegate = coordinator
-        picker.modalPresentationStyle = .pageSheet
-        picker.presentationController?.delegate = coordinator
-        current = coordinator
-        return SystemPickerPresentation.open(picker, window: window, onError: { issue in
-            if current === coordinator { current = nil }
-            onError(issue)
-        }) { picker.presentationController?.delegate = coordinator }
-    }
-
     static func makePicker(limit: Int) -> PHPickerViewController {
         var config = PHPickerConfiguration(photoLibrary: .shared())
         config.filter = .images
@@ -269,31 +242,7 @@ enum ChatPhotoPicker {
         }
     }
 
-    @MainActor private final class Coordinator: NSObject, PHPickerViewControllerDelegate, UIAdaptivePresentationControllerDelegate {
-        let picked: ([PHPickerResult]) -> Void
-        weak var picker: PHPickerViewController?
-        private var finished = false
-        init(picked: @escaping ([PHPickerResult]) -> Void) { self.picked = picked }
-        func picker(_ picker: PHPickerViewController, didFinishPicking results: [PHPickerResult]) {
-            guard !finished else { return }
-            finished = true
-            var delivered = false
-            let deliver = {
-                guard !delivered else { return }
-                delivered = true
-                if ChatPhotoPicker.current === self { ChatPhotoPicker.current = nil }
-                self.picked(results)
-            }
-            picker.dismiss(animated: true, completion: deliver)
-            DispatchQueue.main.asyncAfter(deadline: .now() + 0.6, execute: deliver)
-        }
-        func presentationControllerDidDismiss(_ presentationController: UIPresentationController) {
-            guard !finished else { return }
-            finished = true
-            if ChatPhotoPicker.current === self { ChatPhotoPicker.current = nil }
-            picked([])
-        }
-    }
+
 }
 
 @MainActor @Observable
@@ -380,7 +329,7 @@ struct ChatScreen: View {
     @State private var timeReveal = SwipeTimeRevealModel()
     @State private var cachedContext: ContextUsageSnapshot?
     @State private var choosingFiles = false
-    @State private var photoRequest: ChatPhotoRequest?
+    @State private var choosingPhotos = false
     @State private var fileImportTask: Task<Void, Never>?
     @State private var fileImportThreadID: UUID?
     @State private var fileImportProgress = ""
@@ -394,14 +343,14 @@ struct ChatScreen: View {
     @State private var attachmentReport: String?
     @State private var showAddToChatSheet = false
     @State private var afterAttachmentDismissal: (() -> Void)?
-    @State private var pickerAnchor = PickerWindowAnchor()
+    @StateObject private var systemPickers = DocumentPicker()
     @State private var reportDetails: String?
     @State private var agentTimelineTarget: AgentTimelineTarget?
     @State private var showWorkspaceSheet = false
     @State private var selectedDeliverable: ProjectDeliverable?
     @State private var showVoiceDictationSheet = false
     private var loadingPhotos: Bool { photoLoadThreadID == store.activeThreadID && photoLoadThreadID != nil }
-    private var attachmentBusy: Bool { choosingFiles || photoRequest != nil || fileImportThreadID != nil || photoLoadThreadID != nil }
+    private var attachmentBusy: Bool { choosingFiles || choosingPhotos || fileImportThreadID != nil || photoLoadThreadID != nil }
     private var pendingImages: [PendingImage] {
         get {
             guard let thread = store.activeThread, !store.isHidden(thread) else { return [] }
@@ -815,18 +764,7 @@ struct ChatScreen: View {
         }
     }
 
-    var body: some View {
-        chatWithAlerts
-            .background(PickerWindowReader(anchor: pickerAnchor))
-            .sheet(item: $photoRequest) { request in
-                ChatPhotoLibrarySheet(limit: request.limit) { results in
-                    guard photoRequest?.id == request.id else { return }
-                    photoRequest = nil
-                    acceptPhotos(results, into: request.threadID)
-                }
-                .ignoresSafeArea()
-            }
-    }
+    var body: some View { chatWithAlerts.systemPickerHost(systemPickers) }
 
     // Separate opaque view expressions keep type checking bounded. State remains
     // on ChatScreen, and the transcript preference stays inside its hosting tree.
@@ -1587,7 +1525,14 @@ struct ChatScreen: View {
         let remaining = 4 - (imagesByThread[origin]?.count ?? 0)
         guard remaining > 0 else { attachmentReport = "一次最多添加 4 张图片。"; return }
         focusComposer(false)
-        photoRequest = ChatPhotoRequest(threadID: origin, limit: remaining)
+        choosingPhotos = true
+        systemPickers.photos(limit: remaining, onError: { issue in
+            choosingPhotos = false
+            attachmentReport = issue
+        }) { results in
+            choosingPhotos = false
+            acceptPhotos(results, into: origin)
+        }
     }
 
     private func acceptPhotos(_ results: [PHPickerResult], into origin: UUID) {
@@ -1649,7 +1594,7 @@ struct ChatScreen: View {
         let origin = thread.id
         focusComposer(false)
         choosingFiles = true
-        let shown = DocumentPicker.presentMany(DocumentTextImporter.allowedContentTypes, asCopy: true, window: pickerAnchor.window,
+        let shown = systemPickers.presentMany(DocumentTextImporter.allowedContentTypes, asCopy: true,
             onCancel: { choosingFiles = false },
             onError: { issue in choosingFiles = false; attachmentReport = issue }) { urls in
                 choosingFiles = false
@@ -1755,7 +1700,7 @@ struct ChatScreen: View {
             return
         }
         focusComposer(false)
-        _ = ChatCameraPicker.present(window: pickerAnchor.window, onError: { issue in
+        systemPickers.camera(onError: { issue in
             attachmentReport = issue
         }) { captured in
             prepareCapturedImage(captured, origin: origin)

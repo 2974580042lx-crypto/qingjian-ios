@@ -7,6 +7,7 @@ import UIKit
 /// 3. 记忆与指令 (Project long-term memory + instructions, completely separate from raw source docs & outputs)
 @MainActor
 struct ProjectWorkspaceSheet: View {
+    @StateObject private var systemPickers = DocumentPicker()
     @EnvironmentObject private var store: AppStore
     @Environment(\.dismiss) private var dismiss
 
@@ -66,7 +67,9 @@ struct ProjectWorkspaceSheet: View {
         return store.libraryDocuments(for: projectID)
     }
 
-    var body: some View {
+    var body: some View { pickerContent.systemPickerHost(systemPickers) }
+
+    @ViewBuilder private var pickerContent: some View {
         NavigationStack {
             VStack(spacing: 0) {
                 if project != nil {
@@ -460,7 +463,7 @@ struct ProjectWorkspaceSheet: View {
     private func chooseLibraryFiles(projectID: UUID) {
         guard !importing else { return }
         importNotice = nil
-        DocumentPicker.presentMany(
+        systemPickers.presentMany(
             DocumentTextImporter.allowedContentTypes,
             asCopy: true,
             onError: { msg in importNotice = msg }

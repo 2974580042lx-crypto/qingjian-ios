@@ -33,9 +33,12 @@ struct GoogleDriveSection: View {
 // Daily backup into the app's own folder, plus an optional extra copy in a picked folder.
 @MainActor
 struct AutoBackupSection: View {
+    @StateObject private var systemPickers = DocumentPicker()
     @EnvironmentObject private var store: AppStore
     @State private var exportingToFolder = false
-    var body: some View {
+    var body: some View { pickerContent.systemPickerHost(systemPickers) }
+
+    @ViewBuilder private var pickerContent: some View {
         Section {
             LabeledContent("备份到", value: BackupFolder.localLocation)
             LabeledContent("上次备份", value: store.lastAutoBackup.map {
@@ -68,7 +71,7 @@ struct AutoBackupSection: View {
         }
     }
     private func chooseFolder() {
-        DocumentPicker.presentFolder(onError: { store.errorMessage = $0 }) { url in store.setBackupFolder(url) }
+        systemPickers.presentFolder(onError: { store.errorMessage = $0 }) { url in store.setBackupFolder(url) }
     }
     private func exportBackupToFolder() {
         guard !exportingToFolder else { return }
@@ -82,7 +85,7 @@ struct AutoBackupSection: View {
                     try? FileManager.default.removeItem(at: url)
                 }
             }
-            DocumentPicker.presentExport(
+            systemPickers.presentExport(
                 url,
                 onCancel: cleanupTemp,
                 onError: { err in cleanupTemp(); store.errorMessage = err },
@@ -313,11 +316,14 @@ struct GitHubSection: View {
 // Font for the whole app: built-in serif, system PingFang, or an imported .ttf/.otf.
 @MainActor
 struct FontSettingsRows: View {
+    @StateObject private var systemPickers = DocumentPicker()
     @EnvironmentObject private var store: AppStore
     @AppStorage(FontLibrary.choiceKey) private var choice = ""
     @AppStorage(FontLibrary.revisionKey) private var revision = 0
     private var current: FontChoice { _ = (choice, revision); return FontLibrary.choice }
-    var body: some View {
+    var body: some View { pickerContent.systemPickerHost(systemPickers) }
+
+    @ViewBuilder private var pickerContent: some View {
         Picker("字体", selection: Binding(get: { current }, set: { value in
             if value == .custom && FontLibrary.regularName == nil { importFont(bold: false); return }
             choice = value.rawValue
@@ -342,7 +348,7 @@ struct FontSettingsRows: View {
         let types = [UTType.font] + ["ttf", "otf"].compactMap { UTType(filenameExtension: $0) }
         // Tick a font, then 「打开」: a single tap on a font file previews it instead of picking it.
         // The picker hands over a private copy, removed once it has been read.
-        DocumentPicker.presentMany(types, asCopy: true, onError: { store.errorMessage = $0 }) { urls in
+        systemPickers.presentMany(types, asCopy: true, onError: { store.errorMessage = $0 }) { urls in
             guard let url = urls.first else { return }
             defer { for copy in urls { try? FileManager.default.removeItem(at: copy) } }
             do {

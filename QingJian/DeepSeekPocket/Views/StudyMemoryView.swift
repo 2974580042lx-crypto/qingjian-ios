@@ -2,6 +2,7 @@ import SwiftUI
 import UniformTypeIdentifiers
 
 struct StudyMemoryView: View {
+    @StateObject private var systemPickers = DocumentPicker()
     @EnvironmentObject private var store: AppStore
     let projectID: UUID
     @State private var records: [StudyMemoryRecord] = []
@@ -31,7 +32,9 @@ struct StudyMemoryView: View {
     private struct EditTarget: Identifiable { let id = UUID(); let record: StudyMemoryRecord?; let category: String }
     private var subject: StudySubject? { store.project(projectID)?.studySubject }
 
-    var body: some View {
+    var body: some View { pickerContent.systemPickerHost(systemPickers) }
+
+    @ViewBuilder private var pickerContent: some View {
         Form {
             Group {
             if let subject, !store.isLocked(projectID) {
@@ -254,7 +257,7 @@ struct StudyMemoryView: View {
         .sheet(item: $historyPreview) { target in StudyHistoryImportPreview(projectID: projectID, pack: target.pack).environmentObject(store) }
     }
     private func pickHistoryPack() {
-        DocumentPicker.present([.json], asCopy: true, onError: { store.studyIssue = $0 }) { url in
+        systemPickers.present([.json], asCopy: true, onError: { store.studyIssue = $0 }) { url in
             importingHistoryBusy = true
             Task { @MainActor in
                 defer { try? FileManager.default.removeItem(at: url); importingHistoryBusy = false }
@@ -264,7 +267,7 @@ struct StudyMemoryView: View {
         }
     }
     private func pickTemporaryMap() {
-        DocumentPicker.present([.json], asCopy: true, onError: { store.studyIssue = $0 }) { url in
+        systemPickers.present([.json], asCopy: true, onError: { store.studyIssue = $0 }) { url in
             importingMapBusy = true
             Task { @MainActor in
                 defer { try? FileManager.default.removeItem(at: url); importingMapBusy = false }
@@ -274,7 +277,7 @@ struct StudyMemoryView: View {
         }
     }
     private func pickVocabulary() {
-        DocumentPicker.present([.json], asCopy: true, onError: { store.studyIssue = $0 }) { url in
+        systemPickers.present([.json], asCopy: true, onError: { store.studyIssue = $0 }) { url in
             importingWordsBusy = true
             Task { @MainActor in
                 defer { try? FileManager.default.removeItem(at: url); importingWordsBusy = false }
@@ -284,7 +287,7 @@ struct StudyMemoryView: View {
         }
     }
     private func pickReadings() {
-        DocumentPicker.present([.json], asCopy: true, onError: { store.studyIssue = $0 }) { url in
+        systemPickers.present([.json], asCopy: true, onError: { store.studyIssue = $0 }) { url in
             importingReadingsBusy = true
             Task { @MainActor in
                 defer { try? FileManager.default.removeItem(at: url); importingReadingsBusy = false }

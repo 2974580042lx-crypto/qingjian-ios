@@ -531,6 +531,7 @@ struct ProjectMemoryView: View {
 // The project's documents: each sent with every request while switched on.
 @MainActor
 struct ProjectFilesView: View {
+    @StateObject private var systemPickers = DocumentPicker()
     @EnvironmentObject private var store: AppStore
     let projectID: UUID
     @State private var importing = false
@@ -561,7 +562,9 @@ struct ProjectFilesView: View {
         project == nil || !store.canPersist || (project?.documents.count ?? 0) >= 50 || importing || choosingFiles
     }
 
-    var body: some View {
+    var body: some View { pickerContent.systemPickerHost(systemPickers) }
+
+    @ViewBuilder private var pickerContent: some View {
         Form {
             Group {
             if project == nil {
@@ -734,7 +737,7 @@ struct ProjectFilesView: View {
     private func chooseLibraryFiles() {
         guard !importingLibrary, project != nil, store.canPersist else { return }
         libraryReport = nil
-        DocumentPicker.presentMany(
+        systemPickers.presentMany(
             DocumentTextImporter.allowedContentTypes,
             asCopy: true,
             onError: { msg in libraryReport = msg }
@@ -773,7 +776,7 @@ struct ProjectFilesView: View {
     private func chooseFiles() {
         guard !cannotAdd else { return }
         importReport = nil; choosingFiles = true
-        let opened = DocumentPicker.presentMany(DocumentTextImporter.allowedContentTypes, asCopy: true,
+        let opened = systemPickers.presentMany(DocumentTextImporter.allowedContentTypes, asCopy: true,
             onCancel: { choosingFiles = false; importReport = "已取消选择文件。" },
             onError: { message in choosingFiles = false; importReport = message }) { urls in
                 choosingFiles = false

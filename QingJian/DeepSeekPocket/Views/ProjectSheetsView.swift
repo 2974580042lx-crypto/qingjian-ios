@@ -6,6 +6,7 @@ import UIKit
 /// bottom "添加文件" capsule that adds real files straight into the project's library.
 @MainActor
 struct ProjectFilesSheet: View {
+    @StateObject private var systemPickers = DocumentPicker()
     @EnvironmentObject private var store: AppStore
     @Environment(\.dismiss) private var dismiss
 
@@ -40,7 +41,9 @@ struct ProjectFilesSheet: View {
         searchText.trimmingCharacters(in: .whitespacesAndNewlines)
     }
 
-    var body: some View {
+    var body: some View { pickerContent.systemPickerHost(systemPickers) }
+
+    @ViewBuilder private var pickerContent: some View {
         NavigationStack {
             VStack(spacing: 0) {
                 if project == nil {
@@ -404,7 +407,7 @@ struct ProjectFilesSheet: View {
     private func chooseFiles(intoLibrary: Bool?) {
         guard !importing, project != nil, store.canPersist else { return }
         importNotice = nil
-        DocumentPicker.presentMany(
+        systemPickers.presentMany(
             DocumentTextImporter.allowedContentTypes,
             asCopy: true,
             onError: { msg in importNotice = msg }

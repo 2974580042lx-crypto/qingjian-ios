@@ -17,6 +17,7 @@ private extension View {
 // The bookshelf: import a novel as TXT, let it be read once, then talk with its people.
 @MainActor
 struct BookshelfView: View {
+    @StateObject private var systemPickers = DocumentPicker()
     @EnvironmentObject private var store: AppStore
     @EnvironmentObject private var books: BookStore
     @Environment(\.dismiss) private var dismiss
@@ -59,7 +60,9 @@ struct BookshelfView: View {
         }
     }
 
-    var body: some View {
+    var body: some View { pickerContent.systemPickerHost(systemPickers) }
+
+    @ViewBuilder private var pickerContent: some View {
         NavigationStack(path: $path) {
             List {
                 emptyShelf
@@ -95,7 +98,7 @@ struct BookshelfView: View {
                             Task { shelfExport = await store.exportShelfArchive() }
                         }
                         Button("恢复书架备份", systemImage: "square.and.arrow.down") {
-                            DocumentPicker.present([.json], asCopy: true, onError: { store.errorMessage = $0 }) { url in
+                            systemPickers.present([.json], asCopy: true, onError: { store.errorMessage = $0 }) { url in
                                 Task {
                                     defer { try? FileManager.default.removeItem(at: url) }
                                     await store.importShelfArchive(url)
@@ -228,7 +231,7 @@ struct BookshelfView: View {
     // SwiftUI's .fileImporter does not open from this sheet while the chat page
     // underneath has one of its own, so the system picker is presented directly.
     private func pickBook() {
-        DocumentPicker.presentMany([.plainText, .text, UTType(filenameExtension: "txt") ?? .plainText, .epub], asCopy: true, onError: { books.errorMessage = $0 }) { urls in
+        systemPickers.presentMany([.plainText, .text, UTType(filenameExtension: "txt") ?? .plainText, .epub], asCopy: true, onError: { books.errorMessage = $0 }) { urls in
             Task {
                 var imported: [UUID] = []
                 for url in urls {
@@ -259,6 +262,7 @@ enum BookStatusText {
 
 @MainActor
 struct BookDetailView: View {
+    @StateObject private var systemPickers = DocumentPicker()
     @EnvironmentObject private var store: AppStore
     @EnvironmentObject private var books: BookStore
     @Environment(\.dismiss) private var dismiss
@@ -272,14 +276,16 @@ struct BookDetailView: View {
     private var book: Book? { books.book(bookID) }
     private var isReading: Bool { books.readingBookID == bookID }
 
-    var body: some View {
+    var body: some View { pickerContent.systemPickerHost(systemPickers) }
+
+    @ViewBuilder private var pickerContent: some View {
         Form {
             if let book {
                 Section {
                     VStack(spacing: 14) {
                         ShelfCover(book: book).frame(width: 144, height: 216)
                             .shadow(color: .black.opacity(0.3), radius: 16, y: 10)
-                        BookCoverMenu(book: book)
+                        BookCoverMenu(systemPickers: systemPickers, book: book)
                         if books.designingCovers.contains(bookID) {
                             HStack { ProgressView(); Text("正在设计封面…") }.font(TypeScale.label)
                         } else if let note = book.coverNote {
@@ -1203,6 +1209,7 @@ struct InnerThoughtsSheet: View {
 /// the moon over them. Tap a spine to lift it; the panel underneath shows that book.
 @MainActor
 struct NightShelf: View {
+    @StateObject private var systemPickers = DocumentPicker()
     let books: [Book]
     let readingID: UUID?
     @Binding var picked: UUID?
@@ -1210,7 +1217,9 @@ struct NightShelf: View {
 
     private var selected: Book? { books.first { $0.id == picked } ?? books.first }
 
-    var body: some View {
+    var body: some View { pickerContent.systemPickerHost(systemPickers) }
+
+    @ViewBuilder private var pickerContent: some View {
         VStack(alignment: .leading, spacing: 0) {
             HStack(alignment: .top) {
                 Text("\(books.count) 册 · 点一本书脊").font(TypeScale.serif(13)).foregroundStyle(Ink.ink3)
@@ -1258,7 +1267,7 @@ struct NightShelf: View {
                 Button { withAnimation(.snappy(duration: 0.25)) { picked = book.id } } label: {
                     Spine(book: book)
                 }
-                .contextMenu { BookCoverActions(book: book) }
+                .contextMenu { BookCoverActions(systemPickers: systemPickers, book: book) }
                 .buttonStyle(.plain)
                 .offset(y: lifted ? -12 : 0)
                 .disabled(reflection)
@@ -1275,7 +1284,7 @@ struct NightShelf: View {
                     .shadow(color: .black.opacity(0.3), radius: 12, y: 8)
                 VStack(alignment: .leading, spacing: 8) {
                     Text(book.title).font(TypeScale.heavy(24, relativeTo: .title)).foregroundStyle(Ink.ink).lineLimit(3)
-                    BookCoverMenu(book: book)
+                    BookCoverMenu(systemPickers: systemPickers, book: book)
                 }
             }.padding(.bottom, 18)
             Text(BookStatusText.short(book, reading: readingID == book.id))
@@ -1391,10 +1400,11 @@ private struct ShelfAtmosphere: View {
 
 @MainActor
 private struct BookCoverMenu: View {
+    let systemPickers: DocumentPicker
     @EnvironmentObject private var books: BookStore
     let book: Book
     var body: some View {
-        Menu { BookCoverActions(book: book) } label: {
+        Menu { BookCoverActions(systemPickers: systemPickers, book: book) } label: {
             Label(books.designingCovers.contains(book.id) ? "设计中…" : "换封面", systemImage: "paintbrush.pointed")
                 .font(TypeScale.label).foregroundStyle(Ink.seal)
         }.accessibilityLabel("更换《\(book.title)》的封面")
@@ -1403,6 +1413,7 @@ private struct BookCoverMenu: View {
 
 @MainActor
 private struct BookCoverActions: View {
+    let systemPickers: DocumentPicker
     @EnvironmentObject private var books: BookStore
     let book: Book
     var body: some View {
@@ -1410,7 +1421,7 @@ private struct BookCoverActions: View {
             .disabled(books.designingCovers.contains(book.id))
         Button("换一张本地花纹", systemImage: "shuffle") { books.localCover(book.id) }
         Button("从相册选择封面", systemImage: "photo") {
-            ChatPhotoPicker.present(limit: 1, onError: { books.errorMessage = $0 }) { results in
+            systemPickers.photos(limit: 1, onError: { books.errorMessage = $0 }) { results in
                 guard let result = results.first else { return }
                 Task {
                     do { try await install(ChatPhotoPicker.loadData(result.itemProvider)) }
@@ -1419,7 +1430,7 @@ private struct BookCoverActions: View {
             }
         }
         Button("从文件选择封面", systemImage: "folder") {
-            DocumentPicker.present([.image], asCopy: true, onError: { books.errorMessage = $0 }) { url in
+            systemPickers.present([.image], asCopy: true, onError: { books.errorMessage = $0 }) { url in
                 Task {
                     do {
                         let data = try await Task.detached(priority: .userInitiated) {

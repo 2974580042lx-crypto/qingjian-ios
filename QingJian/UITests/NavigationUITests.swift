@@ -19,6 +19,7 @@ final class NavigationUITests: XCTestCase {
             let dismissed = XCTNSPredicateExpectation(predicate: NSPredicate(format: "exists == false"), object: cancel)
             XCTAssertEqual(XCTWaiter.wait(for: [dismissed], timeout: 8), .completed, app.debugDescription)
             XCTAssertTrue(add.waitForExistence(timeout: 8))
+            if id == "chat-add-document" { app.buttons["新建对话"].firstMatch.tap() }
         }
     }
 
