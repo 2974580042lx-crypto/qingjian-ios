@@ -44,16 +44,22 @@ struct LocalNovelReader: View {
     @State private var returnPoint: ReaderReturnPoint?
     @State private var searchQuery = ""
     private var book: Book? { books.book(bookID) }
-    private var chapters: [BookChapter] { books.chapters(of: bookID) }
-    private var document: NovelDocument {
-        NovelDocument(chapter: chapter, text: chapters.indices.contains(chapter) ? chapters[chapter].text : "")
-    }
-    private var totalCharacters: Double { Double(max(1, chapters.reduce(0) { $0 + ($1.text as NSString).length })) }
+    @State private var chapters: [BookChapter] = []
+    @State private var document = NovelDocument(chapter: 0, text: "")
+    @State private var chapterEnds: [Int] = []
+    @State private var positionProbe = ReaderPositionProbe()
+    @State private var loadIssue: String?
+    private var totalCharacters: Double { Double(max(1, chapterEnds.last ?? 0)) }
     private var progress: Double {
-        let before = chapters.prefix(chapter).reduce(0) { $0 + ($1.text as NSString).length }
+        guard chapterEnds.indices.contains(chapter) else { return 0 }
+        let before = chapter == 0 ? 0 : chapterEnds[chapter - 1]
         let local = Double(currentOffset) / Double(max(1, document.length))
-        let length = chapters.indices.contains(chapter) ? (chapters[chapter].text as NSString).length : 0
-        return min(1, (Double(before) + local * Double(length)) / totalCharacters)
+        return min(1, (Double(before) + local * Double(chapterEnds[chapter] - before)) / totalCharacters)
+    }
+    private func configureVolume() {
+        let enabled = ReaderVolumePolicy.listens(enabled: volumeEnabled, active: prepared && scenePhase == .active,
+                                                 panel: sheet != nil || playScene != nil || passage != nil)
+        volumeKeys.configure(enabled: enabled, reverse: volumeReverse)
     }
     private var appearance: ReaderAppearance {
         ReaderAppearance.resolve(palette, dark: colorScheme == .dark, swiss: InterfaceStyle.isSwiss, night: InterfaceStyle.isNight)
@@ -95,7 +101,7 @@ struct LocalNovelReader: View {
                         guard document.paragraphs.indices.contains(index) else { return }
                         chrome = false; passageIssue = nil
                         withAnimation(.easeOut(duration: 0.2)) { passage = ReaderPassage(paragraph: index, text: document.paragraphs[index]) }
-                    }, pageCommand: volumeKeys.command)
+                    }, position: positionProbe, pageCommand: volumeKeys.command)
                 HStack {
                     if mode == "pages" { Text("本章 \(page) / \(pageCount)") }
                     else { Text(book?.chapterLabel(chapter) ?? "").lineLimit(1) }
@@ -137,18 +143,23 @@ struct LocalNovelReader: View {
         .environment(\.readerAppearance, appearance)
         .statusBarHidden(true)
         .preferredColorScheme(palette == "follow" ? (InterfaceStyle.isNight ? .dark : nil) : (appearance.isDark ? .dark : .light))
-        .onAppear {
-            guard !prepared else { return }
-            prepared = true; originalBrightness = UIScreen.main.brightness
-            chapter = min(max(0, initialChapter), max(0, chapters.count - 1))
-            let mark = book?.bookmark
-            let doc = NovelDocument(chapter: chapter, text: chapters.indices.contains(chapter) ? chapters[chapter].text : "")
-            let paragraph = initialParagraph ?? 0
-            let offset = mark?.chapter == chapter && mark?.paragraph == paragraph ? mark?.characterOffset : nil
-            currentOffset = offset ?? (doc.starts.indices.contains(paragraph) ? doc.starts[paragraph] : 0)
-            jump = ReaderJump(offset: currentOffset)
-            ReaderAppDelegate.setReaderOrientation(orientation)
-            volumeKeys.configure(enabled: volumeEnabled, reverse: volumeReverse)
+        .inlineFeedback(loadIssue) { loadIssue = nil }
+        .task(id: bookID) {
+            guard !prepared else { configureVolume(); return }
+            do {
+                let loaded = try await books.readerChapters(bookID)
+                try Task.checkCancellation()
+                chapters = loaded
+                var total = 0
+                chapterEnds = loaded.map { total += ($0.text as NSString).length; return total }
+                chapter = min(max(0, initialChapter), loaded.count - 1)
+                document = NovelDocument(chapter: chapter, text: loaded[chapter].text)
+                currentOffset = document.restoredOffset(bookmark: book?.bookmark, requestedParagraph: initialParagraph)
+                jump = ReaderJump(offset: currentOffset)
+                prepared = true; originalBrightness = UIScreen.main.brightness
+                ReaderAppDelegate.setReaderOrientation(orientation)
+                configureVolume()
+            } catch { if !Task.isCancelled { loadIssue = "无法打开原书：\(error.localizedDescription)" } }
         }
         .onDisappear {
             saveTask?.cancel(); savePosition()
@@ -159,13 +170,13 @@ struct LocalNovelReader: View {
         .onChange(of: orientation) { _, value in ReaderAppDelegate.setReaderOrientation(value) }
         .onChange(of: scenePhase) { _, value in
             if value != .active { saveTask?.cancel(); savePosition(); volumeKeys.stop() }
-            else { volumeKeys.configure(enabled: volumeEnabled, reverse: volumeReverse) }
+            else { configureVolume() }
         }
-        .onChange(of: volumeEnabled) { _, value in volumeKeys.configure(enabled: value, reverse: volumeReverse) }
-        .onChange(of: volumeReverse) { _, value in volumeKeys.configure(enabled: volumeEnabled, reverse: value) }
-        .onChange(of: sheet?.rawValue) { _, _ in volumeKeys.suspended = sheet != nil || playScene != nil || passage != nil }
-        .onChange(of: playScene?.id) { _, _ in volumeKeys.suspended = sheet != nil || playScene != nil || passage != nil }
-        .onChange(of: passage?.id) { _, _ in volumeKeys.suspended = sheet != nil || playScene != nil || passage != nil }
+        .onChange(of: volumeEnabled) { _, _ in configureVolume() }
+        .onChange(of: volumeReverse) { _, _ in configureVolume() }
+        .onChange(of: sheet?.rawValue) { _, _ in configureVolume() }
+        .onChange(of: playScene?.id) { _, _ in configureVolume() }
+        .onChange(of: passage?.id) { _, _ in configureVolume() }
         .sheet(item: $sheet) { panel in
             Group {
                 switch panel {
@@ -271,7 +282,7 @@ struct LocalNovelReader: View {
         withAnimation(.easeOut(duration: 0.18)) { passage = nil }
     }
     private func discuss(_ selected: ReaderPassage) {
-        guard store.startBookDiscussion(bookID) else {
+        guard store.startBookDiscussion(bookID, readThrough: BookBookmark(chapter: chapter, paragraph: selected.paragraph)) else {
             passageIssue = "暂时无法开启讨论，请稍后再试。"
             return
         }
@@ -289,7 +300,8 @@ struct LocalNovelReader: View {
     }
     private func savePosition() {
         guard prepared, chapters.indices.contains(chapter) else { return }
-        books.setBookmark(BookBookmark(chapter: chapter, paragraph: document.paragraph(at: currentOffset), characterOffset: currentOffset), in: bookID)
+        let exact = positionProbe.offset(chapter: chapter, jump: jump.id) ?? currentOffset
+        books.setBookmark(BookBookmark(chapter: chapter, paragraph: document.paragraph(at: exact), characterOffset: exact), in: bookID)
     }
     private func navigate(_ value: Int, offset: Int = 0, paragraph: Int? = nil, rememberingOrigin: Bool = false) {
         guard chapters.indices.contains(value) else { return }
@@ -301,7 +313,7 @@ struct LocalNovelReader: View {
             returnPoint = ReaderReturnPoint(chapter: chapter, offset: currentOffset)
         }
         saveTask?.cancel(); savePosition()
-        chapter = value; currentOffset = targetOffset
+        document = doc; chapter = value; currentOffset = targetOffset
         jump = ReaderJump(offset: currentOffset); slider = progress
         savePosition()
     }
@@ -321,7 +333,9 @@ struct LocalNovelReader: View {
     }
     private func addMark(_ paragraph: Int) {
         guard document.paragraphs.indices.contains(paragraph) else { return }
-        books.addReaderMark(chapter: chapter, paragraph: paragraph, excerpt: String(document.paragraphs[paragraph].prefix(150)), in: bookID)
+        guard books.addReaderMark(chapter: chapter, paragraph: paragraph, excerpt: String(document.paragraphs[paragraph].prefix(150)), in: bookID) else {
+            loadIssue = books.errorMessage ?? "书签未能保存。"; return
+        }
         markToast = true
         Task { @MainActor in try? await Task.sleep(nanoseconds: 1_200_000_000); markToast = false }
     }

@@ -1244,7 +1244,12 @@ struct ChatScreen: View {
             if message.state == .streaming {
                 // The answer being written redraws on its own, without the rest of the page.
                 LiveMessageRow(live: store.live, message: message, onGrow: followLiveText) { shown in
-                    messageBody(shown, threadID: threadID, isLast: isLast, round: round, style: style, layoutMode: layoutMode)
+                    let display: ChatMessage = {
+                        var copy = shown
+                        if store.activeThread?.story?.canon != nil { copy.content = CanonPlan.visibleTail(shown.content, streaming: true) }
+                        return copy
+                    }()
+                    messageBody(display, threadID: threadID, isLast: isLast, round: round, style: style, layoutMode: layoutMode)
                 }
             } else {
                 messageBody(message, threadID: threadID, isLast: isLast, round: round, style: style, layoutMode: layoutMode)
@@ -1410,7 +1415,7 @@ struct ChatScreen: View {
                 }
                 if let discussion = thread.bookDiscussion {
                     Text("讨论 ·《\(discussion.bookTitle)》")
-                    Button("新建本书讨论", systemImage: "plus.bubble") { _ = store.startBookDiscussion(discussion.bookID) }
+                    Button("新建本书讨论", systemImage: "plus.bubble") { _ = store.startBookDiscussion(discussion.bookID, readThrough: discussion.readThrough) }
                 }
                 Divider()
                 if let activeProject = store.activeProject {

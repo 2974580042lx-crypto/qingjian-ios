@@ -14,15 +14,23 @@ enum CanonMode: String, Codable, CaseIterable, Identifiable, Sendable {
 
 enum CanonPlan {
     static let marker = "〔本段完〕"
-    private static let markerPattern = #"\n?\s*[〔【\[［(（]\s*本段完\s*[〕】\]］)）]\s*"#
+    private static let markerPattern = #"\s*[〔【\[［(（]\s*本段完\s*[〕】\]］)）]\s*\z"#
 
-    /// The answer without the mark, and whether the mark was there.
     static func strip(_ text: String) -> (text: String, finished: Bool) {
-        guard let range = text.range(of: markerPattern, options: .regularExpression) else { return (text, false) }
         var clean = text
-        clean.removeSubrange(range)
-        while let more = clean.range(of: markerPattern, options: .regularExpression) { clean.removeSubrange(more) }
-        return (clean.trimmingCharacters(in: .whitespacesAndNewlines), true)
+        var finished = false
+        while let range = clean.range(of: markerPattern, options: .regularExpression) {
+            clean.removeSubrange(range)
+            finished = true
+        }
+        return (clean, finished)
+    }
+
+    static func visibleTail(_ text: String, streaming: Bool) -> String {
+        let clean = strip(text).text
+        let partial = streaming ? #"[〔【\[［(（]\s*(?:本(?:段(?:完)?)?)?\z"# : #"[〔【\[［(（]\s*本(?:段(?:完)?)?\z"#
+        guard let range = clean.range(of: partial, options: .regularExpression) else { return clean }
+        return String(clean[..<range.lowerBound])
     }
 
     static func segment(containing chapter: Int, in book: Book) -> Int {
@@ -32,11 +40,12 @@ enum CanonPlan {
     /// The stretch after `index`. In skip mode, stretches whose notes do not mention any
     /// of `userNames` are passed over; what happened in them comes back as `bridge`.
     static func advance(from index: Int, book: Book, userNames: [String], mode: CanonMode) -> (next: Int, bridge: String?) {
+        guard book.segments.indices.contains(index) else { return (book.segments.count, nil) }
         var next = index + 1
         var skipped: [String] = []
         let names = userNames.filter { $0.count >= 2 }
         if mode == .skip, !names.isEmpty {
-            while next < book.segments.count, let note = book.notes[next],
+            while next < book.segments.count, book.notes.indices.contains(next), let note = book.notes[next],
                   !note.characters.contains(where: { !Set([$0.name] + $0.aliases).isDisjoint(with: names) }),
                   !names.contains(where: { note.plot.contains($0) }) {
                 skipped.append("第 \(note.segment.first + 1)–\(note.segment.last + 1) 章：" + String(note.plot.prefix(500)))

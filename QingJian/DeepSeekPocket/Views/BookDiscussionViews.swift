@@ -51,7 +51,7 @@ struct BookDiscussionCharacterPicker: View {
     private var characters: [BookCharacter] {
         guard let session = store.threads.first(where: { $0.id == threadID })?.bookDiscussion,
               let book = books.book(session.bookID) else { return [] }
-        return BookDiscussion.characters(in: book)
+        return BookDiscussion.characters(in: session.evidenceBook(book))
     }
     private var filtered: [BookCharacter] {
         let query = search.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -114,7 +114,7 @@ struct BookDiscussionWelcome: View {
         VStack(alignment: .leading, spacing: 22) {
             Image(systemName: "text.bubble").font(.system(size: 30)).foregroundStyle(Ink.seal)
             Text("聊聊《\(session.bookTitle)》").font(TypeScale.heavy(27, relativeTo: .title)).foregroundStyle(Ink.ink)
-            Text("像普通聊天一样提问。回答会参考已有读书笔记，并从完整原文中查找依据。讨论范围是全书，可能涉及结局。")
+            Text(session.readThrough != nil ? "这次伴读只看你选中的段落及之前的内容。" : "像普通聊天一样提问。回答会参考已有读书笔记，并从完整原文中查找依据。讨论范围是全书，可能涉及结局。")
                 .font(TypeScale.body).foregroundStyle(Ink.ink2).lineSpacing(5)
             Text("想听人物自己怎么说，可以点输入框里的「问角色」，再问他当时的想法。")
                 .font(TypeScale.caption).foregroundStyle(Ink.ink2)
@@ -124,7 +124,7 @@ struct BookDiscussionWelcome: View {
                 prompt("寻找伏笔", "挑几处重要的前后呼应或伏笔，说明对应章节和原文依据。")
                 prompt("核对原句", "帮我在这本书里核对这段话，找到出处并解释上下文：")
             }
-            Text("全书可检索，不等于每次回答都不会遗漏；可打开回答下方的书内依据核对。检索与回答的用量会计入用量日历。")
+            Text(session.readThrough != nil ? "可打开回答下方的书内依据核对原文。" : "全书可检索，不等于每次回答都不会遗漏；可打开回答下方的书内依据核对。检索与回答的用量会计入用量日历。")
                 .font(TypeScale.tiny).foregroundStyle(Ink.ink3).lineSpacing(3)
         }.frame(maxWidth: 600, alignment: .leading).padding(26)
         }

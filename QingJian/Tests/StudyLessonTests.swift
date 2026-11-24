@@ -32,6 +32,16 @@ final class StudyLessonTests: XCTestCase {
         try store.performLesson(action("study_record_practice", practiceArgs(message: message, outcome: outcome, source: source,
             area: scope.subject == .history ? "中国古代史" : "马原")), scope: scope, message: message)
     }
+    func testUnknownOutlineAndPhaseNeverStartATopic() throws {
+        func save(_ ref: String, _ phase: String) throws {
+            _ = try store.saveTopicFree(scope: history, title: "陌生考点", outlineID: ref, phase: phase, level: "", note: "", pendingPrompt: "", message: .init(role: .user, content: "开始"))
+        }
+        XCTAssertThrowsError(try save("netmap:missing", "unknown"))
+        XCTAssertThrowsError(try save("", "未识别阶段"))
+        XCTAssertNil(try store.studyTopicState(scope: history))
+        XCTAssertEqual(OralDrillPromptBuilder.mergeIntoDraft(existing: "第一点\n", spoken: "第二点"), "第一点\n第二点")
+    }
+
     func testTopicPersistsAndNewWindowResumesSamePrompt() throws {
         try start(history)
         let current = try XCTUnwrap(store.studyTopicState(scope: history))

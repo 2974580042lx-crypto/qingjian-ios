@@ -105,8 +105,11 @@ enum EpubBook {
             guard let entry = entries[clean] ?? entries.first(where: { $0.key.lowercased() == clean.lowercased() })?.value else { return nil }
             return try? ZipArchive.read(entry, from: data)
         }
-        guard let container = file("META-INF/container.xml"), let opfPath = firstMatch(#"full-path\s*=\s*"([^"]+)""#, in: text(container)),
-              let opfData = file(opfPath) else { throw ChatError.server("没找到这个 EPUB 的目录文件。") }
+        guard let container = file("META-INF/container.xml"),
+              let root = matches(#"<(?:\w+:)?rootfile\b[^>]*>"#, in: text(container)).first,
+              let opfPath = attribute("full-path", in: root), let opfData = file(opfPath) else {
+            throw ChatError.server("没找到这个 EPUB 的目录文件。")
+        }
         let opf = text(opfData)
         let base = (opfPath as NSString).deletingLastPathComponent
         var manifest: [String: String] = [:]
@@ -122,7 +125,10 @@ enum EpubBook {
         var pages: [Page] = []
         for href in order {
             let path = base.isEmpty ? href : base + "/" + href
-            guard let page = file((path.removingPercentEncoding ?? path).components(separatedBy: "#")[0]) else { continue }
+            let resource = path.components(separatedBy: "#")[0]
+            guard let page = file(resource.removingPercentEncoding ?? resource) else {
+                throw ChatError.server("无法读取 EPUB 中的章节：\(href)")
+            }
             let html = text(page)
             let body = plainText(fromHTML: html)
             guard !body.isEmpty else { continue }
@@ -221,7 +227,7 @@ enum EpubBook {
     }
 
     private static func attribute(_ name: String, in tag: String) -> String? {
-        firstMatch("\\b\(name)\\s*=\\s*[\"']([^\"']*)[\"']", in: tag)
+        firstMatch("\\b\(name)\\s*=\\s*[\"']([^\"']*)[\"']", in: tag).map(decodeEntities)
     }
 
     private static func firstMatch(_ pattern: String, in text: String) -> String? {

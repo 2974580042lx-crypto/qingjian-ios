@@ -4,6 +4,22 @@ import NaturalLanguage
 struct BookDiscussionSession: Codable, Equatable, Sendable {
     var bookID: UUID
     var bookTitle: String
+    var readThrough: BookBookmark? = nil
+
+    func permits(chapter: Int, paragraph: Int) -> Bool {
+        guard chapter >= 0, paragraph >= 0 else { return false }
+        guard let end = readThrough else { return true }
+        return chapter < end.chapter || (chapter == end.chapter && paragraph <= end.paragraph)
+    }
+
+    func evidenceBook(_ original: Book) -> Book {
+        guard let end = readThrough else { return original }
+        var copy = original
+        copy.chapterTitles = Array(original.chapterTitles.enumerated().prefix { $0.offset <= end.chapter }.map(\.element))
+        copy.notes = original.notes.filter { ($0?.segment.last ?? Int.max) < end.chapter }
+        copy.profile = nil
+        return copy
+    }
 }
 
 struct BookReference: Codable, Equatable, Identifiable, Sendable {
@@ -29,6 +45,17 @@ struct BookDiscussionIndex: Sendable {
         }
     }
 
+    private init(bookID: UUID, titles: [String], entries: [Entry]) {
+        self.bookID = bookID; self.titles = titles; self.entries = entries
+    }
+
+    func limited(to session: BookDiscussionSession) -> Self {
+        guard let end = session.readThrough else { return self }
+        return Self(bookID: bookID,
+                    titles: Array(titles.enumerated().prefix { $0.offset <= end.chapter }.map(\.element)),
+                    entries: Array(entries.prefix { session.permits(chapter: $0.chapter, paragraph: $0.paragraph) }))
+    }
+
     static func terms(_ queries: [String], names: [String]) -> [String] {
         let stop = Set(["什么", "为什么", "怎么", "如何", "一个", "这个", "那个", "这些", "那些", "是否", "还有", "觉得", "讨论", "分析", "小说", "本书", "这本书", "里面", "书中", "一下", "可以", "没有", "不是", "对于", "以及", "然后"])
         var words: [String] = []
@@ -50,6 +77,8 @@ struct BookDiscussionIndex: Sendable {
     }
 
     func search(_ queries: [String], names: [String], limit: Int = 12) throws -> [BookReference] {
+        let limit = min(64, max(0, limit))
+        guard limit > 0 else { return [] }
         let terms = Self.terms(queries, names: names)
         guard !terms.isEmpty else { return [] }
         var scored: [(Double, Entry, Int)] = []
@@ -125,6 +154,10 @@ enum BookDiscussion {
     }
 
     static func prompt(_ session: BookDiscussionSession, book: Book?, character: String? = nil) -> String {
+        if session.readThrough != nil {
+            let speaker = cleanCharacter(character).map { "本轮以「\($0)」的第一人称回答。" } ?? "本轮用读书伴读助手的口吻回答。"
+            return "你在陪用户阅读《\(session.bookTitle)》。\(speaker)只依据截止所选段落的原文和已读章节笔记。后面的情节、人物身份变化和结局都不要透露，也不要用全书知识暗示。材料不足时直接说明。引文编号只对应本轮材料。"
+        }
         let voice: String
         if let name = cleanCharacter(character) {
             let person = book.flatMap { book in

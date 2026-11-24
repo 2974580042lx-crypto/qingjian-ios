@@ -1951,14 +1951,13 @@ final class AppStore: ObservableObject {
         cancelReplySuggestions()
         let old = threads
         var replacement = edited
-        if let current = threads[index].story {
-            // Editing and retrying create a parallel story; the played line stays intact.
+        if threads[index].story != nil {
+            let boundary = StoryPlay.editBoundary(original: threads[index].messages, edited: edited.messages)
+            guard var state = boundary.state else {
+                errorMessage = "这个位置缺少当时的剧情状态，无法安全重建。请从已有剧情存档开分线。"
+                return false
+            }
             if generate {
-                var state = edited.messages.last?.storyState ?? current
-                state.direction = current.direction
-                state.canon = current.canon
-                state.instruction = current.instruction
-                state.fixedEvents = current.fixedEvents
                 state.originThreadID = threads[index].id
                 state.branchLabel = "重试分线"
                 state.ended = false
@@ -1978,12 +1977,11 @@ final class AppStore: ObservableObject {
                 if !saved { threads = old; activeThreadID = previousID }
                 return saved
             } else {
-                var memory = current.memory ?? StoryMemory()
-                memory.facts.removeAll { !$0.locked }
-                memory.throughMessageID = nil
-                replacement.story?.memory = memory
-                // Old turn snapshots would now describe a transcript that was edited.
-                for i in replacement.messages.indices { replacement.messages[i].storyState = nil }
+                replacement.story = state
+                for i in replacement.messages.indices.dropFirst(boundary.count) {
+                    replacement.messages[i].storyState = nil
+                    replacement.messages[i].innerThoughts = nil
+                }
             }
         }
         replacement.title = ConversationHistory.displayTitle(for: edited, in: threads)
@@ -3337,11 +3335,13 @@ final class AppStore: ObservableObject {
         }
         threads[ti].updatedAt = Date()
         // 「跟着原著走」: take the hidden mark out of the answer, and move on when it was there.
-        if state == .complete, var session = threads[ti].story, session.canon != nil {
+        if var session = threads[ti].story, session.canon != nil {
             let stripped = CanonPlan.strip(threads[ti].messages[mi].content)
-            threads[ti].messages[mi].content = stripped.text
-            session.canonBridge = nil
-            if stripped.finished { session = advancedCanon(session) }
+            threads[ti].messages[mi].content = state == .complete ? stripped.text : CanonPlan.visibleTail(stripped.text, streaming: false)
+            if state == .complete {
+                session.canonBridge = nil
+                if stripped.finished { session = advancedCanon(session) }
+            }
             threads[ti].story = session
         }
         if var session = threads[ti].story {
@@ -3531,7 +3531,7 @@ final class AppStore: ObservableObject {
         guard !isGenerating, canPersist, let ti = threads.firstIndex(where: { $0.id == threadID }),
               let story = threads[ti].story, !threads[ti].messages.isEmpty else { return false }
         let messages = threads[ti].messages
-        guard let end = messageID.flatMap({ id in messages.firstIndex { $0.id == id } }) ?? messages.indices.last,
+        guard let end = StoryPlay.checkpointEnd(messageID, in: messages),
               messages[end].state == .complete else { return false }
         let state: StorySession
         if end == messages.count - 1 { state = capturedStory(story) }
@@ -3966,13 +3966,13 @@ final class AppStore: ObservableObject {
         return true
     }
 
-    @discardableResult func startBookDiscussion(_ bookID: UUID) -> Bool {
+    @discardableResult func startBookDiscussion(_ bookID: UUID, readThrough: BookBookmark? = nil) -> Bool {
         guard !isGenerating, canPersist, threads.count < 2000, let book = books.book(bookID) else { return false }
         let old = threads, oldID = activeThreadID
         cancelReplySuggestions()
         var thread = ChatThread()
         thread.title = "讨论《\(book.title)》"
-        thread.bookDiscussion = BookDiscussionSession(bookID: bookID, bookTitle: book.title)
+        thread.bookDiscussion = BookDiscussionSession(bookID: bookID, bookTitle: book.title, readThrough: readThrough)
         threads.insert(thread, at: 0); activeThreadID = thread.id
         webSearchEnabled = false
         if !persistNow() { threads = old; activeThreadID = oldID; return false }
@@ -3981,14 +3981,16 @@ final class AppStore: ObservableObject {
 
     private func discussionMaterial(_ session: BookDiscussionSession, threadID: UUID, answerID: UUID,
                                     provider: AIProvider, subscriptionModel: String) async throws -> String {
-        guard let book = books.book(session.bookID),
+        guard let original = books.book(session.bookID),
               let thread = threads.first(where: { $0.id == threadID }) else {
             return "本书原文已不在书架中。本次无法检索，不要声称已经查阅原书。"
         }
+        let book = session.evidenceBook(original)
         let activityID = "book-" + UUID().uuidString
         var activity = ToolActivity(id: activityID, title: "检索《\(book.title)》原文", status: .running, kind: "book")
         record(activity, threadID: threadID, answerID: answerID)
-        let index = await books.discussionIndex(book.id)
+        let fullIndex = try await books.discussionIndex(book.id)
+        let index = fullIndex.limited(to: session)
         try Task.checkCancellation()
         let question = BookDiscussion.question(thread.messages.last(where: { $0.role == .user }))
         let recentMessages = thread.messages.filter { $0.state == .complete }.suffix(6).map { original in
@@ -4002,7 +4004,7 @@ final class AppStore: ObservableObject {
         var names = book.profile?.characters.flatMap(\.allNames) ?? []
         if let name = thread.messages.last(where: { $0.role == .user })?.discussionCharacter { names.append(name) }
         var references = thread.messages.last(where: { $0.role == .assistant && $0.state == .complete })?.bookReferences ?? []
-        references = Array(references.filter { $0.bookID == book.id }.prefix(4))
+        references = Array(references.filter { $0.bookID == book.id && session.permits(chapter: $0.chapter, paragraph: $0.paragraph) }.prefix(4))
         let search = Task.detached(priority: .userInitiated) { try index.search([question], names: names, limit: 10) }
         let initial = try await withTaskCancellationHandler(operation: { try await search.value }, onCancel: { search.cancel() })
         references = BookDiscussion.merging(initial, into: references)
@@ -4029,6 +4031,7 @@ final class AppStore: ObservableObject {
                     references = BookDiscussion.merging(found, into: references)
                 }
                 for read in (plan.read ?? []).prefix(3) {
+                    guard read.chapter > 0, (read.paragraph ?? 1) > 0 else { continue }
                     references = BookDiscussion.merging(index.read(chapter: read.chapter - 1, from: (read.paragraph ?? 1) - 1,
                                                                     count: read.count ?? 8, offset: read.offset ?? 0), into: references)
                 }
@@ -4045,7 +4048,7 @@ final class AppStore: ObservableObject {
         threads[ti].messages[mi].bookReferences = references
         activity.status = .done
         activity.title = "已查找 \(references.count) 处书内原文"
-        activity.detail = issue ?? (references.isEmpty ? "未找到直接相关的段落，将依据已完成的笔记讨论，并说明证据限制。" : "原文与本局角色扮演进度无关，范围为整本书。")
+        activity.detail = issue ?? (references.isEmpty ? "未找到直接相关的段落，将依据已完成的笔记讨论，并说明证据限制。" : (session.readThrough == nil ? "检索范围为整本书。" : "仅检索到发起伴读时选中的段落。"))
         record(activity, threadID: threadID, answerID: answerID)
         persistNow()
         let evidence = references.isEmpty ? "这次没有检索到直接相关的原文段落，不能声称原著里确定没有。" : BookDiscussion.sources(references)

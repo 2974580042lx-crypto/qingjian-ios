@@ -8,7 +8,7 @@ struct ReaderPageCommand: Equatable { var id = UUID(); var step: Int }
 final class ReaderVolumeKeys: ObservableObject {
     @Published var command: ReaderPageCommand?
     @Published var issue: String?
-    var suspended = false
+    private var generation = UUID()
     private var observation: NSKeyValueObservation?
     private var reverse = false
     private var lastPress = Date.distantPast
@@ -24,9 +24,10 @@ final class ReaderVolumeKeys: ObservableObject {
             try session.setCategory(.ambient, mode: .default)
             try session.setActive(true)
             issue = nil
+            let token = generation
             observation = session.observe(\.outputVolume, options: [.old, .new]) { [weak self] _, change in
                 guard let before = change.oldValue, let after = change.newValue else { return }
-                Task { @MainActor [weak self] in self?.changed(from: before, to: after) }
+                Task { @MainActor [weak self] in guard self?.generation == token else { return }; self?.changed(from: before, to: after) }
             }
         } catch {
             issue = "当前无法启用音量键兼容翻页：\(error.localizedDescription)"
@@ -35,7 +36,7 @@ final class ReaderVolumeKeys: ObservableObject {
     }
 
     private func changed(from old: Float, to new: Float) {
-        guard observation != nil, !suspended, UIApplication.shared.applicationState == .active,
+        guard observation != nil, UIApplication.shared.applicationState == .active,
               abs(new - old) > 0.001, Date().timeIntervalSince(lastPress) > 0.22 else { return }
         lastPress = Date()
         let step = new > old ? -1 : 1
@@ -43,7 +44,8 @@ final class ReaderVolumeKeys: ObservableObject {
     }
 
     func stop() {
-        observation = nil
+        generation = UUID(); observation?.invalidate(); observation = nil
+        command = nil
         guard let previous else { return }
         self.previous = nil
         let session = AVAudioSession.sharedInstance()

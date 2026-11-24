@@ -33,6 +33,22 @@ final class StudyReadingTests: XCTestCase {
     @discardableResult private func question(_ msg: ChatMessage) throws -> StudyReadingResult {
         try store.performReading(action("study_show_reading", ["kind":"question","number":36,"expected_revision":revision()]), scope: scope, message: msg)
     }
+    func testRepeatedFreeReadAndAnswerCannotMoveProgressBack() throws {
+        let id = "synthetic-2026-text-4"
+        let read = message("读第一段"), answer = message("选 A")
+        _ = try store.readPassageFree(scope: scope, passageID: id, paragraph: 1, question: 36, showAnswer: false, message: read)
+        let original = try store.answerReadingFree(scope: scope, passageID: "", question: 36, choice: "A", message: answer)
+        _ = try store.readPassageFree(scope: scope, passageID: id, paragraph: 2, question: nil, showAnswer: false, message: message("读第二段"))
+        let state = try XCTUnwrap(store.readingState(scope: scope))
+        let events = try store.readingEvents(projectID: scope.projectID).count
+        _ = try store.readPassageFree(scope: scope, passageID: id, paragraph: 1, question: 36, showAnswer: false, message: read)
+        XCTAssertEqual(try store.answerReadingFree(scope: scope, passageID: "", question: 36, choice: "A", message: answer).message, original.message)
+        XCTAssertEqual(try store.readingState(scope: scope)?.revision, state.revision)
+        XCTAssertEqual(try store.readingEvents(projectID: scope.projectID).count, events)
+        let other = StudyScope(projectID: scope.projectID, threadID: UUID(), subject: .english)
+        XCTAssertThrowsError(try store.answerReadingFree(scope: other, passageID: "", question: nil, choice: "B", message: message("选 B")))
+    }
+
     func testImportValidationPartialMergeAndConflictRollback() throws {
         let data = try StudyCoding.encode(pack())
         XCTAssertEqual(try StudyReadingPack.decode(data).passages[0].questions[0].answer, 0)

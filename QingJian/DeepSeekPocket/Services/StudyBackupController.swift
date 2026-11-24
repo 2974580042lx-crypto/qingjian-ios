@@ -128,7 +128,7 @@ struct StudyRestorePreview: Identifiable {
             let pendingURL = try accountDirectory().appendingPathComponent("pending.json")
             if keepLocal {
                 if FileManager.default.fileExists(atPath: pendingURL.path), let dir = try? accountDirectory() {
-                    try? FileManager.default.copyItem(at: pendingURL, to: dir.appendingPathComponent("retained-pending-\(UUID().uuidString).json"))
+                    try FileManager.default.copyItem(at: pendingURL, to: dir.appendingPathComponent("retained-pending-\(UUID().uuidString).json"))
                     StudyRestoreEngine.pruneRecoveryDirectory(dir, keepPerPrefix: 5)
                 }
                 state.acknowledgedIDs = Set(before.map(\.id)); state.conflict = false; state.upload = nil

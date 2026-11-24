@@ -165,13 +165,28 @@ enum BookText {
     /// UTF-8 first; most novels found online are GB18030 (GBK) instead, some Big5.
     static func decode(_ data: Data) -> String? {
         let bytes = [UInt8](data.prefix(4))
-        if bytes.starts(with: [0xEF, 0xBB, 0xBF]) { return String(data: data.dropFirst(3), encoding: .utf8) }
-        if bytes.starts(with: [0xFF, 0xFE]) || bytes.starts(with: [0xFE, 0xFF]) { return String(data: data, encoding: .utf16) }
-        if let text = String(data: data, encoding: .utf8) { return text }
-        // CoreFoundation codes: GB 18030, Big5-HKSCS, Big5.
+        for (bom, encoding): ([UInt8], String.Encoding) in [
+            ([0xFF,0xFE,0,0], .utf32LittleEndian), ([0,0,0xFE,0xFF], .utf32BigEndian),
+            ([0xEF,0xBB,0xBF], .utf8), ([0xFF,0xFE], .utf16LittleEndian), ([0xFE,0xFF], .utf16BigEndian)
+        ] where bytes.starts(with: bom) {
+            return String(data: data.dropFirst(bom.count), encoding: encoding)
+        }
+        if let text = String(data: data, encoding: .utf8) { return text.contains("\0") ? nil : text }
+        let common = Set("的一是在有和人了不我他她這这來来說说個个們们為为時时會会後后過过書书開开門门進进見见裡里風风聲声著着上中下大也就到你把看那天地心手頭头")
+        var candidates: [(String.Encoding, Int)] = []
+        // Rank a bounded prefix first; a Big5 byte sequence can also be valid GBK.
         for raw: UInt32 in [0x0632, 0x0A06, 0x0A03] {
             let encoding = String.Encoding(rawValue: CFStringConvertEncodingToNSStringEncoding(CFStringEncoding(raw)))
-            if let text = String(data: data, encoding: encoding), looksLikeText(text) { return text }
+            let prefix = data.prefix(16_384)
+            for trim in 0...min(3, prefix.count) {
+                guard let sample = String(data: prefix.dropLast(trim), encoding: encoding), looksLikeText(sample) else { continue }
+                let score = sample.reduce(0) { $0 + (common.contains($1) ? 1 : 0) }
+                candidates.append((encoding, score))
+                break
+            }
+        }
+        for (encoding, _) in candidates.sorted(by: { $0.1 > $1.1 }) {
+            if let result = String(data: data, encoding: encoding) { return result }
         }
         return nil
     }
@@ -289,15 +304,16 @@ enum ChapterSplitter {
         var merged: [BookChapter] = []
         var carried: String?
         for chapter in chapters {
-            if chapter.text.count < 50 && chapter.title != "开篇" {
+            if chapter.text.isEmpty && chapter.title != "开篇" {
                 carried = carried.map { $0 + " · " + chapter.title } ?? chapter.title
                 continue
             }
-            if chapter.title == "开篇" && chapter.text.count < 200 { continue }
+            if chapter.title == "开篇" && chapter.text.isEmpty { continue }
             var next = chapter
             if let prefix = carried { next.title = prefix + " · " + chapter.title; carried = nil }
             merged.append(next)
         }
+        if let carried { merged.append(BookChapter(title: carried, text: "")) }
         var result: [BookChapter] = []
         for chapter in merged {
             if chapter.text.count > longestChapter {
@@ -322,8 +338,19 @@ enum ChapterSplitter {
             length = 0
         }
         for paragraph in text.components(separatedBy: "\n") {
-            current.append(paragraph)
-            length += paragraph.count + 1
+            if paragraph.count > fallbackLength {
+                close()
+                var tail = paragraph[...]
+                while let end = tail.index(tail.startIndex, offsetBy: fallbackLength, limitedBy: tail.endIndex), end < tail.endIndex {
+                    result.append(BookChapter(title: title(result.count + 1), text: String(tail[..<end])))
+                    tail = tail[end...]
+                }
+                current.append(String(tail))
+                length = tail.count + 1
+            } else {
+                current.append(paragraph)
+                length += paragraph.count + 1
+            }
             if length >= fallbackLength { close() }
         }
         close()
@@ -506,4 +533,54 @@ struct BookCoverDesign: Codable, Equatable, Sendable {
         copy.seed = min(65535, max(0, seed))
         return copy
     }
+}
+
+struct NovelDocument: Equatable {
+    var chapter: Int
+    var paragraphs: [String]
+    var starts: [Int]
+    var text: String
+    var length: Int { (text as NSString).length }
+    init(chapter: Int, text: String) {
+        self.chapter = chapter
+        paragraphs = BookScenes.paragraphs(text)
+        var cursor = 0
+        starts = paragraphs.map { value in defer { cursor += (value as NSString).length + 1 }; return cursor }
+        self.text = paragraphs.joined(separator: "\n")
+    }
+    func paragraph(at offset: Int) -> Int {
+        guard !starts.isEmpty else { return 0 }
+        var low = 0, high = starts.count
+        while low < high {
+            let middle = low + (high - low) / 2
+            if starts[middle] <= offset { low = middle + 1 } else { high = middle }
+        }
+        return max(0, low - 1)
+    }
+    func restoredOffset(bookmark: BookBookmark?, requestedParagraph: Int?) -> Int {
+        let saved = bookmark?.chapter == chapter ? bookmark : nil
+        let target = requestedParagraph ?? saved?.paragraph ?? 0
+        guard starts.indices.contains(target) else { return 0 }
+        if let offset = saved?.characterOffset, saved?.paragraph == target, offset >= 0,
+           offset < length, paragraph(at: offset) == target {
+            return (text as NSString).rangeOfComposedCharacterSequence(at: offset).location
+        }
+        return starts[target]
+    }
+
+}
+
+@MainActor
+
+final class ReaderPositionProbe {
+    private var point: (chapter: Int, jump: UUID?, offset: Int)?
+    func update(chapter: Int, jump: UUID?, offset: Int) { point = (chapter, jump, offset) }
+    func offset(chapter: Int, jump: UUID) -> Int? {
+        guard let point, point.chapter == chapter, point.jump == jump else { return nil }
+        return point.offset
+    }
+}
+
+enum ReaderVolumePolicy {
+    static func listens(enabled: Bool, active: Bool, panel: Bool) -> Bool { enabled && active && !panel }
 }

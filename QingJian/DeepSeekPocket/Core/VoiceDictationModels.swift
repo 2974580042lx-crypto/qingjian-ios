@@ -66,6 +66,7 @@ enum OralDrillPromptBuilder {
         let trimmedExisting = existing.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmedExisting.isEmpty else { return cleanSpoken }
 
+        if existing.last?.isWhitespace == true { return existing + cleanSpoken }
         let endsWithPunctuation = trimmedExisting.last.map { "。！？；，、,.!?;:\n".contains($0) } ?? false
         if endsWithPunctuation {
             return existing + cleanSpoken

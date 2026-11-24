@@ -341,7 +341,7 @@ extension StudyMemoryStore {
             )
             return (chosen, fresh, p)
         }
-        guard var chosen = sessions.first(where: { $0.threadID == scope.threadID }) ?? sessions.first else {
+        guard var chosen = sessions.first(where: { $0.threadID == scope.threadID }) else {
             throw StudyMemoryError.invalid("当前还没有打开阅读篇目，请先传 passage_id 或调 study_reading_catalog 查看篇目目录。")
         }
         let p = try readingPassage(chosen.passageID, project: scope.projectID)
@@ -350,6 +350,10 @@ extension StudyMemoryStore {
         chosen.paused = false
         chosen.revision += 1
         return (before, chosen, p)
+    }
+
+    private static func freeReadingKey(_ action: String, scope: StudyScope, message: ChatMessage, fields: [String]) throws -> String {
+        "free/" + StudyCoding.hash(try StudyCoding.encode([action, scope.threadID.uuidString, message.id.uuidString] + fields))
     }
 
     func readPassageFree(
@@ -366,7 +370,9 @@ extension StudyMemoryStore {
         let now = Date()
         let quote = message.content.isEmpty ? "阅读" : String(message.content.prefix(4000))
         let source = StudySource.from(message: message, scope: scope, kind: .userStatement, quote: quote)
+        let replayID = try Self.freeReadingKey("read", scope: scope, message: message, fields: [passageID, paragraph.map(String.init) ?? "", question.map(String.init) ?? "", String(showAnswer)])
         return try transaction {
+            if let receipt = try read(StudyReadingResult.self, projectID: scope.projectID, kind: "reading_operation", id: replayID) { return receipt }
             var (before, session, p) = try resolveFreeReadingSession(scope: scope, passageID: passageID, now: now)
             var excerpts: [StudyReadingExcerpt] = []
 
@@ -412,11 +418,13 @@ extension StudyMemoryStore {
                 StudyReadingEvent(id: UUID(), action: "study_read_passage", before: before, after: session, oldAnswer: nil, newAnswer: nil, source: source, date: now),
                 projectID: scope.projectID, kind: "reading_event", id: opID
             )
-            return try StudyReadingResult(
+            let receipt = try StudyReadingResult(
                 message: "已读取《\(p.title)》对应原文卡片（App 已直接在气泡上方展示原文，回复时无需重抄整段英文）。",
                 state: readingState(session, passage: p, project: scope.projectID),
                 excerpts: excerpts
             )
+            try write(receipt, projectID: scope.projectID, kind: "reading_operation", id: replayID)
+            return receipt
         }
     }
 
@@ -440,7 +448,9 @@ extension StudyMemoryStore {
         let quote = message.content.isEmpty ? rawChoice : String(message.content.prefix(4000))
         let source = StudySource.from(message: message, scope: scope, kind: .userStatement, quote: quote)
 
+        let replayID = try Self.freeReadingKey("answer", scope: scope, message: message, fields: [passageID, question.map(String.init) ?? "", rawChoice])
         return try transaction {
+            if let receipt = try read(StudyReadingResult.self, projectID: scope.projectID, kind: "reading_operation", id: replayID) { return receipt }
             var (before, session, p) = try resolveFreeReadingSession(scope: scope, passageID: passageID, now: now)
             guard let targetNum = question ?? session.question ?? p.questions.first?.number,
                   let q = p.questions.first(where: { $0.number == targetNum }) else {
@@ -483,11 +493,13 @@ extension StudyMemoryStore {
                 StudyReadingEvent(id: UUID(), action: "study_answer_reading", before: before, after: session, oldAnswer: oldAnswer, newAnswer: newAnswer, source: source, date: now),
                 projectID: scope.projectID, kind: "reading_event", id: opID
             )
-            return try StudyReadingResult(
+            let receipt = try StudyReadingResult(
                 message: feedback,
                 state: readingState(session, passage: p, project: scope.projectID),
                 excerpts: []
             )
+            try write(receipt, projectID: scope.projectID, kind: "reading_operation", id: replayID)
+            return receipt
         }
     }
 }

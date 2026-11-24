@@ -593,6 +593,18 @@ extension StudyMemoryStore {
     func gradeWordsFree(scope: StudyScope, items: [(word: String, rating: String)], message: ChatMessage, now: Date = Date()) throws -> [StudyWordView] {
         guard scope.subject == .english else { throw StudyMemoryError.invalid("请在考研英语项目中记录单词评分。") }
         guard !items.isEmpty else { throw StudyMemoryError.invalid("请提供要记录评分的单词。") }
+        guard message.role == .user, items.count <= 30 else { throw StudyMemoryError.invalid("请根据用户本轮回答评分，每次最多记录 30 个词。") }
+        let signature = [scope.threadID.uuidString, message.id.uuidString] + items.flatMap { [$0.word, $0.rating] }
+        let key = "free/" + StudyCoding.hash(try StudyCoding.encode(signature))
+        return try transaction {
+            if let previous = try read([StudyWordView].self, projectID: scope.projectID, kind: "word_operation", id: key) { return previous }
+            let result = try gradeWordBatch(scope: scope, items: items, message: message, now: now)
+            try write(result, projectID: scope.projectID, kind: "word_operation", id: key)
+            return result
+        }
+    }
+
+    private func gradeWordBatch(scope: StudyScope, items: [(word: String, rating: String)], message: ChatMessage, now: Date) throws -> [StudyWordView] {
         let pack = try wordPack(projectID: scope.projectID)
 
         let ratingMap: [String: (String, Rating)] = [
@@ -626,8 +638,9 @@ extension StudyMemoryStore {
                 }
                 guard let wordCard = targetCard else {
                     if !cleanedWord.isEmpty, cleanedWord.lowercased() != "current" {
-                        if undoTokens.contains(cleanedRating) { continue }
-                        let canonical = ratingMap[cleanedRating]?.0 ?? "good"
+                        guard !undoTokens.contains(cleanedRating), let canonical = ratingMap[cleanedRating]?.0 else {
+                            throw StudyMemoryError.invalid("词库外的词需要有效评分；如需删除已记的生词，请在生词本中操作。")
+                        }
                         outOfPackItems.append((word: cleanedWord, canonicalRating: canonical))
                         continue
                     }
@@ -737,16 +750,13 @@ extension StudyMemoryStore {
 
         for outItem in outOfPackItems {
             let label = ["easy": "轻松掌握", "good": "记得", "hard": "印象模糊", "again": "待加强"][outItem.canonicalRating] ?? "已聊"
-            let userMessage = message.role == .user
-                ? message
-                : ChatMessage(id: message.id, role: .user, content: message.content.isEmpty ? outItem.word : message.content, createdAt: message.createdAt)
             _ = try saveMemoryFree(
                 scope: scope,
                 recordRef: nil,
                 action: "save",
                 category: "生词",
                 text: "\(outItem.word)（聊天/阅读随手记词 · \(label)）",
-                message: userMessage
+                message: message
             )
             let fallbackWord = StudyWord(
                 id: "notebook:\(outItem.word.lowercased())",

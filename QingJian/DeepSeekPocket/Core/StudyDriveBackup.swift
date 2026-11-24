@@ -141,14 +141,18 @@ final class StudyDriveBackupClient: @unchecked Sendable {
         guard range.hasPrefix("bytes=0-"), let end = Int(range.dropFirst(8)), end >= 0, end < total else { throw StudyBackupError.invalid("云盘返回的续传位置不正确。") }
         return end + 1
     }
+    static func existingVersion(in files: [StudyDriveFile], id: String, hash: String) throws -> StudyDriveFile? {
+        let versions = files.filter { $0.backupID == id }
+        guard versions.allSatisfy({ $0.appProperties?["sha256"] == hash }) else {
+            throw StudyBackupError.conflict("同一备份标识已有不同内容，未覆盖。")
+        }
+        return versions.first
+    }
     func upload(_ data: Data, payload: StudyBackupPayload, session initial: StudyUploadSession,
                 persist: @escaping @Sendable (StudyUploadSession) async throws -> Void) async throws -> StudyDriveFile {
         guard data.count <= StudyBackupCodec.maximumBytes, initial.backupID == payload.backupID.uuidString else { throw StudyBackupError.invalid("待传备份标识不匹配。") }
         let existing = try await listBackups()
-        if let existing = existing.first(where: { $0.backupID == initial.backupID }) {
-            guard existing.appProperties?["sha256"] == StudyCoding.hash(data) else { throw StudyBackupError.conflict("同一备份标识已有不同内容，未覆盖。") }
-            return existing
-        }
+        if let match = try Self.existingVersion(in: existing, id: initial.backupID, hash: StudyCoding.hash(data)) { return match }
         var job = initial
         if let raw = job.sessionURL {
             guard let url = URL(string: raw), Self.allowedURL(url), url.path.hasPrefix("/upload/drive/v3/files") else { throw StudyBackupError.invalid("续传地址不安全，未发送凭据。") }

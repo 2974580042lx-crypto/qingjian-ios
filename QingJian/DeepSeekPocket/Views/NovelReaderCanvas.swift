@@ -48,25 +48,6 @@ struct ReaderJump: Equatable {
     var offset: Int
 }
 
-struct NovelDocument: Equatable {
-    var chapter: Int
-    var paragraphs: [String]
-    var starts: [Int]
-    var text: String
-    var length: Int { (text as NSString).length }
-    init(chapter: Int, text: String) {
-        self.chapter = chapter
-        paragraphs = BookScenes.paragraphs(text)
-        var cursor = 0
-        starts = paragraphs.map { value in defer { cursor += (value as NSString).length + 1 }; return cursor }
-        self.text = paragraphs.joined(separator: "\n")
-    }
-    func paragraph(at offset: Int) -> Int {
-        guard !starts.isEmpty else { return 0 }
-        return max(0, starts.lastIndex(where: { $0 <= offset }) ?? 0)
-    }
-}
-
 @MainActor
 struct ReaderCanvas: UIViewControllerRepresentable {
     var document: NovelDocument
@@ -77,9 +58,11 @@ struct ReaderCanvas: UIViewControllerRepresentable {
     var moved: (Int, Int, Int) -> Void
     var chapterStep: (Int) -> Void
     var paragraphAction: (Int) -> Void
+    var position: ReaderPositionProbe
     var pageCommand: ReaderPageCommand? = nil
     func makeUIViewController(context: Context) -> NovelCanvasController { NovelCanvasController() }
     func updateUIViewController(_ controller: NovelCanvasController, context: Context) {
+        controller.position = position
         controller.tapped = tapped; controller.moved = moved; controller.chapterStep = chapterStep
         controller.paragraphAction = paragraphAction
         controller.configure(document: document, style: style, jump: jump, title: chapterTitle)
@@ -97,6 +80,7 @@ final class NovelCanvasController: UIViewController, UITextViewDelegate {
     private var chapterHeading: UIView?
     private let vertical = UITextView()
     private let horizontal = UIScrollView()
+    weak var position: ReaderPositionProbe?
     private var document = NovelDocument(chapter: 0, text: "")
     private var style: ReaderPageStyle?
     private var jumpID: UUID?
@@ -143,7 +127,7 @@ final class NovelCanvasController: UIViewController, UITextViewDelegate {
         self.style = style
         if jumpID != jump.id { anchor = jump.offset; jumpID = jump.id; settling = true }
         if rebuild { layoutSize = .zero; view.setNeedsLayout() }
-        else if settling { moveToAnchor(); settling = false; DispatchQueue.main.async { [weak self] in self?.reportPosition(force: true) } }
+        else if settling { moveToAnchor(); settling = false; DispatchQueue.main.async { [weak self] in self?.reportPosition(force: true, preservingAnchor: true) } }
     }
 
     override func viewDidLayoutSubviews() {
@@ -182,7 +166,7 @@ final class NovelCanvasController: UIViewController, UITextViewDelegate {
         moveToAnchor()
         settling = false
         changingLayout = false
-        DispatchQueue.main.async { [weak self] in self?.reportPosition(force: true) }
+        DispatchQueue.main.async { [weak self] in self?.reportPosition(force: true, preservingAnchor: true) }
     }
 
     private func headingHeight(width: CGFloat) -> CGFloat {
@@ -368,18 +352,23 @@ final class NovelCanvasController: UIViewController, UITextViewDelegate {
         }
         if !decelerate { reportPosition(force: true) }
     }
-    private func reportPosition(force: Bool) {
-        guard !changingLayout, let style, force || Date().timeIntervalSince(lastNotice) > 0.25 else { return }
-        lastNotice = Date()
+    private func reportPosition(force: Bool, preservingAnchor: Bool = false) {
+        guard !changingLayout, let style else { return }
+        let notify = force || Date().timeIntervalSince(lastNotice) > 0.25
+        if notify { lastNotice = Date() }
         if style.paged {
             let spread = max(0, min(max(0, (pages.count - 1) / columns), Int(round(horizontal.contentOffset.x / max(1, view.bounds.width)))))
-            anchor = pages.indices.contains(spread * columns) ? pages[spread * columns].location : 0
+            if !preservingAnchor { anchor = pages.indices.contains(spread * columns) ? pages[spread * columns].location : 0 }
+            position?.update(chapter: document.chapter, jump: jumpID, offset: anchor)
+            guard notify else { return }
             moved?(anchor, spread + 1, max(1, (pages.count + columns - 1) / columns))
         } else {
             guard vertical.layoutManager.numberOfGlyphs > 0 else { moved?(0, 1, 1); return }
             let point = CGPoint(x: 1, y: max(0, vertical.contentOffset.y - vertical.textContainerInset.top + 16))
             let glyph = vertical.layoutManager.glyphIndex(for: point, in: vertical.textContainer)
-            anchor = vertical.layoutManager.characterIndexForGlyph(at: min(glyph, vertical.layoutManager.numberOfGlyphs - 1))
+            if !preservingAnchor { anchor = vertical.layoutManager.characterIndexForGlyph(at: min(glyph, vertical.layoutManager.numberOfGlyphs - 1)) }
+            position?.update(chapter: document.chapter, jump: jumpID, offset: anchor)
+            guard notify else { return }
             moved?(anchor, 0, 0)
         }
     }

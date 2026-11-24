@@ -88,6 +88,13 @@ final class StudyBackupTests: XCTestCase {
     override func tearDownWithError() throws {
         if root.lastPathComponent.hasPrefix("sermo-backup-tests-") { try FileManager.default.removeItem(at: root) }
     }
+    func testCloudDuplicateIDMustAgreeAcrossAllVersions() throws {
+        let good = StudyDriveFile(id: "first", name: "备份", appProperties: ["backupID":"same","sha256":"hash"])
+        let other = StudyDriveFile(id: "second", name: "备份", appProperties: ["backupID":"same","sha256":"other"])
+        XCTAssertEqual(try StudyDriveBackupClient.existingVersion(in: [good], id: "same", hash: "hash")?.id, good.id)
+        XCTAssertThrowsError(try StudyDriveBackupClient.existingVersion(in: [good, other], id: "same", hash: "hash"))
+    }
+
     func testAllStudyDataImagesAndReportVersionsSurviveRestoreAndContinue() throws {
         let fixture = try BackupFixture(root: root)
         let original = try fixture.payload(), data = try StudyBackupCodec.encode(original), decoded = try StudyBackupCodec.decode(data)

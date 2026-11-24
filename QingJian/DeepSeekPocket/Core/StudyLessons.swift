@@ -292,6 +292,10 @@ extension StudyMemoryStore {
         guard scope.subject != .english, message.role == .user else {
             throw StudyMemoryError.invalid("请在历史或政治项目中保存专题进度。")
         }
+        guard phase.isEmpty || StudyLearningPhase(rawValue: phase) != nil,
+              level.isEmpty || StudyTopicLevel(rawValue: level) != nil else {
+            throw StudyMemoryError.invalid("学习阶段或掌握程度无效，原进度已保留。")
+        }
         let now = Date()
         let quote = message.content.isEmpty ? "专题学习" : String(message.content.prefix(4000))
         let kind: StudySource.Kind = message.content.isEmpty ? .modelInference : .userStatement
@@ -311,6 +315,8 @@ extension StudyMemoryStore {
                 } else if let map = try read(StudyHistoryPack.self, projectID: scope.projectID, kind: "history_pack", id: "outline"),
                           let entry = map.entries.first(where: { $0.id == cleanOutline }) {
                     cleanTitle = entry.title
+                } else {
+                    throw StudyMemoryError.invalid("当前学习地图中找不到这个考点编号，请先查询后再保存。")
                 }
             }
 
@@ -400,6 +406,11 @@ extension StudyMemoryStore {
     ) throws -> StudyLessonReceipt {
         guard scope.subject != .english, message.role == .user else {
             throw StudyMemoryError.invalid("请在历史或政治项目中保存练习记录。")
+        }
+        guard kind.isEmpty || StudyPracticeKind(rawValue: kind) != nil,
+              outcome.isEmpty || StudyPracticeOutcome(rawValue: outcome) != nil,
+              ["user_statement", "model_inference"].contains(sourceKind) else {
+            throw StudyMemoryError.invalid("题型、作答结果或记录来源无效，练习没有改动。")
         }
         let now = Date()
         let inferred = sourceKind == "model_inference" || message.content.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty

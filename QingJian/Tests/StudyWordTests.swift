@@ -34,6 +34,17 @@ final class StudyWordTests: XCTestCase {
             source: StudySource(kind: .userStatement, threadID: scope.threadID, messageID: messageID, text: "我记得，是适应", quote: "我记得，是适应", messageDate: now.addingTimeInterval(1)))
     }
 
+    func testRepeatedGradeAndInvalidBatchDoNotChangeCounts() throws {
+        let msg = ChatMessage(role: .user, content: "记得 adapt")
+        let batch = [(word: "adapt", rating: "good")]
+        _ = try store.gradeWordsFree(scope: scope, items: batch, message: msg, now: now)
+        let repeated = try store.gradeWordsFree(scope: scope, items: batch, message: msg, now: now.addingTimeInterval(86400))
+        XCTAssertEqual(repeated.first?.reviewCount, 1)
+        XCTAssertThrowsError(try store.gradeWordsFree(scope: scope, items: [("adopt","good"),("unknown-word","???")], message: msg))
+        XCTAssertThrowsError(try store.gradeWordsFree(scope: scope, items: batch, message: .init(role: .assistant, content: "记得")))
+        XCTAssertEqual(try store.reviewInput(projectID: scope.projectID).wordEvents.count, 1)
+    }
+
     func testImportUsesUnitOrderAndDoesNotMarkDisplayedWordsLearned() throws {
         let session = try start()
         XCTAssertEqual(session.wordIDs, ["word-adapt", "word-adopt"])

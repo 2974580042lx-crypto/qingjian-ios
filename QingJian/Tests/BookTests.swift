@@ -5,6 +5,93 @@ import Compression
 final class BookTests: XCTestCase {
     private let body = String(repeating: "他推开门，看见院子里的桂花落了一地。", count: 5)
 
+    func testShortPrologueAndBriefChapterSurviveImport() {
+        let chapters = ChapterSplitter.split("序言。\n第一章 初见\n只有三字。\n第二章 大雨\n" + body)
+        XCTAssertEqual(chapters.map(\.text), ["序言。", "只有三字。", body])
+        let long = String(repeating: "灯🌧️", count: 40_000)
+        let chunks = ChapterSplitter.parts(of: long, titled: { String($0) })
+        XCTAssertGreaterThan(chunks.count, 1)
+        XCTAssertEqual(chunks.map(\.text).joined(), long)
+    }
+
+    func testBOMsAndLegacyChineseNovels() throws {
+        let sample = "门开了，他看见了一本书。"
+        for (bom, encoding): ([UInt8], String.Encoding) in [
+            ([255,254,0,0], .utf32LittleEndian), ([0,0,254,255], .utf32BigEndian),
+            ([255,254], .utf16LittleEndian), ([254,255], .utf16BigEndian), ([239,187,191], .utf8)
+        ] {
+            XCTAssertEqual(BookText.decode(Data(bom) + (try XCTUnwrap(sample.data(using: encoding)))), sample)
+        }
+        for (raw, line): (UInt32, String) in [(0x0632, sample), (0x0A03, "門開了，他看見了一本書。這裡有風聲。")] {
+            let encoding = String.Encoding(rawValue: CFStringConvertEncodingToNSStringEncoding(raw))
+            XCTAssertEqual(BookText.decode(try XCTUnwrap(line.data(using: encoding))), line)
+        }
+    }
+
+    func testNestedEPUBWithEscapedHashAndAmpersand() throws {
+        let contents = "<container><rootfiles><rootfile full-path='EPUB/book.opf'/></rootfiles></container>"
+        let opf = "<package><manifest><item id='one' href='../Text/A%23B&amp;C.xhtml#p' media-type='application/xhtml+xml'/></manifest><spine><itemref idref='one'/></spine></package>"
+        let files = [("META-INF/container.xml", contents, false), ("EPUB/book.opf", opf, false)]
+        let page = ("Text/A#B&C.xhtml", "<html><body><p>门开了。</p></body></html>", false)
+        XCTAssertTrue(try EpubBook.pages(from: zip(files + [page])).pages.first?.text.contains("门开了。") == true)
+        XCTAssertThrowsError(try EpubBook.pages(from: zip(files)))
+    }
+
+    @MainActor func testReaderBookmarkAfterReflowAndVolumeOwnership() {
+        let doc = NovelDocument(chapter: 2, text: "序\n\n房🌧️间\n结尾")
+        let location = doc.restoredOffset(bookmark: .init(chapter: 2, paragraph: 1, characterOffset: 4), requestedParagraph: nil)
+        XCTAssertEqual(location, 3)
+        XCTAssertEqual(doc.paragraph(at: location), 1)
+        XCTAssertEqual(doc.restoredOffset(bookmark: .init(chapter: 2, paragraph: 1, characterOffset: Int.max), requestedParagraph: nil), doc.starts[1])
+        let probe = ReaderPositionProbe(), jump = UUID()
+        probe.update(chapter: 2, jump: jump, offset: location)
+        XCTAssertEqual(probe.offset(chapter: 2, jump: jump), location)
+        XCTAssertNil(probe.offset(chapter: 3, jump: jump))
+        XCTAssertNil(probe.offset(chapter: 2, jump: UUID()))
+        XCTAssertTrue(ReaderVolumePolicy.listens(enabled: true, active: true, panel: false))
+        XCTAssertFalse(ReaderVolumePolicy.listens(enabled: true, active: false, panel: false))
+        XCTAssertFalse(ReaderVolumePolicy.listens(enabled: true, active: true, panel: true))
+    }
+
+    func testReaderDiscussionExcludesFutureParagraphsTitlesAndNotes() throws {
+        let book = Book(title: "测试小说", characterCount: 20, chapterTitles: ["开篇", "后文秘密"], segments: [], notes: [])
+        let session = BookDiscussionSession(bookID: book.id, bookTitle: book.title, readThrough: .init(chapter: 0, paragraph: 0))
+        let index = BookDiscussionIndex(bookID: book.id, chapters: [.init(title: "开篇", text: "有人敲门。\n后文秘密。"), .init(title: "后文秘密", text: "后文秘密。")])
+        let limited = index.limited(to: session)
+        XCTAssertEqual(limited.read(chapter: 0, from: 0, count: 10).map(\.text), ["有人敲门。"])
+        XCTAssertTrue(try limited.search(["后文秘密"], names: []).isEmpty)
+        XCTAssertEqual(session.evidenceBook(book).chapterTitles, ["开篇"])
+        XCTAssertFalse(BookDiscussion.prompt(session, book: book).contains("允许涉及结局"))
+        XCTAssertTrue(index.read(chapter: 1, from: 0, count: 1).first?.text.contains("秘密") == true)
+    }
+
+    func testBranchUsesOnlyStateFromUnchangedMessages() throws {
+        var first = ChatMessage(role: .user, content: "进门")
+        var later = ChatMessage(role: .assistant, content: "得到钥匙")
+        var session = StorySession(bookID: UUID(), bookTitle: "书", character: "甲")
+        session.sceneNote = "门外"
+        first.storyState = session
+        session.sceneNote = "密室"
+        session.memory = StoryMemory(facts: [StoryFact(kind: .item, text: "持有钥匙", locked: true, sources: [later.id])])
+        later.storyState = session
+        var edited = later; edited.content = "没有进门"
+        let boundary = StoryPlay.editBoundary(original: [first, later], edited: [first, edited])
+        XCTAssertEqual(boundary.count, 1)
+        XCTAssertEqual(boundary.state?.sceneNote, "门外")
+        XCTAssertNil(boundary.state?.memory)
+        XCTAssertNil(StoryPlay.checkpointEnd(UUID(), in: [first, later]))
+        XCTAssertEqual(StoryPlay.checkpointEnd(nil, in: [first, later]), 1)
+    }
+
+    func testCanonMarkerOnlyAdvancesAtEnd() {
+        XCTAssertEqual(CanonPlan.visibleTail("他写下〔本段完〕作为例子。", streaming: false), "他写下〔本段完〕作为例子。")
+        XCTAssertFalse(CanonPlan.strip("他写下〔本段完〕作为例子。").finished)
+        for token in ["〔", "〔本", "〔本段", "〔本段完", "〔本段完〕"] {
+            XCTAssertEqual(CanonPlan.visibleTail("夜深。" + token, streaming: true), "夜深。")
+        }
+        XCTAssertEqual(CanonPlan.visibleTail("正文[", streaming: false), "正文[")
+    }
+
     func testHeadingsSplitChaptersAndVolumeLinesJoinTheNextTitle() {
         let text = "第一卷 风起\n第一章 雨夜\n\(body)\n第二章 来客\n\(body)\n第三回 别离\n\(body)"
         let chapters = ChapterSplitter.split(text)

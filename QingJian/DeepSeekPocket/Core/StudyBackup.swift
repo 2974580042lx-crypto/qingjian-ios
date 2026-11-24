@@ -130,7 +130,11 @@ enum StudyBackupCodec {
         let names = try imageReferences(snapshot: selected, learning: learning)
         var bytes = 0, unavailable = 0
         for name in names {
-            if let amount = try? size(name), amount >= 0 { bytes += amount }
+            if let amount = try? size(name), amount >= 0 {
+                let (sum, overflow) = bytes.addingReportingOverflow(amount)
+                guard !overflow else { throw StudyBackupError.invalid("学习图片容量超出可统计范围。") }
+                bytes = sum
+            }
             else { unavailable += 1 }
         }
         return .init(count: names.count, bytes: bytes, unavailable: unavailable)

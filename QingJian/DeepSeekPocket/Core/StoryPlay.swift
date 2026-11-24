@@ -54,6 +54,31 @@ struct StoryCheckpoint: Codable, Equatable, Identifiable, Sendable {
 }
 
 enum StoryPlay {
+    /// A user-turn snapshot was taken before that input. Assistant snapshots are
+    /// usable only if the corresponding answer (and its entire prefix) survived.
+    static func editBoundary(original: [ChatMessage], edited: [ChatMessage]) -> (state: StorySession?, count: Int) {
+        var state: StorySession?
+        var count = 0
+        for (old, new) in zip(original, edited) {
+            guard old.id == new.id, old.role == new.role else { break }
+            if old.content != new.content {
+                if old.role == .user { state = old.storyState ?? state }
+                break
+            }
+            count += 1
+            state = old.storyState ?? state
+        }
+        let trusted = Set(edited.prefix(count).map(\.id))
+        state?.memory?.facts.removeAll { !$0.sources.allSatisfy(trusted.contains) }
+        if let cursor = state?.memory?.throughMessageID, !trusted.contains(cursor) { state?.memory?.throughMessageID = nil }
+        return (state, count)
+    }
+
+    static func checkpointEnd(_ id: UUID?, in messages: [ChatMessage]) -> Int? {
+        if let id { return messages.firstIndex { $0.id == id } }
+        return messages.indices.last
+    }
+
     static func pending(_ thread: ChatThread) -> [ChatMessage] {
         let messages = thread.messages.filter { $0.state == .complete && !$0.content.isEmpty }
         guard let last = thread.story?.memory?.throughMessageID,

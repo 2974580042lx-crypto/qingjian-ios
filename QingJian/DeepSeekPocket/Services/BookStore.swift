@@ -285,10 +285,24 @@ final class BookStore: ObservableObject {
         return chapters
     }
 
-    func discussionIndex(_ id: UUID) async -> BookDiscussionIndex {
+    func readerChapters(_ id: UUID) async throws -> [BookChapter] {
+        if let cached = cachedChapters, cached.id == id { return cached.chapters }
+        let url = try Self.root().appendingPathComponent(id.uuidString).appendingPathComponent("chapters.json")
+        let chapters = try await Task.detached(priority: .userInitiated) {
+            try JSONDecoder().decode([BookChapter].self, from: Data(contentsOf: url, options: .mappedIfSafe))
+        }.value
+        try Task.checkCancellation()
+        guard book(id) != nil, !chapters.isEmpty else { throw ChatError.server("书架里没有这本书的正文，请重新导入原书。") }
+        cachedChapters = (id, chapters)
+        return chapters
+    }
+
+    func discussionIndex(_ id: UUID) async throws -> BookDiscussionIndex {
         if let cache = cachedDiscussion, cache.id == id { return cache.index }
-        let chapters = chapters(of: id)
+        let chapters = try await readerChapters(id)
         let index = await Task.detached(priority: .userInitiated) { BookDiscussionIndex(bookID: id, chapters: chapters) }.value
+        try Task.checkCancellation()
+        guard book(id) != nil else { throw CancellationError() }
         cachedDiscussion = (id, index)
         return index
     }
@@ -420,6 +434,7 @@ final class BookStore: ObservableObject {
                         try json.write(to: target, options: [.atomic, .completeFileProtectionUntilFirstUserAuthentication])
                     }.value
                 }
+                cachedDiscussion = nil; cachedParagraphs = nil; cachedDialogue.removeValue(forKey: reconnected.id)
                 cachedChapters = (reconnected.id, prepared.chapters)
                 guard save(reconnected) else { return nil }
                 return reconnected.id
@@ -573,8 +588,8 @@ final class BookStore: ObservableObject {
         save(book)
     }
 
-    func addReaderMark(chapter: Int, paragraph: Int, excerpt: String, in id: UUID) {
-        guard var book = self.book(id), book.chapterTitles.indices.contains(chapter) else { return }
+    @discardableResult func addReaderMark(chapter: Int, paragraph: Int, excerpt: String, in id: UUID) -> Bool {
+        guard var book = self.book(id), book.chapterTitles.indices.contains(chapter), paragraph >= 0, !excerpt.isEmpty else { return false }
         var marks = book.readerMarks ?? []
         if let existing = marks.firstIndex(where: { $0.chapter == chapter && $0.paragraph == paragraph }) {
             marks[existing].createdAt = Date()
@@ -582,7 +597,7 @@ final class BookStore: ObservableObject {
             marks.append(ReaderSavedMark(chapter: chapter, paragraph: paragraph, excerpt: String(excerpt.prefix(150))))
         }
         book.readerMarks = marks
-        _ = save(book)
+        return save(book)
     }
 
     func deleteReaderMark(_ markID: UUID, in id: UUID) {
