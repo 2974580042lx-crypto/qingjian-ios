@@ -77,8 +77,10 @@ final class AppPersistence: @unchecked Sendable {
             let drasticByteDrop = oldSize > 100 * 1024 && data.count * 5 < oldSize
             let drasticThreadDrop = lastNonEmptyThreadCount >= 1 && newNonEmpty == 0
             if drasticByteDrop || drasticThreadDrop {
-                _ = try? createSafetyCopy(prefix: "before-shrink", keep: 5)
-                throw ChatError.server("检测到对话记录异常骤减，原文件已保护在 Safety 目录并停止覆盖。")
+                let copy = try? createSafetyCopy(prefix: "before-shrink", keep: 5)
+                throw ChatError.server(copy == nil
+                    ? "对话记录异常减少，已停止覆盖原文件。未能创建安全副本。"
+                    : "对话记录异常减少，已保留原文件，并在 Safety 目录创建了副本。")
             }
         }
         try data.write(to: file, options: Self.atomicWriteOptions)

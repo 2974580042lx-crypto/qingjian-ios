@@ -8,10 +8,11 @@ enum ChatCameraPicker {
 
     @discardableResult
     static func present(
+        window: UIWindow?,
         onError: @escaping (String) -> Void,
         picked: @escaping (UIImage) -> Void
     ) -> Bool {
-        if let open = current, open.picker?.presentingViewController == nil {
+        if let open = current, !SystemPickerPresentation.isWaiting(open.picker), open.picker?.presentingViewController == nil {
             current = nil
         }
         guard current == nil else {
@@ -22,22 +23,6 @@ enum ChatCameraPicker {
             onError("当前设备没有可用相机，请直接选择「照片」。")
             return false
         }
-        let scenes = UIApplication.shared.connectedScenes
-            .compactMap { $0 as? UIWindowScene }
-            .filter { $0.activationState == .foregroundActive }
-        let window = scenes.flatMap(\.windows).first(where: \.isKeyWindow)
-        var visible = window?.rootViewController
-        while let presented = visible?.presentedViewController {
-            visible = presented
-        }
-        guard let presenter = visible,
-              presenter.viewIfLoaded?.window != nil,
-              !presenter.isBeingPresented,
-              !presenter.isBeingDismissed else {
-            onError("当前界面正在切换，请稍后再打开相机。")
-            return false
-        }
-
         let picker = UIImagePickerController()
         picker.sourceType = .camera
         picker.mediaTypes = ["public.image"]
@@ -47,9 +32,10 @@ enum ChatCameraPicker {
         coordinator.picker = picker
         picker.delegate = coordinator
         current = coordinator
-        presenter.view.endEditing(true)
-        presenter.present(picker, animated: true)
-        return true
+        return SystemPickerPresentation.open(picker, window: window, onError: { issue in
+            if current === coordinator { current = nil }
+            onError(issue)
+        })
     }
 
     @MainActor
@@ -101,6 +87,7 @@ struct AddToChatSheet: View {
     @Environment(\.dismiss) private var dismiss
 
     let threadID: UUID
+    let dismissThen: (@escaping () -> Void) -> Void
     let remainingPhotoSlots: Int
     let showsSystemPromptControl: Bool
     let systemPromptTitle: String
@@ -923,13 +910,6 @@ struct AddToChatSheet: View {
 
     // MARK: - Actions & PhotosKit Helpers
 
-    private func dismissThen(_ action: @escaping () -> Void) {
-        dismiss()
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.28) {
-            action()
-        }
-    }
-
     private func assignToProject(_ projectID: UUID?) {
         let applyMove = {
             if store.canChooseProject && store.activeThreadID == threadID {
@@ -992,15 +972,9 @@ struct AddToChatSheet: View {
 
         var items: [RecentPhotoItem] = []
         let manager = PHImageManager.default()
-        let reqOptions = PHImageRequestOptions()
-        reqOptions.deliveryMode = .opportunistic
-        reqOptions.isSynchronous = false
-        reqOptions.isNetworkAccessAllowed = true
-        reqOptions.resizeMode = .fast
-
         for i in 0..<fetched.count {
             let asset = fetched.object(at: i)
-            if let thumb = await requestThumbnail(manager: manager, asset: asset, options: reqOptions) {
+            if let thumb = await requestThumbnail(manager: manager, asset: asset) {
                 items.append(RecentPhotoItem(id: asset.localIdentifier, asset: asset, thumbnail: thumb))
             }
         }
@@ -1017,8 +991,7 @@ struct AddToChatSheet: View {
 
     private func requestThumbnail(
         manager: PHImageManager,
-        asset: PHAsset,
-        options: PHImageRequestOptions
+        asset: PHAsset
     ) async -> UIImage? {
         let singleShot = PHImageRequestOptions()
         singleShot.deliveryMode = .highQualityFormat

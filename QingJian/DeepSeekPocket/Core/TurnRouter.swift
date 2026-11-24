@@ -67,12 +67,15 @@ enum TurnRouter {
     static func localPlan(_ text: String, context: Context) -> TurnPlan? {
         let clean = text.trimmingCharacters(in: .whitespacesAndNewlines)
         let lower = clean.lowercased()
-        if toolWords.contains(where: { lower.contains($0) }) { return .fullTools }
-        if !WebText.extractURLs(from: clean).isEmpty {
+        if context.offersTools, toolWords.contains(where: { lower.contains($0) }) { return .fullTools }
+        if (context.webAllowed || context.offersTools), !WebText.extractURLs(from: clean).isEmpty {
             return context.webAllowed ? TurnPlan(web: true, webQuery: clean) : .fullTools
         }
         if context.hasChats, recallWords.contains(where: { clean.contains($0) }) {
             return nil // worth a model call: it picks the keywords to search for
+        }
+        if context.skills.contains(where: { !$0.name.isEmpty && clean.localizedCaseInsensitiveContains($0.name) }) {
+            return nil
         }
         // Short everyday lines ("哈哈", "好的", "晚安") need nothing.
         if clean.count <= 6 && !seekingWords.contains(where: { clean.contains($0) }) { return .plain }

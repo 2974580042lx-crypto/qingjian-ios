@@ -32,6 +32,14 @@ final class TurnRouterTests: XCTestCase {
         XCTAssertEqual(TurnRouter.localPlan(text, context: context(text, web: false)), .fullTools)
     }
 
+    func testNamedRoutineAndProjectLookupSurviveFastPath() {
+        var ctx = context("按周报来", docs: true)
+        ctx.offersTools = false
+        ctx.skills = [.init(name: "周报", hint: "周报模板")]
+        XCTAssertNil(TurnRouter.localPlan(ctx.latest, context: ctx))
+        XCTAssertNil(TurnRouter.localPlan("查一下项目文档", context: ctx))
+    }
+
     func testLookingBackAsksTheRouterOnlyWhenThereAreChats() {
         let text = "我们上次说到哪了"
         XCTAssertNil(TurnRouter.localPlan(text, context: context(text, chats: true)))

@@ -69,13 +69,12 @@ final class StudyMemoryStore: @unchecked Sendable {
                 let sp = "sp_\(transactionDepth)"
                 try executeSQL("SAVEPOINT \(sp)")
                 transactionDepth += 1
+                defer { transactionDepth -= 1 }
                 do {
                     let result = try body()
-                    transactionDepth -= 1
                     try executeSQL("RELEASE SAVEPOINT \(sp)")
                     return result
                 } catch {
-                    transactionDepth -= 1
                     try? executeSQL("ROLLBACK TO SAVEPOINT \(sp)")
                     try? executeSQL("RELEASE SAVEPOINT \(sp)")
                     throw error

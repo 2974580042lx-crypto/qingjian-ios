@@ -75,14 +75,6 @@ struct ContentView: View {
             if open { store.refreshBalance() }
         }
         .sheet(isPresented: $showSettings) { SettingsView().environmentObject(store).environmentObject(profile) }
-        .alert("提示", isPresented: Binding(
-            get: { !showSettings && store.noticeMessage != nil },
-            set: { if !$0 { store.noticeMessage = nil } }
-        )) {
-            Button("知道了") { store.noticeMessage = nil }
-        } message: {
-            Text(store.noticeMessage ?? "")
-        }
         .sheet(item: Binding(get: { showSettings ? nil : store.unifiedRestorePreview }, set: { store.unifiedRestorePreview = $0 })) { preview in
             UnifiedRestorePreviewSheet(preview: preview)
                 .environmentObject(store)
@@ -200,23 +192,11 @@ enum ChatPhotoPicker {
     private static var current: Coordinator?
 
     @discardableResult
-    static func present(limit: Int, onError: @escaping (String) -> Void,
+    static func present(limit: Int, window: UIWindow?, onError: @escaping (String) -> Void,
                         picked: @escaping ([PHPickerResult]) -> Void) -> Bool {
         // A picker that never appeared (or vanished unannounced) must not block the next tap.
-        if let open = current, open.picker?.presentingViewController == nil { current = nil }
+        if let open = current, !SystemPickerPresentation.isWaiting(open.picker), open.picker?.presentingViewController == nil { current = nil }
         guard current == nil else { onError("相册已打开，请先完成当前选择。"); return false }
-        let scenes = UIApplication.shared.connectedScenes.compactMap { $0 as? UIWindowScene }
-            .filter { $0.activationState == .foregroundActive }
-        let window = scenes.flatMap(\.windows).first(where: \.isKeyWindow)
-        var visible = window?.rootViewController
-        while let presented = visible?.presentedViewController { visible = presented }
-        guard let presenter = visible, presenter.viewIfLoaded?.window != nil,
-              !presenter.isBeingPresented, !presenter.isBeingDismissed,
-              !(presenter is UIAlertController), !(presenter is UIDocumentPickerViewController),
-              !(presenter is PHPickerViewController) else {
-            onError("当前界面正在切换，请关闭其他弹窗后再选择图片。")
-            return false
-        }
         var config = PHPickerConfiguration(photoLibrary: .shared())
         config.filter = .images
         config.selectionLimit = max(1, min(4, limit))
@@ -229,9 +209,10 @@ enum ChatPhotoPicker {
         picker.modalPresentationStyle = .pageSheet
         picker.presentationController?.delegate = coordinator
         current = coordinator
-        presenter.view.endEditing(true)
-        presenter.present(picker, animated: true) { picker.presentationController?.delegate = coordinator }
-        return true
+        return SystemPickerPresentation.open(picker, window: window, onError: { issue in
+            if current === coordinator { current = nil }
+            onError(issue)
+        }) { picker.presentationController?.delegate = coordinator }
     }
 
     static func loadData(_ provider: NSItemProvider) async throws -> Data {
@@ -375,6 +356,9 @@ struct ChatScreen: View {
     @State private var previewingDocument: DocumentPreviewTarget?
     @State private var attachmentReport: String?
     @State private var showAddToChatSheet = false
+    @State private var afterAttachmentDismissal: (() -> Void)?
+    @State private var pickerAnchor = PickerWindowAnchor()
+    @State private var reportDetails: String?
     @State private var agentTimelineTarget: AgentTimelineTarget?
     @State private var showWorkspaceSheet = false
     @State private var selectedDeliverable: ProjectDeliverable?
@@ -636,6 +620,9 @@ struct ChatScreen: View {
     private var composerLayoutSignature: Int {
         var hasher = Hasher()
         hasher.combine(composerHeightBucket)
+        hasher.combine(attachmentReport)
+        hasher.combine(store.noticeMessage)
+        hasher.combine(store.composerNotice?.id)
         hasher.combine(pendingImages.count)
         hasher.combine(pendingDocuments.count)
         hasher.combine(quotingMessage != nil)
@@ -790,7 +777,7 @@ struct ChatScreen: View {
         }
     }
 
-    var body: some View { chatWithAlerts }
+    var body: some View { chatWithAlerts.background(PickerWindowReader(anchor: pickerAnchor)) }
 
     // Separate opaque view expressions keep type checking bounded. State remains
     // on ChatScreen, and the transcript preference stays inside its hosting tree.
@@ -1062,10 +1049,23 @@ struct ChatScreen: View {
             )
             .environmentObject(store)
         }
-        .sheet(isPresented: $showAddToChatSheet) {
+        .sheet(isPresented: $showAddToChatSheet, onDismiss: {
+            let action = afterAttachmentDismissal
+            afterAttachmentDismissal = nil
+            action?()
+        }) {
             let activeID = store.activeThreadID ?? store.threads.first?.id ?? UUID()
             AddToChatSheet(
                 threadID: activeID,
+                dismissThen: { action in
+                    guard showAddToChatSheet, afterAttachmentDismissal == nil else { return }
+                    afterAttachmentDismissal = {
+                        guard store.activeThreadID == activeID, let thread = store.activeThread,
+                              !store.isHidden(thread) else { return }
+                        action()
+                    }
+                    showAddToChatSheet = false
+                },
                 remainingPhotoSlots: max(0, 4 - pendingImages.count),
                 showsSystemPromptControl: showsSystemPromptControl,
                 systemPromptTitle: store.systemPromptTitle(for: store.activeThread),
@@ -1073,7 +1073,7 @@ struct ChatScreen: View {
                 onPickPhotos: { choosePhotos() },
                 onPickFiles: { chooseDocuments() },
                 onAttachPreparedImage: { data, preview in
-                    guard pendingImages.count < 4 else { return }
+                    guard store.activeThreadID == activeID, let thread = store.activeThread, !store.isHidden(thread), pendingImages.count < 4 else { return }
                     pendingImages.append(PendingImage(data: data, preview: preview))
                 },
                 onPasteClipboard: { pasteFromClipboard() },
@@ -1103,9 +1103,9 @@ struct ChatScreen: View {
 
     private var chatWithInput: some View {
         chatWithToolSheets
-        .alert("附件处理结果", isPresented: Binding(get: { attachmentReport != nil }, set: { if !$0 { attachmentReport = nil } })) {
-            Button("知道了") { attachmentReport = nil }
-        } message: { Text(attachmentReport ?? "") }
+        .alert("详情", isPresented: Binding(get: { reportDetails != nil }, set: { if !$0 { reportDetails = nil } })) {
+            Button("完成") { reportDetails = nil }
+        } message: { Text(reportDetails ?? "") }
     }
 
     private var chatWithAlerts: some View {
@@ -1537,7 +1537,7 @@ struct ChatScreen: View {
         guard remaining > 0 else { attachmentReport = "一次最多添加 4 张图片。"; return }
         focusComposer(false)
         choosingPhotos = true
-        let shown = ChatPhotoPicker.present(limit: remaining, onError: { issue in
+        let shown = ChatPhotoPicker.present(limit: remaining, window: pickerAnchor.window, onError: { issue in
             choosingPhotos = false; attachmentReport = issue
         }) { results in
             choosingPhotos = false
@@ -1601,7 +1601,7 @@ struct ChatScreen: View {
         let origin = thread.id
         focusComposer(false)
         choosingFiles = true
-        let shown = DocumentPicker.presentMany(DocumentTextImporter.allowedContentTypes, asCopy: true,
+        let shown = DocumentPicker.presentMany(DocumentTextImporter.allowedContentTypes, asCopy: true, window: pickerAnchor.window,
             onCancel: { choosingFiles = false },
             onError: { issue in choosingFiles = false; attachmentReport = issue }) { urls in
                 choosingFiles = false
@@ -1639,6 +1639,10 @@ struct ChatScreen: View {
                 do {
                     let imported = try await DocumentTextImporter.load(url, apiKey: store.apiKey)
                     try Task.checkCancellation()
+                    guard let target = store.threads.first(where: { $0.id == origin }), !store.isHidden(target) else {
+                        details.append("原对话已删除或上锁，文件没有加入其他对话。")
+                        break
+                    }
                     let doc = PendingDocument(
                         name: imported.name,
                         fileExtension: url.pathExtension.lowercased(),
@@ -1717,7 +1721,7 @@ struct ChatScreen: View {
             return
         }
         focusComposer(false)
-        _ = ChatCameraPicker.present(onError: { issue in
+        _ = ChatCameraPicker.present(window: pickerAnchor.window, onError: { issue in
             attachmentReport = issue
         }) { captured in
             Task { @MainActor in
@@ -1948,6 +1952,14 @@ struct ChatScreen: View {
         let steerDraft = localDraft.trimmingCharacters(in: .whitespacesAndNewlines)
         let canSteerCurrentRun = isCurrentGenerating && !steerDraft.isEmpty && pendingImages.isEmpty && pendingDocuments.isEmpty
         return VStack(spacing: 8) {
+            if let notice = store.noticeMessage {
+                ComposerNoticeBar(text: notice, actionTitle: "详情", action: { reportDetails = notice },
+                                  dismiss: { store.noticeMessage = nil })
+            }
+            if let report = attachmentReport {
+                ComposerNoticeBar(text: report, actionTitle: "详情", action: { reportDetails = report },
+                                  dismiss: { attachmentReport = nil })
+            }
             if let approval = store.pendingApproval {
                 if approval.threadID == store.activeThreadID {
                     InlineToolApprovalCard(approval: approval) { store.resolveApproval($0) }

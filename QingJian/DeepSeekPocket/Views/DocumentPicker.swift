@@ -1,5 +1,72 @@
+import SwiftUI
+import PhotosUI
 import UIKit
 import UniformTypeIdentifiers
+
+@MainActor
+final class PickerWindowAnchor {
+    weak var view: UIView?
+    var window: UIWindow? { view?.window }
+}
+
+struct PickerWindowReader: UIViewRepresentable {
+    let anchor: PickerWindowAnchor
+    func makeUIView(context: Context) -> UIView {
+        let view = UIView()
+        view.isUserInteractionEnabled = false
+        anchor.view = view
+        return view
+    }
+    func updateUIView(_ uiView: UIView, context: Context) {}
+}
+
+@MainActor
+enum SystemPickerPresentation {
+    private static weak var waiting: UIViewController?
+
+    static func isWaiting(_ picker: UIViewController?) -> Bool {
+        picker != nil && waiting === picker
+    }
+
+    @discardableResult
+    static func open(_ picker: UIViewController, window anchor: UIWindow? = nil,
+                     onError: @escaping (String) -> Void, shown: @escaping () -> Void = {}) -> Bool {
+        guard waiting == nil else { onError("选择器正在打开，请稍候。"); return false }
+        // Sermo declares single-scene support. Prefer the actual chat host for composer actions.
+        let windows = UIApplication.shared.connectedScenes.compactMap { $0 as? UIWindowScene }
+            .filter { $0.activationState == .foregroundActive }.flatMap(\.windows)
+            .filter { !$0.isHidden && $0.windowLevel == .normal && $0.rootViewController?.viewIfLoaded?.window != nil }
+        guard let window = anchor ?? windows.first(where: \.isKeyWindow) ?? windows.first else {
+            onError("找不到当前页面，请返回后重试。")
+            return false
+        }
+        waiting = picker
+        Task { @MainActor in
+            defer { if waiting === picker { waiting = nil } }
+            // Menu and sheet transitions can briefly overlap. Never present on a dismissing host.
+            let clock = ContinuousClock()
+            let deadline = clock.now.advanced(by: .seconds(2))
+            while clock.now < deadline, window.windowScene?.activationState == .foregroundActive {
+                guard var top = window.rootViewController else { break }
+                while let next = top.presentedViewController { top = next }
+                if !top.isBeingPresented, !top.isBeingDismissed, top.transitionCoordinator == nil,
+                   top.viewIfLoaded?.window === window {
+                    guard !(top is UIAlertController || top is UIDocumentPickerViewController ||
+                            top is PHPickerViewController || top is UIImagePickerController) else {
+                        onError("请先完成或取消当前选择。")
+                        return
+                    }
+                    top.present(picker, animated: true, completion: shown)
+                    if picker.presentingViewController == nil { onError("系统选择器未能打开，请重试。") }
+                    return
+                }
+                try? await Task.sleep(for: .milliseconds(40))
+            }
+            onError("页面已离开或暂时无法打开选择器，请重试。")
+        }
+        return true
+    }
+}
 
 // Presents the system file picker straight from UIKit. SwiftUI's .fileImporter
 // does not nest: inside Settings, which already has one for .json backups, a
@@ -23,10 +90,10 @@ enum DocumentPicker {
     // With multiple selection the picker shows a circle on every file and a confirm
     // button, which is what people expect; a single-file tap did not pick on every system.
     @discardableResult
-    static func presentMany(_ types: [UTType], asCopy: Bool = false,
+    static func presentMany(_ types: [UTType], asCopy: Bool = false, window: UIWindow? = nil,
                             onCancel: (() -> Void)? = nil, onError: ((String) -> Void)? = nil,
                             pick: @escaping ([URL]) -> Void) -> Bool {
-        show(types, asCopy: asCopy, multiple: true, onCancel: onCancel, onError: onError, pick: pick)
+        show(types, asCopy: asCopy, multiple: true, window: window, onCancel: onCancel, onError: onError, pick: pick)
     }
 
     // A folder is chosen with the tick beside it plus 「打开」, the same way as files. In
@@ -46,93 +113,34 @@ enum DocumentPicker {
     static func presentExport(_ fileURL: URL, onCancel: (() -> Void)? = nil,
                               onError: ((String) -> Void)? = nil,
                               onSaved: ((URL) -> Void)? = nil) -> Bool {
-        if let open = current, open.picker == nil || (open.picker?.presentingViewController == nil && open.picker?.isBeingPresented == false) {
-            current = nil
-            open.cancel?()
+        let picker = UIDocumentPickerViewController(forExporting: [fileURL], asCopy: true)
+        return open(picker, onCancel: onCancel, onError: onError) { urls in
+            if let url = urls.first { onSaved?(url) }
         }
-        guard current == nil else { onError?("文件选择器已经打开，请先完成或取消当前选择。"); return false }
-        let presentBlock: @MainActor (UIViewController) -> Void = { top in
-            let coordinator = Coordinator(pick: { urls in
-                if let saved = urls.first { onSaved?(saved) }
-            }, cancel: onCancel)
-            let picker = UIDocumentPickerViewController(forExporting: [fileURL], asCopy: true)
-            picker.delegate = coordinator
-            picker.shouldShowFileExtensions = true
-            coordinator.picker = picker
-            current = coordinator
-            top.view.endEditing(true)
-            top.present(picker, animated: true) {
-                coordinator.startDismissWatchdog()
-            }
-        }
-        if let top = topViewController(), top.viewIfLoaded?.window != nil, !top.isBeingPresented, !top.isBeingDismissed {
-            presentBlock(top)
-            return true
-        }
-        Task { @MainActor in
-            try? await Task.sleep(for: .milliseconds(180))
-            guard current == nil, let top = topViewController(), top.viewIfLoaded?.window != nil,
-                  !top.isBeingPresented, !top.isBeingDismissed else {
-                onCancel?()
-                onError?("当前页面还在切换，暂时无法打开文件选择器，请稍后再试。")
-                return
-            }
-            presentBlock(top)
-        }
-        return true
     }
 
-    private static func show(_ types: [UTType], asCopy: Bool, multiple: Bool,
+    private static func show(_ types: [UTType], asCopy: Bool, multiple: Bool, window: UIWindow? = nil,
                              onCancel: (() -> Void)?, onError: ((String) -> Void)?,
                              pick: @escaping ([URL]) -> Void) -> Bool {
-        if let open = current, open.picker == nil || (open.picker?.presentingViewController == nil && open.picker?.isBeingPresented == false) {
-            current = nil
-            open.cancel?()
-        }
-        guard current == nil else { onError?("文件选择器已经打开，请先完成或取消当前选择。"); return false }
-        if let top = topViewController(), top.viewIfLoaded?.window != nil, !top.isBeingPresented, !top.isBeingDismissed {
-            presentNow(on: top, types: types, asCopy: asCopy, multiple: multiple, onCancel: onCancel, pick: pick)
-            return true
-        }
-        // When triggered from a Menu item, the context menu's dismissal is still in flight for ~150ms.
-        Task { @MainActor in
-            try? await Task.sleep(for: .milliseconds(180))
-            guard current == nil, let top = topViewController(), top.viewIfLoaded?.window != nil,
-                  !top.isBeingPresented, !top.isBeingDismissed else {
-                onCancel?()
-                onError?("当前页面还在切换，暂时无法打开文件选择器，请稍后再试。")
-                return
-            }
-            presentNow(on: top, types: types, asCopy: asCopy, multiple: multiple, onCancel: onCancel, pick: pick)
-        }
-        return true
-    }
-
-    private static func presentNow(on top: UIViewController, types: [UTType], asCopy: Bool, multiple: Bool,
-                                   onCancel: (() -> Void)?, pick: @escaping ([URL]) -> Void) {
-        let coordinator = Coordinator(pick: pick, cancel: onCancel)
         let picker = UIDocumentPickerViewController(forOpeningContentTypes: types, asCopy: asCopy)
         picker.allowsMultipleSelection = multiple
-        picker.delegate = coordinator
-        picker.shouldShowFileExtensions = true
-        coordinator.picker = picker
-        current = coordinator
-        top.view.endEditing(true)
-        top.present(picker, animated: true) {
-            coordinator.startDismissWatchdog()
-        }
+        return open(picker, window: window, onCancel: onCancel, onError: onError, pick: pick)
     }
 
-    private static func topViewController() -> UIViewController? {
-        let scenes = UIApplication.shared.connectedScenes
-            .filter { $0.activationState == .foregroundActive || $0.activationState == .foregroundInactive }
-            .compactMap { $0 as? UIWindowScene }
-        let window = scenes.flatMap(\.windows).first(where: \.isKeyWindow) ?? scenes.flatMap(\.windows).first
-        var top = window?.rootViewController
-        while let next = top?.presentedViewController, !next.isBeingDismissed {
-            top = next
-        }
-        return top
+    private static func open(_ picker: UIDocumentPickerViewController, window: UIWindow? = nil,
+                             onCancel: (() -> Void)?, onError: ((String) -> Void)?,
+                             pick: @escaping ([URL]) -> Void) -> Bool {
+        guard current == nil else { onError?("文件选择器已经打开。"); return false }
+        let coordinator = Coordinator(pick: pick, cancel: onCancel)
+        coordinator.picker = picker
+        picker.delegate = coordinator
+        picker.shouldShowFileExtensions = true
+        current = coordinator
+        return SystemPickerPresentation.open(picker, window: window, onError: { issue in
+            if current === coordinator { current = nil }
+            onCancel?()
+            onError?(issue)
+        }) { coordinator.startDismissWatchdog() }
     }
 
     @MainActor private final class Coordinator: NSObject, UIDocumentPickerDelegate {

@@ -50,9 +50,9 @@ extension AppStore {
             try? await Task.sleep(nanoseconds: 15_000_000_000)
             work.cancel()
         }
-        let plan = await work.value
+        let plan = await withTaskCancellationHandler { await work.value } onCancel: { work.cancel() }
         watchdog.cancel()
-        return plan ?? .fullTools
+        return plan ?? (context.offersTools ? .fullTools : .plain)
     }
 
     /// Looks a question up in the project's material on the device and returns a note with the

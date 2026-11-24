@@ -1,6 +1,25 @@
 import XCTest
 
 final class NavigationUITests: XCTestCase {
+    @MainActor func testAttachmentPickersReopenAfterCancellation() {
+        let app = XCUIApplication()
+        app.launchArguments = ["--ui-preview", "--preview-empty", "-AppleLanguages", "(en)", "-AppleLocale", "en_US"]
+        app.launch()
+        let add = app.buttons["chat-attachments"]
+        for id in ["chat-add-photos", "chat-add-document", "chat-add-photos"] {
+            XCTAssertTrue(add.waitForExistence(timeout: 8))
+            add.tap()
+            let action = app.buttons[id]
+            XCTAssertTrue(action.waitForExistence(timeout: 5))
+            action.tap()
+            let cancel = app.buttons.matching(NSPredicate(format: "label IN %@", ["Cancel", "Close", "取消", "关闭"])).firstMatch
+            XCTAssertTrue(cancel.waitForExistence(timeout: 12), "Expected system picker for " + id)
+            XCTAssertFalse(app.alerts.firstMatch.exists)
+            cancel.tap()
+            XCTAssertTrue(add.waitForExistence(timeout: 8))
+        }
+    }
+
     @MainActor func testFontChangeKeepsSettingsAndUnsavedPrompt() throws {
         let app = XCUIApplication()
         app.launchArguments = ["--ui-preview", "--preview-settings", "-AppleLanguages", "(zh-Hans)", "-AppleLocale", "zh_CN"]
