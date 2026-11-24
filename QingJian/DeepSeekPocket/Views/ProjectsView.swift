@@ -24,9 +24,7 @@ enum ProjectLock {
 
 private extension View {
     func errorAlert(_ store: AppStore) -> some View {
-        alert("暂时没有完成", isPresented: Binding(get: { store.errorMessage != nil }, set: { if !$0 { store.errorMessage = nil } })) {
-            Button("知道了") { store.errorMessage = nil }
-        } message: { Text(store.errorMessage ?? "") }
+        inlineFeedback(store.errorMessage) { store.errorMessage = nil }
     }
 }
 
@@ -105,11 +103,7 @@ struct ProjectsView: View {
                 }
             }
             .navigationDestination(for: UUID.self) { id in ProjectPageView(projectID: id, opened: opened) }
-            .alert("新建项目", isPresented: $creating) {
-                TextField("项目名称", text: $newName)
-                Button("取消", role: .cancel) { }
-                Button("创建") { if let id = store.createProject(name: newName) { path.append(id) } }
-            }
+            .inlineName("新建项目", shown: $creating, text: $newName, placeholder: "项目名称", submit: "创建") { if let id = store.createProject(name: newName) { path.append(id) } }
             .sheet(isPresented: $designing) {
                 ProjectDesignerView(projectID: nil) { id in path.append(id) }.environmentObject(store)
             }
@@ -1237,11 +1231,7 @@ struct AllChatsView: View {
                     }
                 }
             }
-            .alert("新建项目", isPresented: $naming) {
-                TextField("项目名称", text: $newName)
-                Button("取消", role: .cancel) { }
-                Button("创建并移入") { if let id = store.createProject(name: newName) { move(to: id) } }
-            }
+            .inlineName("新建项目", shown: $naming, text: $newName, placeholder: "项目名称", submit: "创建并移入") { if let id = store.createProject(name: newName) { move(to: id) } }
             .confirmationDialog("删除选中的 \(selection.count) 个对话？", isPresented: $confirmDelete, titleVisibility: .visible) {
                 Button("删除", role: .destructive) {
                     let deletable = selection.filter { $0 != store.generatingThreadID }

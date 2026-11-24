@@ -28,17 +28,23 @@ enum MarkdownBlock: Equatable, Sendable {
     // While an answer streams, every new token used to re-read the whole answer line by
     // line. Finished paragraphs are now remembered, so only the one being written is
     // parsed again; a long answer no longer gets slower as it grows.
-    nonisolated(unsafe) private static var chunkCache: [String: [MarkdownBlock]] = [:]
-    private static let chunkLock = NSLock()
+    private final class CachedChunk: NSObject {
+        let blocks: [MarkdownBlock]
+        init(_ blocks: [MarkdownBlock]) { self.blocks = blocks }
+    }
+    nonisolated(unsafe) private static let chunkCache: NSCache<NSString, CachedChunk> = {
+        let cache = NSCache<NSString, CachedChunk>()
+        cache.countLimit = 600
+        cache.totalCostLimit = 4 * 1024 * 1024
+        return cache
+    }()
     private static func cachedChunk(_ chunk: String) -> [MarkdownBlock] {
-        chunkLock.lock()
-        if let hit = chunkCache[chunk] { chunkLock.unlock(); return hit }
-        chunkLock.unlock()
+        let size = chunk.utf8.count
+        guard size <= 32 * 1024 else { return parseChunk(chunk) }
+        let key = chunk as NSString
+        if let hit = chunkCache.object(forKey: key) { return hit.blocks }
         let parsed = parseChunk(chunk)
-        chunkLock.lock()
-        if chunkCache.count > 600 { chunkCache.removeAll(keepingCapacity: true) }
-        chunkCache[chunk] = parsed
-        chunkLock.unlock()
+        chunkCache.setObject(CachedChunk(parsed), forKey: key, cost: size * 2)
         return parsed
     }
 

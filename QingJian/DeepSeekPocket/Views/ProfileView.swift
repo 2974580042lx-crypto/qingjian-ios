@@ -156,9 +156,7 @@ struct ProfileEditor: View {
                     avatar = try ProfileStore.thumbnail(data)
                 } catch { if !Task.isCancelled { loadError = error.localizedDescription } }
             }
-            .alert("暂时没有完成", isPresented: Binding(get: { loadError != nil || profile.error != nil }, set: { if !$0 { loadError = nil; profile.error = nil } })) {
-                Button("知道了") { loadError = nil; profile.error = nil }
-            } message: { Text(loadError ?? profile.error ?? "") }
+            .inlineFeedback(loadError ?? profile.error) { loadError = nil; profile.error = nil }
         }
     }
 }

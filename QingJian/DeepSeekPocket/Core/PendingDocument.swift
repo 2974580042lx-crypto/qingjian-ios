@@ -1,7 +1,7 @@
 import Foundation
 
 /// A file staged above the chat composer without occupying the text input box.
-struct PendingDocument: Identifiable, Equatable, Sendable {
+struct PendingDocument: Identifiable, Codable, Equatable, Sendable {
     let id: UUID
     let name: String
     let fileExtension: String

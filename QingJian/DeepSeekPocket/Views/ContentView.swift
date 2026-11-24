@@ -167,7 +167,7 @@ struct ContentView: View {
 }
 
 struct PendingImage: Identifiable {
-    let id = UUID()
+    var id = UUID()
     let data: Data
     let preview: UIImage
 }
@@ -351,6 +351,30 @@ struct ChatScreen: View {
     @State private var showVoiceDictationSheet = false
     private var loadingPhotos: Bool { photoLoadThreadID == store.activeThreadID && photoLoadThreadID != nil }
     private var attachmentBusy: Bool { choosingFiles || choosingPhotos || fileImportThreadID != nil || photoLoadThreadID != nil }
+    private func saveAttachments(_ id: UUID) {
+        guard let thread = store.threads.first(where: { $0.id == id }), !store.isHidden(thread) else { return }
+        let images = (imagesByThread[id] ?? []).map { AttachmentDraft.Image(id: $0.id, jpeg: $0.data) }
+        store.stageAttachments(AttachmentDraft(lastUserMessage: thread.messages.last(where: { $0.role == .user })?.id,
+                                               images: images, documents: documentsByThread[id] ?? []), in: thread)
+    }
+
+    private func restoreAttachments() {
+        guard let thread = store.activeThread, !store.isHidden(thread),
+              imagesByThread[thread.id] == nil, documentsByThread[thread.id] == nil,
+              let saved = store.recoverAttachments(thread) else { return }
+        imagesByThread[thread.id] = saved.images.compactMap {
+            guard let preview = UIImage(data: $0.jpeg) else { return nil }
+            return PendingImage(id: $0.id, data: $0.jpeg, preview: preview)
+        }
+        documentsByThread[thread.id] = saved.documents
+    }
+
+    private func clearSentAttachments() {
+        guard let id = store.activeThreadID else { return }
+        imagesByThread[id] = nil
+        documentsByThread[id] = nil
+    }
+
     private var pendingImages: [PendingImage] {
         get {
             guard let thread = store.activeThread, !store.isHidden(thread) else { return [] }
@@ -359,6 +383,7 @@ struct ChatScreen: View {
         nonmutating set {
             guard let id = store.activeThreadID else { return }
             imagesByThread[id] = newValue
+            saveAttachments(id)
         }
     }
     private var pendingDocuments: [PendingDocument] {
@@ -369,6 +394,7 @@ struct ChatScreen: View {
         nonmutating set {
             guard let id = store.activeThreadID else { return }
             documentsByThread[id] = newValue
+            saveAttachments(id)
         }
     }
     @State private var renaming = false
@@ -469,6 +495,7 @@ struct ChatScreen: View {
     }
     @State private var scrollBox = TranscriptScrollBox()
     @State private var bottomObstruction: CGFloat = 0
+    @State private var roundsByMessage: [UUID: Int] = [:]
     @State private var visibleMessageCount = 40
     @State private var hasPositionedInitially = false
     @State private var lastAutoScrollAt = Date.distantPast
@@ -555,6 +582,7 @@ struct ChatScreen: View {
                     }
                     guard let preview = UIImage(data: jpeg) else { throw ChatError.server("图片无法预览。") }
                     imagesByThread[origin, default: []].append(PendingImage(data: jpeg, preview: preview))
+                    saveAttachments(origin)
                 } catch { attachmentReport = error.localizedDescription }
             }
         }
@@ -571,6 +599,7 @@ struct ChatScreen: View {
         pushDraft(localDraft, to: threadID)
     }
     private func loadDraft() {
+        restoreAttachments()
         draftThreadID = store.activeThreadID
         localDraft = store.activeDraft
         lastPushedDraft = localDraft
@@ -860,11 +889,7 @@ struct ChatScreen: View {
 
     private var chatWithConversationActions: some View {
         chatWithNavigation
-        .alert("重命名对话", isPresented: $renaming) {
-            TextField("对话名称", text: $renameText)
-            Button("取消", role: .cancel) { }
-            Button("保存") { if let id = store.activeThreadID { store.renameThread(id, title: renameText) } }
-        }
+        .inlineName("重命名对话", shown: $renaming, text: $renameText, placeholder: "对话名称", submit: "保存") { if let id = store.activeThreadID { store.renameThread(id, title: renameText) } }
         .sheet(isPresented: Binding(get: { exportURL != nil }, set: { if !$0 { exportURL = nil } }), onDismiss: {
             if let url = exportURL, url.path.hasPrefix(FileManager.default.temporaryDirectory.path) {
                 try? FileManager.default.removeItem(at: url)
@@ -898,6 +923,14 @@ struct ChatScreen: View {
             if timeReveal.offset != 0 { timeReveal.offset = 0 }
             if focused && shouldFollowOutput { scrollBox.scrollToBottom() }
         }
+        .onChange(of: store.unlockedProjectIDs) { _, _ in
+            if let thread = store.activeThread, store.isHidden(thread) { previewingDocument = nil }
+            restoreAttachments()
+        }
+        .onChange(of: store.attachmentThreadIDs) { old, new in
+            for id in old.subtracting(new) { imagesByThread[id] = nil; documentsByThread[id] = nil }
+            restoreAttachments()
+        }
         .onChange(of: sidebarOpen) { _, open in
             if open && timeReveal.offset != 0 { timeReveal.offset = 0 }
         }
@@ -910,7 +943,8 @@ struct ChatScreen: View {
             refreshContextStats()
             consumeIncomingChatTransfers()
         }
-        .onChange(of: store.activeThread?.messages.count) { _, _ in refreshContextStats() }
+        .onChange(of: store.activeThread?.messages.last?.id, initial: true) { _, _ in refreshRounds() }
+        .onChange(of: store.activeThread?.messages.count) { _, _ in refreshRounds(); refreshContextStats() }
         .onChange(of: store.isGenerating) { _, generating in if !generating { refreshContextStats() } }
         .onChange(of: store.compactingThreadID) { _, _ in refreshContextStats() }
         .onChange(of: store.activeChatSettings) { _, _ in refreshContextStats() }
@@ -928,6 +962,8 @@ struct ChatScreen: View {
             // Typing still waiting belongs to the chat you were in.
             draftPushTask?.cancel(); draftPushTask = nil
             if let old = draftThreadID, old != newID, store.draft(of: old) != localDraft { store.setDraft(localDraft, threadID: old) }
+            previewingDocument = nil
+            refreshRounds()
             loadDraft()
             refreshContextStats()
             store.speech.stop()
@@ -970,14 +1006,10 @@ struct ChatScreen: View {
         .sheet(isPresented: Binding(get: { storyPlayFor != nil }, set: { if !$0 { storyPlayFor = nil } })) {
             if let id = storyPlayFor { StoryPlaySheet(threadID: id).environmentObject(store) }
         }
-        .alert("保存剧情存档", isPresented: Binding(get: { checkpointMessage != nil }, set: { if !$0 { checkpointMessage = nil } })) {
-            TextField("名称，例如：赴宴之前", text: $checkpointName)
-            Button("取消", role: .cancel) { checkpointMessage = nil }
-            Button("保存") {
+        .inlineName("保存剧情存档", shown: Binding(get: { checkpointMessage != nil }, set: { if !$0 { checkpointMessage = nil } }), text: $checkpointName, placeholder: "名称，例如：赴宴之前", submit: "保存") {
                 if let id = store.activeThreadID { _ = store.saveStoryCheckpoint(threadID: id, through: checkpointMessage, name: checkpointName) }
                 checkpointMessage = nil; checkpointName = ""
             }
-        }
         .sheet(item: $bookEvidence) { message in
             BookReferencesView(references: message.bookReferences ?? []).environmentObject(store).environmentObject(store.books)
         }
@@ -1029,8 +1061,7 @@ struct ChatScreen: View {
                         draftPushTask = nil
                         localDraft = ""
                         lastPushedDraft = ""
-                        pendingImages = []
-                        pendingDocuments = []
+                        clearSentAttachments()
                         quotingMessage = nil
                         focusComposer(false)
                     }
@@ -1092,9 +1123,7 @@ struct ChatScreen: View {
 
     private var chatWithInput: some View {
         chatWithToolSheets
-        .alert("详情", isPresented: Binding(get: { reportDetails != nil }, set: { if !$0 { reportDetails = nil } })) {
-            Button("完成") { reportDetails = nil }
-        } message: { Text(reportDetails ?? "") }
+        .inlineFeedback(reportDetails) { reportDetails = nil }
     }
 
     private var chatWithAlerts: some View {
@@ -1121,11 +1150,8 @@ struct ChatScreen: View {
     // Kept out of body so the compiler can type-check the page in reasonable time.
     private var messageRows: some View {
         let lastID = store.activeThread?.messages.last?.id, threadID = store.activeThreadID
-        let messages = store.activeThread?.messages ?? []
         let visible = visibleMessages
-        let start = messages.count - visible.count
-        let priorRounds = messages.prefix(start).reduce(0) { $0 + ($1.role == .user ? 1 : 0) }
-        let rounds = Self.roundNumbers(visible, startingAfter: priorRounds)
+
         let look = self.style
         let layout = self.currentLayoutMode
         return ForEach(Array(visible.enumerated()), id: \.element.id) { index, message in
@@ -1142,7 +1168,7 @@ struct ChatScreen: View {
                 }
                 // Equatable: only the message that changed redraws while an answer streams.
                 messageRow(message, threadID: threadID, isLast: message.id == lastID,
-                           round: rounds[message.id] ?? 1, style: look, layoutMode: layout)
+                           round: roundsByMessage[message.id] ?? 1, style: look, layoutMode: layout)
                     .overlay(alignment: .leading) {
                         if focusedMessageID == message.id {
                             RoundedRectangle(cornerRadius: 2).fill(Ink.seal.opacity(0.7)).frame(width: 3).padding(.leading, -10)
@@ -1192,6 +1218,10 @@ struct ChatScreen: View {
     }
 
     /// Exchange numbers: each message of yours starts a new one, the answers after it share it.
+    private func refreshRounds() {
+        roundsByMessage = Self.roundNumbers(store.activeThread?.messages ?? [], startingAfter: 0)
+    }
+
     static func roundNumbers(_ messages: [ChatMessage], startingAfter previous: Int) -> [UUID: Int] {
         var result: [UUID: Int] = [:]
         var round = previous
@@ -1303,6 +1333,7 @@ struct ChatScreen: View {
               let images = imagesByThread[origin], !images.isEmpty else { return }
         // A retry/edit creates a new path. Manual version selection never calls this.
         imagesByThread[current.id] = images
+        saveAttachments(current.id)
     }
 
     private func prepareSuggestedReply(_ text: String, messageID: UUID) {
@@ -1567,6 +1598,7 @@ struct ChatScreen: View {
                     }
                     guard let preview = UIImage(data: prepared) else { failures += 1; continue }
                     imagesByThread[origin, default: []].append(PendingImage(data: prepared, preview: preview))
+                    saveAttachments(origin)
                     added += 1
                 } catch is CancellationError { return }
                 catch { failures += 1 }
@@ -1651,6 +1683,7 @@ struct ChatScreen: View {
                         warnings: imported.warnings
                     )
                     documentsByThread[origin, default: []].append(doc)
+                    saveAttachments(origin)
                     successes += 1
                     details.append(contentsOf: imported.warnings.map { "\(imported.name)：\($0)" })
                 } catch is CancellationError {
@@ -1723,6 +1756,7 @@ struct ChatScreen: View {
                 }
                 guard let preview = UIImage(data: data) else { throw ChatError.server("图片无法预览。") }
                 imagesByThread[origin, default: []].append(PendingImage(data: data, preview: preview))
+                saveAttachments(origin)
             } catch { attachmentReport = error.localizedDescription }
         }
     }
@@ -2054,7 +2088,7 @@ struct ChatScreen: View {
                         }
                     }
                     .sheet(item: $previewingDocument) { target in
-                        DocumentPreviewSheet(target: target)
+                        if let thread = store.activeThread, !store.isHidden(thread) { DocumentPreviewSheet(target: target) }
                     }
                 }
                 if !pendingImages.isEmpty || loadingPhotos {
@@ -2317,8 +2351,7 @@ struct ChatScreen: View {
                                     draftPushTask = nil
                                     localDraft = ""
                                     lastPushedDraft = ""
-                                    pendingImages = []
-                                    pendingDocuments = []
+                                    clearSentAttachments()
                                     quotingMessage = nil
                                     focusComposer(false)
                                 }
@@ -2510,11 +2543,7 @@ private struct ChatMessageBrowser: View {
                 .toolbar { ToolbarItem(placement: .topBarLeading) { ClaudeSheetCloseButton(label: "完成") { dismiss() } } }
         }
         .tint(Ink.ink).presentationDragIndicator(.visible)
-        .alert("暂时没有完成", isPresented: Binding(
-            get: { store.errorMessage != nil },
-            set: { if !$0 { store.errorMessage = nil } })) {
-                Button("知道了") { store.errorMessage = nil }
-            } message: { Text(store.errorMessage ?? "") }
+        .inlineFeedback(store.errorMessage) { store.errorMessage = nil }
     }
     @ViewBuilder private var browserContents: some View {
         if thread == nil {
@@ -3721,9 +3750,7 @@ struct EditMessageView: View {
                     ? PendingDocumentCodec.extractEditableUserText(message.content)
                     : message.content
             }
-            .alert("暂时没有完成", isPresented: Binding(get: { store.errorMessage != nil }, set: { if !$0 { store.errorMessage = nil } })) {
-                Button("知道了") { store.errorMessage = nil }
-            } message: { Text(store.errorMessage ?? "") }
+            .inlineFeedback(store.errorMessage) { store.errorMessage = nil }
     }
 }
 

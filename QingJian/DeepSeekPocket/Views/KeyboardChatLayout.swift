@@ -119,7 +119,7 @@ struct KeyboardChatLayout<Transcript: View, Composer: View>: UIViewControllerRep
 
         @objc private func keyboardChanged() {
             view.setNeedsLayout()
-            DispatchQueue.main.async { [weak self] in self?.view.layoutIfNeeded() }
+            // UIKit coalesces layout invalidations within this keyboard animation frame.
         }
 
         private weak var transcriptScroll: UIScrollView?

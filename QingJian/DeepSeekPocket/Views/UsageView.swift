@@ -338,9 +338,7 @@ struct UsageDetailsView: View {
         .sheet(isPresented: $showingExport) {
             if let url = exportURL { ShareSheet(items: [url]) }
         }
-        .alert("暂时无法导出", isPresented: Binding(get: { exportError != nil }, set: { if !$0 { exportError = nil } })) {
-            Button("知道了") { exportError = nil }
-        } message: { Text(exportError ?? "") }
+        .inlineFeedback(exportError) { exportError = nil }
     }
 
     private func unclassified(_ usage: DayUsage) -> Int {

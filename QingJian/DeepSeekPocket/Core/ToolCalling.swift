@@ -110,9 +110,11 @@ struct ToolCallDelta: Decodable, Equatable, Sendable {
 
 /// Joins streamed pieces into whole calls, in the order the model gave them.
 struct ToolCallCollector: Sendable {
+    private var argumentBytes: [Int: Int] = [:]
     private var parts: [Int: (id: String, name: String, arguments: String)] = [:]
     mutating func consume(_ deltas: [ToolCallDelta]) {
         for delta in deltas {
+            guard delta.index >= 0, delta.index < 128 else { continue }
             var part = parts[delta.index] ?? ("", "", "")
             if let id = delta.id, !id.isEmpty { part.id = id }
             if let name = delta.name, !name.isEmpty {
@@ -122,7 +124,12 @@ struct ToolCallCollector: Sendable {
                     part.name += name
                 }
             }
-            if let more = delta.arguments { part.arguments += more }
+            if let more = delta.arguments, (argumentBytes[delta.index] ?? 0) <= 400_000 {
+                let count = (argumentBytes[delta.index] ?? 0) + more.utf8.count
+                argumentBytes[delta.index] = count
+                // An incomplete call must never execute as a valid truncated object.
+                part.arguments = count > 400_000 ? "参数超过长度上限" : part.arguments + more
+            }
             parts[delta.index] = part
         }
     }

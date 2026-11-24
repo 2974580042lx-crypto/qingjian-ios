@@ -4,6 +4,56 @@ import UIKit
 
 @MainActor
 final class AppStore: ObservableObject {
+    private var attachmentFiles: AttachmentDraftStore?
+    private var savedThreadIDs = Set<UUID>()
+    private var diskDraftIDs = Set<UUID>()
+    @Published private(set) var attachmentThreadIDs = Set<UUID>()
+
+    private func reconcileAttachmentDrafts() {
+        savedThreadIDs = Set(threads.map(\.id))
+        let eligible = Set(threads.lazy.filter { $0.keepsOutOfMemory != true }.map(\.id))
+        for id in diskDraftIDs.subtracting(eligible) {
+            do { try attachmentFiles?.remove(id); diskDraftIDs.remove(id) } catch { }
+        }
+        let surviving = attachmentThreadIDs.intersection(savedThreadIDs)
+        if surviving != attachmentThreadIDs { attachmentThreadIDs = surviving }
+    }
+
+    func stageAttachments(_ draft: AttachmentDraft, in thread: ChatThread) {
+        if draft.isEmpty {
+            discardAttachments(thread.id)
+            return
+        }
+        if !attachmentThreadIDs.contains(thread.id) { attachmentThreadIDs.insert(thread.id) }
+        guard canPersist, !isPreview, !isHidden(thread), let attachmentFiles else { return }
+        if thread.keepsOutOfMemory != true, !savedThreadIDs.contains(thread.id) {
+            // A newly opened empty thread may never have been written to the chat file.
+            guard persistNow() else { return }
+        }
+        do {
+            try attachmentFiles.save(draft, for: thread.id, isPrivate: thread.keepsOutOfMemory == true)
+            if thread.keepsOutOfMemory == true { diskDraftIDs.remove(thread.id) } else { diskDraftIDs.insert(thread.id) }
+        } catch {
+            // Keep this draft in memory; avoid restoring a stale copy after an edit.
+            try? attachmentFiles.remove(thread.id)
+        }
+    }
+
+    func recoverAttachments(_ thread: ChatThread) -> AttachmentDraft? {
+        guard canPersist, !isHidden(thread), diskDraftIDs.contains(thread.id) else { return nil }
+        do {
+            let record = try attachmentFiles?.load(thread.id, lastUserMessage: thread.messages.last(where: { $0.role == .user })?.id,
+                                                   isPrivate: thread.keepsOutOfMemory == true, isLocked: false)
+            if record == nil { discardAttachments(thread.id) }
+            return record
+        } catch { return nil }
+    }
+
+    func discardAttachments(_ id: UUID) {
+        if attachmentThreadIDs.contains(id) { attachmentThreadIDs.remove(id) }
+        do { try attachmentFiles?.remove(id); diskDraftIDs.remove(id) } catch { }
+    }
+
     @Published private(set) var threads: [ChatThread] = []
     @Published var activeThreadID: UUID?
     @Published private(set) var settings = AppSettings()
@@ -74,6 +124,7 @@ final class AppStore: ObservableObject {
     @Published private(set) var workspaceRevision = 0
     @Published private(set) var isAgentPaused = false
     private var agentPauseContinuation: CheckedContinuation<Void, Never>?
+    private var acceptingSteering = true
     private var pendingSteeringNotes: [String] = []
     // The bookshelf (1.8.0): novels read into character profiles.
     let books: BookStore
@@ -583,8 +634,8 @@ final class AppStore: ObservableObject {
     }
 
     func deleteDeliverable(_ id: UUID) {
-        deliverables.deleteDeliverable(id)
-        workspaceRevision += 1
+        do { try deliverables.deleteDeliverable(id); workspaceRevision += 1 }
+        catch { errorMessage = "移除成果失败：\(error.localizedDescription)" }
     }
 
     func deliverableTextContent(for item: ProjectDeliverable) -> String {
@@ -688,6 +739,10 @@ final class AppStore: ObservableObject {
               let threadID = activeThreadID,
               generatingThreadID == threadID,
               let msgID = live.messageID else { return false }
+        guard acceptingSteering else {
+            noticeMessage = "这条回复正在收尾，补充内容仍在输入框，可以稍后发送。"
+            return false
+        }
         pendingSteeringNotes.append(clean)
         var record = agentRunStore.record(for: msgID) ?? AgentRunRecord(messageID: msgID, threadID: threadID, phase: isAgentPaused ? .paused : .running)
         record.appendSteeringNote(clean)
@@ -764,7 +819,7 @@ final class AppStore: ObservableObject {
         ConversationHistory.visibleThreads(threads, activeID: activeThreadID)
     }
     // A blank page with no draft is not an entry yet.
-    private func isEntry(_ thread: ChatThread) -> Bool { !thread.messages.isEmpty || !(thread.draft ?? "").isEmpty }
+    private func isEntry(_ thread: ChatThread) -> Bool { !thread.messages.isEmpty || !(thread.draft ?? "").isEmpty || attachmentThreadIDs.contains(thread.id) }
     // The sidebar's recents: conversations outside every project, plus pinned ones that were
     // moved into a project (pinned stays pinned wherever it lives). Locked projects stay out.
     var recentThreads: [ChatThread] {
@@ -927,6 +982,8 @@ final class AppStore: ObservableObject {
                 }
             }
             persistence = storePersistence
+            attachmentFiles = AttachmentDraftStore(directory: storePersistence.file.deletingLastPathComponent().appendingPathComponent("ComposerDrafts", isDirectory: true))
+            diskDraftIDs = attachmentFiles?.ids() ?? []
             do {
                 let recoveryStore = try StudyMemoryStore(url: Self.studyDatabaseURL())
                 if try StudyRestoreEngine.recover(store: recoveryStore, imagesDirectory: ImageStore.directory(), recoveryDirectory: Self.studyRecoveryDirectory(), saveSnapshot: { try storePersistence.save($0, allowShrink: true) }) {
@@ -960,9 +1017,12 @@ final class AppStore: ObservableObject {
         studyCloud.configure(self)
         driveFullBackupObserver = driveFullBackup.objectWillChange.sink { [weak self] in self?.objectWillChange.send() }
         driveFullBackup.configure(self)
+        if canPersist { reconcileAttachmentDrafts(); attachmentThreadIDs = diskDraftIDs.intersection(savedThreadIDs) }
         IncomingFile.cleanupStaleTempFolders()
         let start = newChatProjectID
-        if let blank = threads.first(where: { $0.messages.isEmpty && ($0.draft ?? "").isEmpty && $0.projectID == start }) {
+        if let resumed = activeThread, diskDraftIDs.contains(resumed.id), !isHidden(resumed) {
+            activeThreadID = resumed.id
+        } else if let blank = threads.first(where: { $0.messages.isEmpty && ($0.draft ?? "").isEmpty && !attachmentThreadIDs.contains($0.id) && $0.projectID == start }) {
             activeThreadID = blank.id
         } else if threads.count < 2000 {
             var thread = ChatThread()
@@ -1016,6 +1076,12 @@ final class AppStore: ObservableObject {
                 applyLoadedSnapshot(snapshot)
             }
             canPersist = true
+            if let persistence {
+                attachmentFiles = AttachmentDraftStore(directory: persistence.file.deletingLastPathComponent().appendingPathComponent("ComposerDrafts"))
+                diskDraftIDs = attachmentFiles?.ids() ?? []
+                reconcileAttachmentDrafts()
+                attachmentThreadIDs.formUnion(diskDraftIDs.intersection(savedThreadIDs))
+            }
             errorMessage = nil
             ensureManualProject()
             initializeStudyMemory(persistIfSeeded: hasExistingLocalStoreFile)
@@ -1028,7 +1094,7 @@ final class AppStore: ObservableObject {
         cancelReplySuggestions()
         updateMemory(leaving: activeThreadID)
         let old = threads, oldID = activeThreadID, oldSettings = settings
-        if let empty = sortedThreads.first(where: { $0.messages.isEmpty && ($0.draft ?? "").isEmpty && $0.projectID == projectID
+        if let empty = sortedThreads.first(where: { $0.messages.isEmpty && ($0.draft ?? "").isEmpty && !attachmentThreadIDs.contains($0.id) && $0.projectID == projectID
                                                     && ($0.keepsOutOfMemory == true) == incognito }) {
             activeThreadID = empty.id
         } else {
@@ -1460,7 +1526,7 @@ final class AppStore: ObservableObject {
         guard !unlockedProjectIDs.isEmpty else { return }
         unlockedProjectIDs.removeAll()
         if let thread = activeThread, isHidden(thread) {
-            if let empty = sortedThreads.first(where: { $0.messages.isEmpty && ($0.draft ?? "").isEmpty && $0.projectID == nil }) {
+            if let empty = sortedThreads.first(where: { $0.messages.isEmpty && ($0.draft ?? "").isEmpty && !attachmentThreadIDs.contains($0.id) && $0.projectID == nil }) {
                 activeThreadID = empty.id
                 _ = persistNow()
             } else {
@@ -1854,7 +1920,7 @@ final class AppStore: ObservableObject {
         }
         threads[ti].messages.append(input)
         threads[ti].draft = ""
-        if startGeneration(threadID: threadID) { return true }
+        if startGeneration(threadID: threadID) { discardAttachments(threadID); return true }
         threads = old
         removeStudySafeImages(names)
         return false
@@ -2312,6 +2378,7 @@ final class AppStore: ObservableObject {
         studyOutputGuard = StudyOutputGuard()
         isAgentPaused = false
         pendingSteeringNotes.removeAll()
+        acceptingSteering = true
         generatingThreadID = threadID
         generationProgress = ChatStreamProgress(phase: .connecting, elapsedSeconds: 0, receivedBytes: 0, httpStatus: nil)
         beginBackgroundGenerationTask()
@@ -2455,6 +2522,7 @@ final class AppStore: ObservableObject {
                 } else {
                     var streamReq = outgoing
                     for pass in 0..<4 {
+                        self.acceptingSteering = pass < 3
                         try await self.waitIfAgentPaused()
                         let priorText = self.live.content
                         if provider == .chatGPT {
@@ -2584,6 +2652,7 @@ final class AppStore: ObservableObject {
         for round in 0..<ToolLoop.maxRounds {
             try await waitIfAgentPaused()
             let last = round == ToolLoop.maxRounds - 1
+            acceptingSteering = !last
             if last { request = request.answeringWithoutTools() }
             let buffer = ToolRoundBuffer()
             let prefixContent = live.content, prefixReasoning = live.reasoning
@@ -2623,6 +2692,7 @@ final class AppStore: ObservableObject {
                    !didEnforceDeliverable,
                    !last,
                    !deliverables.deliverables(forMessage: answerID).contains(where: { $0.format == expected }) {
+                    pendingSteeringNotes.insert(contentsOf: steered, at: 0)
                     didEnforceDeliverable = true
                     flushPending()
                     let keptReasoning = live.reasoning
@@ -4298,6 +4368,7 @@ final class AppStore: ObservableObject {
         commitLive()
         do {
             try persistence.save(snapshot, allowShrink: allowShrink)
+            reconcileAttachmentDrafts()
             hasExistingLocalStoreFile = true
             lastSave = Date()
             studyCloud.changed()

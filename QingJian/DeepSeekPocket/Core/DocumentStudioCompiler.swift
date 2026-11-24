@@ -196,6 +196,7 @@ enum DocumentStudioCompiler {
             // Strip illegal XML 1.0 control chars except \t, \n, \r
             let v = scalar.value
             if v < 0x20 && v != 0x09 && v != 0x0A && v != 0x0D { continue }
+            if v == 0xFFFE || v == 0xFFFF { continue }
             switch scalar {
             case "&": out += "&amp;"
             case "<": out += "&lt;"
@@ -672,9 +673,17 @@ enum DocumentStudioCompiler {
         var workbookRelsXML = ""
         var totalRows = 0
 
+        var usedSheetNames = Set<String>()
         for (i, sheet) in spec.sheets.prefix(20).enumerated() {
             let sheetNum = i + 1
-            let safeSheetName = sanitizeExcelSheetName(sheet.name, fallback: "工作表\(sheetNum)")
+            let baseName = sanitizeExcelSheetName(sheet.name, fallback: "工作表\(sheetNum)")
+            var safeSheetName = baseName
+            var duplicate = 1
+            while !usedSheetNames.insert(safeSheetName.lowercased()).inserted {
+                duplicate += 1
+                let suffix = " (\(duplicate))"
+                safeSheetName = String(baseName.prefix(31 - suffix.count)) + suffix
+            }
             sheetOverrides += "<Override PartName=\"/xl/worksheets/sheet\(sheetNum).xml\" ContentType=\"application/vnd.openxmlformats-officedocument.spreadsheetml.worksheet+xml\"/>\n"
             workbookSheetsXML += "<sheet name=\"\(xmlEscape(safeSheetName))\" sheetId=\"\(sheetNum)\" r:id=\"rId\(sheetNum)\"/>\n"
             workbookRelsXML += "<Relationship Id=\"rId\(sheetNum)\" Type=\"http://schemas.openxmlformats.org/officeDocument/2006/relationships/worksheet\" Target=\"worksheets/sheet\(sheetNum).xml\"/>\n"

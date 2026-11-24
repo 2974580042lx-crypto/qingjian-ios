@@ -8,6 +8,11 @@ name: Build Sermo
 
 on:
   workflow_dispatch:
+    inputs:
+      offline_only:
+        description: Run the offline Swift tests only
+        type: boolean
+        default: false
   push:
     paths:
       - 'QingJian/**'
@@ -21,6 +26,7 @@ concurrency:
 
 jobs:
   ipa:
+    if: github.event.inputs.offline_only != 'true'
     runs-on: macos-15-intel
     timeout-minutes: 35
     steps:
@@ -81,6 +87,7 @@ jobs:
           retention-days: 14
 
   attachment-ui:
+    if: github.event.inputs.offline_only != 'true'
     runs-on: macos-15
     timeout-minutes: 35
     steps:
@@ -127,6 +134,7 @@ jobs:
         run: |
           set -euo pipefail
           cd QingJian
+          find DeepSeekPocket -name '*.swift' -print0 | xargs -0 xcrun swiftc -frontend -parse -target arm64-apple-ios26.0
           swift test --skip StudyLiveModelTests 2>&1 | tee ../swift-tests.log
       - name: Test log
         if: always()

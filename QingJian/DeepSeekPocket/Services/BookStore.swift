@@ -450,7 +450,16 @@ final class BookStore: ObservableObject {
         save(book)
     }
 
-    func delete(_ id: UUID) {
+    @discardableResult func delete(_ id: UUID) -> Bool {
+        if !isPreview {
+            do {
+                let url = try Self.root().appendingPathComponent(id.uuidString, isDirectory: true)
+                if FileManager.default.fileExists(atPath: url.path) { try FileManager.default.removeItem(at: url) }
+            } catch {
+                errorMessage = "这本书未能删除：\(error.localizedDescription)"
+                return false
+            }
+        }
         if readingBookID == id { pause() }
         if sceneScanBookID == id { pauseSceneRefinement() }
         coverQueue.removeAll { $0 == id }
@@ -459,8 +468,7 @@ final class BookStore: ObservableObject {
         if cachedChapters?.id == id { cachedChapters = nil }
         if cachedDiscussion?.id == id { cachedDiscussion = nil }
         if cachedParagraphs?.id == id { cachedParagraphs = nil }
-        guard !isPreview, let folder = try? Self.root().appendingPathComponent(id.uuidString, isDirectory: true) else { return }
-        try? FileManager.default.removeItem(at: folder)
+        return true
     }
 
     /// Edits one character's card by hand; the next conversation uses the new text.

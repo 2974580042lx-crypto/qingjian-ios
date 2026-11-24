@@ -126,11 +126,7 @@ struct HistorySidebar: View {
         }
         .padding(.horizontal, 12).padding(.top, 16)
         .foregroundStyle(Ink.ink)
-        .alert("重命名对话", isPresented: Binding(get: { renameID != nil }, set: { if !$0 { renameID = nil } })) {
-            TextField("对话名称", text: $renameText)
-            Button("取消", role: .cancel) { renameID = nil }
-            Button("保存") { if let id = renameID { store.renameThread(id, title: renameText) }; renameID = nil }
-        }
+        .inlineName("重命名对话", shown: Binding(get: { renameID != nil }, set: { if !$0 { renameID = nil } }), text: $renameText, placeholder: "对话名称", submit: "保存") { if let id = renameID { store.renameThread(id, title: renameText) }; renameID = nil }
         .alert("删除这个对话？", isPresented: Binding(get: { deleteTarget != nil }, set: { if !$0 { deleteTarget = nil } })) {
             Button("取消", role: .cancel) { deleteTarget = nil }
             Button("删除", role: .destructive) { if let thread = deleteTarget { store.deleteThread(thread.id) }; deleteTarget = nil }

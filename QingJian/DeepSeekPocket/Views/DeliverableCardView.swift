@@ -297,7 +297,7 @@ struct DeliverableDetailSheet: View {
                 }
             case .html:
                 let html = store.deliverableTextContent(for: activeItem)
-                HTMLWebView(html: HTMLPreviewHelper.wrappedHTML(code: html, language: "html"), reloadToken: reloadToken)
+                HTMLWebView(code: html, language: "html", reloadToken: reloadToken)
                     .ignoresSafeArea(edges: .bottom)
             case .md:
                 let text = store.deliverableTextContent(for: activeItem)

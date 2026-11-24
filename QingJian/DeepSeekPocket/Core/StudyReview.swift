@@ -149,7 +149,7 @@ enum StudyReviewText {
         lines += ["", "【可以从哪里继续：已保存的现场，可能早于本时段】"]
         lines += ["各类列最近3个窗口的当前现场；更早现场仍保留，可在聊天中按单元或篇目/专题找回。"]
         var resumes = 0
-        let wordScenes = Dictionary(grouping: x.wordSessions.filter { !$0.completed }, by: \.threadID).values.compactMap { $0.max { $0.updatedAt < $1.updatedAt } }.sorted { $0.updatedAt > $1.updatedAt }
+        let wordScenes = Dictionary(grouping: x.wordSessions, by: \.threadID).values.compactMap { $0.max { $0.updatedAt < $1.updatedAt } }.filter { !$0.completed }.sorted { $0.updatedAt > $1.updatedAt }
         for s in wordScenes.prefix(3) {
             lines += ["- 背词：\(s.unitID.isEmpty ? "当前单元" : s.unitID)，当前第\(s.position + 1)/\(s.wordIDs.count)次提问：\(s.currentWordID.flatMap { x.wordNames[$0] } ?? "待查询")，\(s.paused ? "已暂停" : "待继续")。"]
             resumes += 1

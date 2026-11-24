@@ -1,3 +1,4 @@
+import AVFoundation
 import SwiftUI
 import UIKit
 
@@ -214,6 +215,14 @@ struct VoiceDictationSheet: View {
             hasAutoStarted = true
             Task {
                 await controller.startListening(beforeStart: { store.speech.stop() })
+            }
+        }
+        .onReceive(NotificationCenter.default.publisher(for: UIApplication.didEnterBackgroundNotification)) { _ in
+            controller.stopListening()
+        }
+        .onReceive(NotificationCenter.default.publisher(for: AVAudioSession.interruptionNotification)) { note in
+            if (note.userInfo?[AVAudioSessionInterruptionTypeKey] as? NSNumber)?.uintValue == AVAudioSession.InterruptionType.began.rawValue {
+                controller.stopListening()
             }
         }
         .onDisappear {

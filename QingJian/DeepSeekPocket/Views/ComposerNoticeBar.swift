@@ -55,3 +55,42 @@ struct ComposerNoticeBar: View {
         .accessibilityElement(children: .contain)
     }
 }
+
+extension View {
+    func inlineFeedback(_ message: String?, dismiss: @escaping () -> Void) -> some View {
+        safeAreaInset(edge: .bottom, spacing: 0) {
+            if let message {
+                HStack(alignment: .top) {
+                    ViewThatFits(in: .vertical) {
+                        Text(message).fixedSize(horizontal: false, vertical: true)
+                        ScrollView { Text(message).frame(maxWidth: .infinity, alignment: .leading) }
+                    }
+                    .frame(maxWidth: .infinity, maxHeight: 112, alignment: .leading)
+                    Button(action: dismiss) { Image(systemName: "xmark").padding(6) }
+                        .buttonStyle(.plain).accessibilityLabel("关闭提示")
+                }
+                .font(.footnote)
+                .padding(10)
+                .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 12))
+                .padding(.horizontal)
+            }
+        }
+    }
+
+    func inlineName(_ title: String, shown: Binding<Bool>, text: Binding<String>,
+                    placeholder: String, submit: String, save: @escaping () -> Void) -> some View {
+        safeAreaInset(edge: .bottom) {
+            if shown.wrappedValue {
+                VStack(alignment: .leading) {
+                    Text(title).font(.headline)
+                    TextField(placeholder, text: text).textFieldStyle(.roundedBorder)
+                    HStack {
+                        Spacer()
+                        Button("取消") { shown.wrappedValue = false }
+                        Button(submit) { save(); shown.wrappedValue = false }
+                    }
+                }.padding().background(.regularMaterial)
+            }
+        }
+    }
+}

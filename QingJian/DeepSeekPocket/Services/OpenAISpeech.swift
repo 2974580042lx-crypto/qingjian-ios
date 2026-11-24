@@ -111,6 +111,7 @@ final class OpenAISpeech: ObservableObject {
     private var audioSessionGuard = SpeechAudioSessionGuard()
     private var currentAudioGeneration: UInt64?
     private var queuedFrames = 0
+    private var scheduledSpeechAudio = false
     private var queuedBuffers = 0
     private var receiving = false
     private var carry: UInt8?
@@ -239,7 +240,7 @@ final class OpenAISpeech: ObservableObject {
                 else { self.status = "GPT 语音播放中" }
             } catch {
                 guard self.runID == id else { return }
-                if allowSystemFallback && self.queuedBuffers == 0 {
+                if allowSystemFallback && !self.scheduledSpeechAudio && self.foreground {
                     // Seamless zero-cost offline / network / quota fallback
                     self.speakWithSystemVoice(input, messageID: messageID, fallbackNote: "系统免费朗读中")
                     return
@@ -316,7 +317,7 @@ final class OpenAISpeech: ObservableObject {
             synthesizer = nil
         }
         systemDelegate = nil
-        queuedFrames = 0; queuedBuffers = 0; receiving = false; carry = nil
+        scheduledSpeechAudio = false; queuedFrames = 0; queuedBuffers = 0; receiving = false; carry = nil
         activeMessageID = nil; status = ""
         deactivateAudioSessionIfOwned(generation: nil)
     }
@@ -458,6 +459,7 @@ final class OpenAISpeech: ObservableObject {
             let bits = UInt16(bytes[index * 2]) | (UInt16(bytes[index * 2 + 1]) << 8)
             channel[index] = Float(Int16(bitPattern: bits)) / 32768.0
         }
+        scheduledSpeechAudio = true
         queuedFrames += count; queuedBuffers += 1
         player.scheduleBuffer(buffer, completionCallbackType: .dataPlayedBack) { [weak self] _ in
             Task { @MainActor in

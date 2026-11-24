@@ -296,9 +296,10 @@ final class ProjectLibraryStore: @unchecked Sendable {
         let cleanName = String(name.trimmingCharacters(in: .whitespacesAndNewlines).prefix(200))
         let safeName = cleanName.isEmpty ? "未命名文献" : cleanName
         let safeExt = fileExtension.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
-        let bounded = trimmed.count > Self.maxLibraryCharactersPerDocument
-            ? String(trimmed.prefix(Self.maxLibraryCharactersPerDocument))
-            : trimmed
+        guard trimmed.count <= Self.maxLibraryCharactersPerDocument else {
+            throw ProjectLibraryError.unavailable("这份资料超过单份文献上限，请拆分后导入。原文没有截断保存。")
+        }
+        let bounded = trimmed
         let chunks = ProjectLibraryChunker.chunk(bounded)
         guard !chunks.isEmpty else { throw ProjectLibraryError.emptyContent }
         let now = Date()

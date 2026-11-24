@@ -18,15 +18,18 @@ final class VoiceDictationController: ObservableObject {
     private var recognitionRequest: SFSpeechAudioBufferRecognitionRequest?
     private var recognitionTask: SFSpeechRecognitionTask?
     private var audioEngine: AVAudioEngine?
+    private var tapInstalled = false
     private var audioSessionActive = false
     private var sessionToken = UUID()
 
     func startListening(beforeStart: () -> Void = {}) async {
         stopListening()
+        let currentToken = sessionToken
         beforeStart()
         errorMessage = nil
 
         let state = await ensurePermissions()
+        guard sessionToken == currentToken, !Task.isCancelled else { return }
         authState = state
         guard state.isReady else {
             errorMessage = state.userMessage
@@ -51,8 +54,6 @@ final class VoiceDictationController: ObservableObject {
             return
         }
 
-        let currentToken = UUID()
-        sessionToken = currentToken
         recognizer = speechRecognizer
 
         do {
@@ -77,16 +78,16 @@ final class VoiceDictationController: ObservableObject {
                 throw NSError(domain: "SermoVoice", code: -1, userInfo: [NSLocalizedDescriptionKey: "未能初始化麦克风输入通道，请重试。"])
             }
 
-            inputNode.removeTap(onBus: 0)
             inputNode.installTap(onBus: 0, bufferSize: 1024, format: recordingFormat) { [weak request, weak self] buffer, _ in
                 request?.append(buffer)
                 let rms = Self.computeNormalizedLevel(from: buffer)
                 Task { @MainActor [weak self] in
-                    guard let self, self.isListening else { return }
+                    guard let self, self.sessionToken == currentToken, self.isListening else { return }
                     self.audioLevel = (self.audioLevel * 0.65) + (rms * 0.35)
                 }
             }
 
+            tapInstalled = true
             engine.prepare()
             try engine.start()
 
@@ -134,7 +135,7 @@ final class VoiceDictationController: ObservableObject {
         audioLevel = 0
 
         if let engine = audioEngine {
-            engine.inputNode.removeTap(onBus: 0)
+            if tapInstalled { engine.inputNode.removeTap(onBus: 0); tapInstalled = false }
             if engine.isRunning {
                 engine.stop()
             }

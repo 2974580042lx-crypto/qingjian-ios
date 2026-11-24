@@ -227,11 +227,7 @@ struct StoryCheckpointsView: View {
         }
         .claudeGroupedListStyle().navigationTitle("存档与分线").navigationBarTitleDisplayMode(.inline)
         .disabled(store.isGenerating)
-        .alert("存档名称", isPresented: Binding(get: { renaming != nil }, set: { if !$0 { renaming = nil } })) {
-            TextField("名称", text: $renameText)
-            Button("取消", role: .cancel) { renaming = nil }
-            Button("保存") { if let id = renaming { store.renameStoryCheckpoint(id, in: threadID, name: renameText) }; renaming = nil }
-        }
+        .inlineName("存档名称", shown: Binding(get: { renaming != nil }, set: { if !$0 { renaming = nil } }), text: $renameText, placeholder: "名称", submit: "保存") { if let id = renaming { store.renameStoryCheckpoint(id, in: threadID, name: renameText) }; renaming = nil }
         .sheet(isPresented: $compare) { if let id = thread?.story?.bookID { StoryCompareView(bookID: id) } }
     }
 }
@@ -392,10 +388,17 @@ struct SceneCatalogueView: View {
         .sheet(item: $selected) { scene in
             if let book, let profile = book.profile { StartStoryView(book: book, profile: profile, initialScene: scene, opened: opened).environmentObject(store).environmentObject(books) }
         }
-        .alert("补全名场面", isPresented: $confirm) {
-            Button("取消", role: .cancel) { }
-            Button("开始或继续") { books.refineScenes(bookID) }
-        } message: { Text("将用Flash按原文逐段提取，会产生阅读费用并计入用量。每段完成立即保存，暂停后可继续；不会清空人物卡或文风精读。") }
+        .safeAreaInset(edge: .bottom) {
+            if confirm {
+                VStack(alignment: .leading) {
+                    Text("按原文逐段提取会产生 Flash 阅读费用。每段完成即保存，之后可以继续。")
+                    HStack {
+                        Button("取消") { confirm = false }
+                        Button("开始或继续") { confirm = false; books.refineScenes(bookID) }
+                    }
+                }.padding().background(.regularMaterial)
+            }
+        }
     }
 }
 

@@ -196,7 +196,7 @@ struct ArtifactPreviewSheet: View {
                 switch artifact {
                 case .web(let code, let language, _):
                     if mode == .preview {
-                        HTMLWebView(html: HTMLPreviewHelper.wrappedHTML(code: code, language: language), reloadToken: reloadToken)
+                        HTMLWebView(code: code, language: language, reloadToken: reloadToken)
                             .ignoresSafeArea(edges: .bottom)
                     } else {
                         codeScrollView(code: code, language: language)
@@ -481,9 +481,7 @@ struct GeneratedImagesGalleryView: View {
                 }
             }
         }
-        .alert("未能保存到相册", isPresented: Binding(get: { saveError != nil }, set: { if !$0 { saveError = nil } })) {
-            Button("知道了") { saveError = nil }
-        } message: { Text(saveError ?? "") }
+        .inlineFeedback(saveError) { saveError = nil }
     }
 
     private func saveImage(_ url: URL) {
@@ -501,7 +499,8 @@ struct GeneratedImagesGalleryView: View {
 
 @MainActor
 struct HTMLWebView: UIViewRepresentable {
-    let html: String
+    let code: String
+    let language: String?
     let reloadToken: UUID
 
     func makeCoordinator() -> Coordinator { Coordinator() }
@@ -516,22 +515,23 @@ struct HTMLWebView: UIViewRepresentable {
         webView.backgroundColor = UIColor(Ink.paper)
         webView.scrollView.backgroundColor = UIColor(Ink.paper)
         webView.navigationDelegate = context.coordinator
-        context.coordinator.lastHTML = html
+        context.coordinator.lastHTML = code; context.coordinator.lastLanguage = language
         context.coordinator.lastToken = reloadToken
-        webView.loadHTMLString(html, baseURL: nil)
+        webView.loadHTMLString(HTMLPreviewHelper.wrappedHTML(code: code, language: language), baseURL: nil)
         return webView
     }
 
     func updateUIView(_ webView: WKWebView, context: Context) {
-        if context.coordinator.lastHTML != html || context.coordinator.lastToken != reloadToken {
-            context.coordinator.lastHTML = html
+        if context.coordinator.lastHTML != code || context.coordinator.lastLanguage != language || context.coordinator.lastToken != reloadToken {
+            context.coordinator.lastHTML = code; context.coordinator.lastLanguage = language
             context.coordinator.lastToken = reloadToken
-            webView.loadHTMLString(html, baseURL: nil)
+            webView.loadHTMLString(HTMLPreviewHelper.wrappedHTML(code: code, language: language), baseURL: nil)
         }
     }
 
     @MainActor
     final class Coordinator: NSObject, WKNavigationDelegate {
+        var lastLanguage: String?
         var lastHTML: String = ""
         var lastToken: UUID = UUID()
 

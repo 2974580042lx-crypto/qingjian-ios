@@ -7,10 +7,7 @@ import PhotosUI
 private extension View {
     // Both stores report errors; show whichever has one.
     func bookAlerts(_ store: AppStore, _ books: BookStore) -> some View {
-        alert("暂时没有完成", isPresented: Binding(get: { books.errorMessage != nil || store.errorMessage != nil },
-                                              set: { if !$0 { books.errorMessage = nil; store.errorMessage = nil } })) {
-            Button("知道了") { books.errorMessage = nil; store.errorMessage = nil }
-        } message: { Text(books.errorMessage ?? store.errorMessage ?? "") }
+        inlineFeedback(books.errorMessage ?? store.errorMessage) { books.errorMessage = nil; store.errorMessage = nil }
     }
 }
 
@@ -344,14 +341,10 @@ struct BookDetailView: View {
                 .accessibilityLabel("书的选项")
             }
         }
-        .alert("重命名", isPresented: $renaming) {
-            TextField("书名", text: $renameText)
-            Button("取消", role: .cancel) { }
-            Button("保存") { books.rename(bookID, to: renameText) }
-        }
+        .inlineName("重命名", shown: $renaming, text: $renameText, placeholder: "书名", submit: "保存") { books.rename(bookID, to: renameText) }
         .alert("从书架删除这本书？", isPresented: $confirmDelete) {
             Button("取消", role: .cancel) { }
-            Button("删除", role: .destructive) { books.delete(bookID); dismiss() }
+            Button("删除", role: .destructive) { if books.delete(bookID) { dismiss() } }
         } message: { Text("会删除正文、读书笔记和人物档案。已经开始的对话会保留，但之后不再带档案。") }
         .alert("从头重读？", isPresented: $confirmReset) {
             Button("取消", role: .cancel) { }

@@ -68,9 +68,7 @@ struct ColabSettingsView: View {
         }
         .claudeGroupedFormStyle()
         .navigationTitle("Colab").navigationBarTitleDisplayMode(.inline)
-        .alert("从 Drive 刷新失败", isPresented: $showRefreshError) {
-            Button("好", role: .cancel) { }
-        } message: { Text(refreshError) }
+        .inlineFeedback(showRefreshError ? refreshError : nil) { showRefreshError = false }
         .toolbar {
             ToolbarItem(placement: .topBarTrailing) {
                 Button(saved ? "已保存" : "保存") {

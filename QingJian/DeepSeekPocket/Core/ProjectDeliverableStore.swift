@@ -185,9 +185,13 @@ final class ProjectDeliverableStore: @unchecked Sendable {
         let id = UUID()
         let relativePath = "files/\(id.uuidString).\(format.fileExtension)"
 
-        lock.lock()
+        lock.lock(); defer { lock.unlock() }
         let matchedBase: ProjectDeliverable?
-        if let baseID = baseDeliverableID, let found = items.first(where: { $0.id == baseID }) {
+        if let baseID = baseDeliverableID {
+            guard let found = items.first(where: { $0.id == baseID }), found.format == format,
+                  found.projectID == projectID, projectID != nil || found.threadID == threadID else {
+                throw DocumentStudioError.invalidSpecification("找不到当前对话或项目中可继续修改的成果。")
+            }
             matchedBase = found
         } else {
             matchedBase = items
@@ -197,7 +201,9 @@ final class ProjectDeliverableStore: @unchecked Sendable {
 
         let groupID = matchedBase?.groupID ?? UUID()
         let existingVersions = items.filter { $0.groupID == groupID }.map(\.version)
-        let nextVersion = (existingVersions.max() ?? 0) + 1
+        let previous = existingVersions.max() ?? 0
+        guard previous < Int.max else { throw DocumentStudioError.invalidSpecification("成果版本号超出范围。") }
+        let nextVersion = previous + 1
         let versionTag = nextVersion > 1 ? "-v\(nextVersion)" : ""
         let fileName = "\(cleanTitle)\(versionTag).\(format.fileExtension)"
 
@@ -219,7 +225,6 @@ final class ProjectDeliverableStore: @unchecked Sendable {
             relativePath: relativePath,
             sourcePreview: String(sourcePreview.prefix(24_000))
         )
-        lock.unlock()
 
         try FileManager.default.createDirectory(at: filesDirectory, withIntermediateDirectories: true)
         let targetURL = fileURL(for: record)
@@ -231,14 +236,11 @@ final class ProjectDeliverableStore: @unchecked Sendable {
         )
         #endif
 
-        lock.lock()
-        items.append(record)
-        let encodedManifest = encodeManifestLocked()
-        lock.unlock()
-
-        if let encodedManifest {
-            try FileManager.default.createDirectory(at: rootDirectory, withIntermediateDirectories: true)
-            try encodedManifest.write(to: manifestURL, options: [.atomic])
+        do {
+            try commit(items + [record])
+        } catch {
+            try? FileManager.default.removeItem(at: targetURL)
+            throw error
         }
         return record
     }
@@ -250,72 +252,84 @@ final class ProjectDeliverableStore: @unchecked Sendable {
         return try Data(contentsOf: fileURL(for: item))
     }
 
-    func deleteDeliverable(_ deliverableID: UUID) {
-        lock.lock()
-        guard let idx = items.firstIndex(where: { $0.id == deliverableID }) else {
-            lock.unlock()
-            return
-        }
-        let removed = items.remove(at: idx)
-        let encoded = encodeManifestLocked()
-        lock.unlock()
-
-        try? FileManager.default.removeItem(at: fileURL(for: removed))
-        if let encoded {
-            try? encoded.write(to: manifestURL, options: [.atomic])
-        }
+    private func encoded(_ records: [ProjectDeliverable]) throws -> Data {
+        let encoder = JSONEncoder()
+        encoder.dateEncodingStrategy = .iso8601
+        return try encoder.encode(ManifestFile(version: 1, items: records))
     }
 
-    /// Exports manifest + deliverable files into a dictionary compatible with `UnifiedBackupPayload.deliverablesManifest`.
-    func exportBackupBundle(maxTotalBytes: Int = 48 * 1024 * 1024) -> [String: Data] {
-        lock.lock()
-        let snapshotItems = items
-        let manifestData = encodeManifestLocked()
-        lock.unlock()
+    // Caller holds the lock through version allocation, the file write and this commit.
+    private func commit(_ records: [ProjectDeliverable]) throws {
+        try encoded(records).write(to: manifestURL, options: .atomic)
+        items = records
+    }
 
-        guard !snapshotItems.isEmpty, let manifestData else { return [:] }
-        var bundle: [String: Data] = ["manifest.json": manifestData]
-        var used = manifestData.count
-        for item in snapshotItems.sorted(by: { $0.createdAt > $1.createdAt }) {
-            guard let raw = try? Data(contentsOf: fileURL(for: item)),
-                  used + raw.count <= maxTotalBytes else { continue }
-            bundle[item.relativePath] = raw
-            used += raw.count
+    func deleteDeliverable(_ id: UUID) throws {
+        lock.lock(); defer { lock.unlock() }
+        guard let removed = items.first(where: { $0.id == id }) else { return }
+        try commit(items.filter { $0.id != id })
+        let url = fileURL(for: removed)
+        if FileManager.default.fileExists(atPath: url.path) { try FileManager.default.removeItem(at: url) }
+    }
+
+    func exportBackupBundle(maxTotalBytes: Int = 48 * 1024 * 1024) -> [String: Data] {
+        lock.lock(); defer { lock.unlock() }
+        var bundle: [String: Data] = [:]
+        var included: [ProjectDeliverable] = []
+        var remaining = maxTotalBytes
+        for item in items.sorted(by: { $0.createdAt > $1.createdAt }) {
+            let url = fileURL(for: item)
+            guard let size = try? url.resourceValues(forKeys: [.fileSizeKey]).fileSize,
+                  size == item.byteCount, size <= remaining,
+                  let data = try? Data(contentsOf: url, options: .mappedIfSafe), data.count == size else { continue }
+            bundle[item.relativePath] = data
+            included.append(item)
+            remaining -= size
         }
+        guard !included.isEmpty, let manifest = try? encoded(included) else { return [:] }
+        bundle["manifest.json"] = manifest
         return bundle
     }
 
     func restoreBackupBundle(_ bundle: [String: Data]?, mode: UnifiedRestoreMode) throws {
-        guard let bundle, !bundle.isEmpty, let manifestData = bundle["manifest.json"] else { return }
+        guard let manifest = bundle?["manifest.json"], let bundle else { return }
         let decoder = JSONDecoder()
         decoder.dateDecodingStrategy = .iso8601
-        let decoded = try decoder.decode(ManifestFile.self, from: manifestData)
-
+        let incoming = try decoder.decode(ManifestFile.self, from: manifest)
+        lock.lock(); defer { lock.unlock() }
         try FileManager.default.createDirectory(at: filesDirectory, withIntermediateDirectories: true)
-        for item in decoded.items {
-            guard item.relativePath.hasPrefix("files/"),
-                  !item.relativePath.contains(".."),
-                  let fileData = bundle[item.relativePath] else { continue }
-            let target = fileURL(for: item)
-            if mode == .replace || !FileManager.default.fileExists(atPath: target.path) {
-                try fileData.write(to: target, options: [.atomic])
+        var created: [URL] = []
+        var seen = Set<UUID>()
+        var next = mode == .replace ? [] : items
+        let existing = Set(items.map(\.id))
+        do {
+            for item in incoming.items {
+                guard item.version > 0, seen.insert(item.id).inserted,
+                      item.relativePath == "files/\(item.id.uuidString).\(item.format.fileExtension)" else {
+                    throw DocumentStudioError.invalidSpecification("备份成果目录无效。")
+                }
+                let url = fileURL(for: item)
+                if mode == .merge && existing.contains(item.id) { continue }
+                if !FileManager.default.fileExists(atPath: url.path) {
+                    guard let data = bundle[item.relativePath], data.count == item.byteCount else {
+                        throw DocumentStudioError.invalidSpecification("备份缺少成果文件：\(item.fileName)")
+                    }
+                    try data.write(to: url, options: .atomic)
+                    created.append(url)
+                } else {
+                    guard let size = try url.resourceValues(forKeys: [.fileSizeKey]).fileSize, size == item.byteCount else {
+                        throw DocumentStudioError.invalidSpecification("本地成果大小与备份不符：\(item.fileName)")
+                    }
+                    if let data = bundle[item.relativePath], try Data(contentsOf: url, options: .mappedIfSafe) != data {
+                        throw DocumentStudioError.invalidSpecification("本地成果与备份内容不一致：\(item.fileName)")
+                    }
+                }
+                next.append(item)
             }
-        }
-
-        lock.lock()
-        if mode == .replace {
-            items = decoded.items
-        } else {
-            let known = Set(items.map(\.id))
-            for item in decoded.items where !known.contains(item.id) {
-                items.append(item)
-            }
-        }
-        let encoded = encodeManifestLocked()
-        lock.unlock()
-
-        if let encoded {
-            try encoded.write(to: manifestURL, options: [.atomic])
+            try commit(next)
+        } catch {
+            for url in created { try? FileManager.default.removeItem(at: url) }
+            throw error
         }
     }
 
@@ -329,12 +343,6 @@ final class ProjectDeliverableStore: @unchecked Sendable {
         }
         cleaned = cleaned.trimmingCharacters(in: .whitespacesAndNewlines)
         return cleaned.isEmpty ? "Sermo交付文档" : String(cleaned.prefix(80))
-    }
-
-    private func encodeManifestLocked() -> Data? {
-        let encoder = JSONEncoder()
-        encoder.dateEncodingStrategy = .iso8601
-        return try? encoder.encode(ManifestFile(version: 1, items: items))
     }
 
     private func loadManifest() {

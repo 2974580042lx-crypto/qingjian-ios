@@ -183,9 +183,7 @@ struct SettingsView: View {
                     .padding(.horizontal)
                 }
             }
-            .alert("详情", isPresented: Binding(get: { feedbackDetails != nil }, set: { if !$0 { feedbackDetails = nil } })) {
-                Button("完成") { feedbackDetails = nil }
-            } message: { Text(feedbackDetails ?? "") }
+            .inlineFeedback(feedbackDetails) { feedbackDetails = nil }
         }
         .tint(Ink.ink)
     }
@@ -610,9 +608,7 @@ struct OpenAISpeechSettings: View {
         .onChange(of: voice) { _, _ in speech.stop() }
         .onChange(of: engineRaw) { _, _ in speech.stop() }
         .onChange(of: autoPlay) { _, enabled in if !enabled { speech.stop() } }
-        .alert("语音密钥未保存", isPresented: Binding(get: { issue != nil }, set: { if !$0 { issue = nil } })) {
-            Button("知道了") { issue = nil }
-        } message: { Text(issue ?? "") }
+        .inlineFeedback(issue) { issue = nil }
     }
 }
 
@@ -633,12 +629,7 @@ struct SpeechPlaybackControl: View {
         }
         .buttonStyle(.plain)
         .accessibilityLabel(speech.isActive(messageID) ? "停止朗读" : "朗读回答")
-        .alert("声音暂时没播放", isPresented: Binding(
-            get: { speech.errorMessageID == messageID && speech.errorMessage != nil },
-            set: { if !$0 { speech.errorMessage = nil } }
-        )) {
-            Button("知道了") { speech.errorMessage = nil }
-        } message: { Text(speech.errorMessage ?? "") }
+        .inlineFeedback(speech.errorMessageID == messageID ? speech.errorMessage : nil) { speech.errorMessage = nil }
     }
 }
 
