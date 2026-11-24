@@ -28,8 +28,9 @@ enum BookReading {
     }
 
     static func segmentRequest(book: Book, segment: BookSegment, chapters: [BookChapter]) throws -> ChatRequest {
+        let indices = try chapterRange(segment, in: chapters)
         var parts = ["书名：《\(book.title)》", "以下是第 \(segment.first + 1) 到第 \(segment.last + 1) 章的原文（方括号里是章号）。", ""]
-        for index in try chapterRange(segment, in: chapters) {
+        for index in indices {
             parts.append("【\(index + 1)｜\(chapters[index].title)】")
             parts.append(chapters[index].text)
             parts.append("")

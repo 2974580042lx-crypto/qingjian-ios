@@ -29,6 +29,28 @@ final class BookTests: XCTestCase {
         XCTAssertThrowsError(try StoryPlay.merge(response, into: StoryMemory(), fresh: [turn]))
     }
 
+    func testImportedFileSurvivesPreparationAndOversizeIsRejected() throws {
+        let url = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString + ".txt")
+        defer { try? FileManager.default.removeItem(at: url) }
+        try Data(String(repeating: "夜雨打窗。", count: 100).utf8).write(to: url)
+        XCTAssertFalse(try BookImport.prepare(fileAt: url).chapters.isEmpty)
+        let handle = try FileHandle(forWritingTo: url)
+        try handle.truncate(atOffset: UInt64(BookText.maximumBytes) + 1)
+        try handle.close()
+        XCTAssertThrowsError(try BookImport.prepare(fileAt: url))
+        XCTAssertTrue(FileManager.default.fileExists(atPath: url.path))
+    }
+
+    func testMarkAtReplacedParagraphNeverOverwritesEarlierNote() throws {
+        let old = ReaderSavedMark(chapter: 0, paragraph: 4, excerpt: "旧句", note: "我的解释")
+        let same = ReaderSavedMark.adding(chapter: 0, paragraph: 4, excerpt: "旧句", to: [old])
+        XCTAssertEqual(same.map(\.id), [old.id])
+        let new = ReaderSavedMark.adding(chapter: 0, paragraph: 4, excerpt: "新版段落", to: same)
+        XCTAssertEqual(new.count, 2)
+        XCTAssertEqual(new.first?.note, "我的解释")
+        XCTAssertNotEqual(new[1].id, old.id)
+    }
+
     func testBookmarksFollowUniqueParagraphAndRetainAmbiguousExcerpt() {
         let mark = ReaderSavedMark(chapter: 0, paragraph: 0, excerpt: "相遇", note: "人物初见")
         let doc = NovelDocument(chapter: 0, text: "新增序言\n相遇是在雨夜")

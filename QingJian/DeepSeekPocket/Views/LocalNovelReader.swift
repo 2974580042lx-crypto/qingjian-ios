@@ -92,10 +92,10 @@ struct LocalNovelReader: View {
                 .padding(.horizontal, max(22, margin)).padding(.top, 8).frame(height: 30)
                 ReaderCanvas(document: document, style: style, jump: jump, chapterTitle: book?.chapterLabel(chapter) ?? "",
                     tapped: { withAnimation(.easeOut(duration: 0.18)) { chrome.toggle() } },
-                    moved: { offset, p, count in
+                    moved: { offset, p, count, settled in
                         currentOffset = offset; page = p; pageCount = count
                         if !sliding { slider = progress }
-                        scheduleSave()
+                        if settled { saveTask?.cancel(); savePosition() } else { scheduleSave() }
                     },
                     chapterStep: { step in navigate(chapter + step, offset: step < 0 ? Int.max : 0) },
                     paragraphAction: { index in
@@ -154,16 +154,17 @@ struct LocalNovelReader: View {
                 var total = 0
                 chapterEnds = loaded.map { total += ($0.text as NSString).length; return total }
                 chapter = min(max(0, initialChapter), loaded.count - 1)
-                document = NovelDocument(chapter: chapter, text: loaded[chapter].text)
+                let loadedDocument = NovelDocument(chapter: chapter, text: loaded[chapter].text)
                 if let ref = initialReference {
-                    guard let exact = document.referenceOffset(ref) else {
+                    guard let exact = loadedDocument.referenceOffset(ref) else {
                         loadIssue = "当前原书与保存的节选不一致，无法定位。原引用仍可查看。"
                         return
                     }
                     currentOffset = exact
                 } else {
-                    currentOffset = document.restoredOffset(bookmark: book?.bookmark, requestedParagraph: initialParagraph)
+                    currentOffset = loadedDocument.restoredOffset(bookmark: book?.bookmark, requestedParagraph: initialParagraph)
                 }
+                document = loadedDocument
                 jump = ReaderJump(offset: currentOffset)
                 prepared = true; originalBrightness = UIScreen.main.brightness
                 ReaderAppDelegate.setReaderOrientation(orientation)

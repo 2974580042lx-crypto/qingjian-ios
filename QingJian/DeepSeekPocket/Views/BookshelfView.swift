@@ -232,7 +232,7 @@ struct BookshelfView: View {
             Task {
                 var imported: [UUID] = []
                 for url in urls {
-                    if let id = await books.importBook(from: url) { imported.append(id) }
+                    if let id = await books.importBook(from: url, removePickerCopy: true) { imported.append(id) }
                 }
                 // One book opens straight away; several stay on the shelf to choose from.
                 if imported.count == 1, let id = imported.first { path.append(id) }

@@ -94,6 +94,17 @@ struct ReaderSavedMark: Codable, Equatable, Identifiable, Sendable {
     var excerpt: String
     var createdAt = Date()
     var note: String? = nil
+    static func adding(chapter: Int, paragraph: Int, excerpt: String, to marks: [Self], now: Date = Date()) -> [Self] {
+        let quoted = String(excerpt.prefix(150))
+        var next = marks
+        if let index = next.firstIndex(where: { $0.chapter == chapter && $0.paragraph == paragraph && $0.excerpt == quoted }) {
+            next[index].createdAt = now
+        } else {
+            next.append(Self(chapter: chapter, paragraph: paragraph, excerpt: quoted, createdAt: now))
+        }
+        return next
+    }
+
 }
 
 // What one segment's reading produced.
@@ -240,6 +251,14 @@ enum BookImport {
         let chapters: [BookChapter]
         let segments: [BookSegment]
         let chaptersJSON: Data
+    }
+
+    static func prepare(fileAt url: URL) throws -> Prepared {
+        let values = try url.resourceValues(forKeys: [.isRegularFileKey, .fileSizeKey])
+        guard values.isRegularFile == true, let size = values.fileSize, size <= BookText.maximumBytes else {
+            throw ChatError.server("请选择不超过 40 MB 的小说文件。")
+        }
+        return try prepare(Data(contentsOf: url, options: .mappedIfSafe), fileName: url.lastPathComponent)
     }
 
     static func prepare(_ data: Data, fileName: String) throws -> Prepared {

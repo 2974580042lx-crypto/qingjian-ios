@@ -55,7 +55,7 @@ struct ReaderCanvas: UIViewControllerRepresentable {
     var jump: ReaderJump
     var chapterTitle: String
     var tapped: () -> Void
-    var moved: (Int, Int, Int) -> Void
+    var moved: (Int, Int, Int, Bool) -> Void
     var chapterStep: (Int) -> Void
     var paragraphAction: (Int) -> Void
     var position: ReaderPositionProbe
@@ -73,7 +73,7 @@ struct ReaderCanvas: UIViewControllerRepresentable {
 @MainActor
 final class NovelCanvasController: UIViewController, UITextViewDelegate {
     var tapped: (() -> Void)?
-    var moved: ((Int, Int, Int) -> Void)?
+    var moved: ((Int, Int, Int, Bool) -> Void)?
     var chapterStep: ((Int) -> Void)?
     var paragraphAction: ((Int) -> Void)?
     private var chapterTitle = ""
@@ -362,15 +362,15 @@ final class NovelCanvasController: UIViewController, UITextViewDelegate {
             if !preservingAnchor { anchor = pages.indices.contains(spread * columns) ? pages[spread * columns].location : 0 }
             position?.update(chapter: document.chapter, jump: jumpID, offset: anchor)
             guard notify else { return }
-            moved?(anchor, spread + 1, max(1, (pages.count + columns - 1) / columns))
+            moved?(anchor, spread + 1, max(1, (pages.count + columns - 1) / columns), force)
         } else {
-            guard vertical.layoutManager.numberOfGlyphs > 0 else { moved?(0, 1, 1); return }
+            guard vertical.layoutManager.numberOfGlyphs > 0 else { moved?(0, 1, 1, force); return }
             let point = CGPoint(x: 1, y: max(0, vertical.contentOffset.y - vertical.textContainerInset.top + 16))
             let glyph = vertical.layoutManager.glyphIndex(for: point, in: vertical.textContainer)
             if !preservingAnchor { anchor = vertical.layoutManager.characterIndexForGlyph(at: min(glyph, vertical.layoutManager.numberOfGlyphs - 1)) }
             position?.update(chapter: document.chapter, jump: jumpID, offset: anchor)
             guard notify else { return }
-            moved?(anchor, 0, 0)
+            moved?(anchor, 0, 0, force)
         }
     }
 }

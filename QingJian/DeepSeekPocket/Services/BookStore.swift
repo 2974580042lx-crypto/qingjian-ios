@@ -286,7 +286,8 @@ final class BookStore: ObservableObject {
     }
 
     func readerChapters(_ id: UUID) async throws -> [BookChapter] {
-        if let cached = cachedChapters, cached.id == id { return cached.chapters }
+        guard book(id) != nil else { throw ChatError.server("这本书已从书架移除。") }
+        if let cached = cachedChapters, cached.id == id, !cached.chapters.isEmpty { return cached.chapters }
         let url = try Self.root().appendingPathComponent(id.uuidString).appendingPathComponent("chapters.json")
         let chapters = try await Task.detached(priority: .userInitiated) {
             try JSONDecoder().decode([BookChapter].self, from: Data(contentsOf: url, options: .mappedIfSafe))
@@ -396,21 +397,20 @@ final class BookStore: ObservableObject {
     // MARK: Shelf
 
     /// Reads a TXT file the picker handed over (a private copy). Returns the new book's id.
-    func importBook(from url: URL) async -> UUID? {
+    func importBook(from url: URL, removePickerCopy: Bool = false) async -> UUID? {
         guard !isImporting else { return nil }
         isImporting = true
         defer { isImporting = false }
         let preview = isPreview
         do {
-            let fileName = url.lastPathComponent
             let prepared = try await Task.detached(priority: .userInitiated) { () throws -> BookImport.Prepared in
                 let scoped = url.startAccessingSecurityScopedResource()
                 defer {
                     if scoped { url.stopAccessingSecurityScopedResource() }
                     // The picker's copy is ours to remove once it has been read.
-                    try? FileManager.default.removeItem(at: url)
+                    if removePickerCopy { try? FileManager.default.removeItem(at: url) }
                 }
-                return try BookImport.prepare(Data(contentsOf: url), fileName: fileName)
+                return try BookImport.prepare(fileAt: url)
             }.value
             let charCount = prepared.chapters.reduce(0) { $0 + $1.text.count }
             if let existing = books.first(where: { $0.title == prepared.title && chapters(of: $0.id).isEmpty }) {
@@ -590,13 +590,7 @@ final class BookStore: ObservableObject {
 
     @discardableResult func addReaderMark(chapter: Int, paragraph: Int, excerpt: String, in id: UUID) -> Bool {
         guard var book = self.book(id), book.chapterTitles.indices.contains(chapter), paragraph >= 0, !excerpt.isEmpty else { return false }
-        var marks = book.readerMarks ?? []
-        if let existing = marks.firstIndex(where: { $0.chapter == chapter && $0.paragraph == paragraph }) {
-            marks[existing].createdAt = Date()
-        } else {
-            marks.append(ReaderSavedMark(chapter: chapter, paragraph: paragraph, excerpt: String(excerpt.prefix(150))))
-        }
-        book.readerMarks = marks
+        book.readerMarks = ReaderSavedMark.adding(chapter: chapter, paragraph: paragraph, excerpt: excerpt, to: book.readerMarks ?? [])
         return save(book)
     }
 
