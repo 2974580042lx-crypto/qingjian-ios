@@ -64,11 +64,11 @@ enum SystemPickerPresentation {
                         shown()
                     }
                     let presentationDeadline = clock.now.advanced(by: .seconds(4))
-                    while !presented, picker.presentingViewController == nil, picker.viewIfLoaded?.window == nil,
+                    while !presented, top.presentedViewController == nil, picker.presentingViewController == nil, picker.viewIfLoaded?.window == nil,
                           clock.now < presentationDeadline {
                         try? await Task.sleep(for: .milliseconds(50))
                     }
-                    if !presented, picker.presentingViewController == nil, picker.viewIfLoaded?.window == nil {
+                    if !presented, top.presentedViewController == nil, picker.presentingViewController == nil, picker.viewIfLoaded?.window == nil {
                         onError("系统选择器未能打开，请重试。")
                     }
                     return

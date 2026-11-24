@@ -32,7 +32,8 @@ final class NavigationUITests: XCTestCase {
         app.buttons["chat-add-photos"].tap()
         let photo = app.images.matching(identifier: "PXGGridLayout-Info").firstMatch
         XCTAssertTrue(photo.waitForExistence(timeout: 12), app.debugDescription)
-        photo.tap()
+        let center = CGVector(dx: photo.frame.midX - app.frame.minX, dy: photo.frame.midY - app.frame.minY)
+        app.coordinate(withNormalizedOffset: .zero).withOffset(center).tap()
         let confirm = app.buttons.matching(NSPredicate(format: "label IN %@", ["Add", "Done", "添加", "完成"])).firstMatch
         XCTAssertTrue(confirm.waitForExistence(timeout: 5), app.debugDescription)
         confirm.tap()

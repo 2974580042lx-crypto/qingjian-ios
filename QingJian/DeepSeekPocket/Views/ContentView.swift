@@ -190,9 +190,33 @@ private struct ConversationPanelTarget: Identifiable {
     var id: UUID { threadID }
 }
 
-// Present from the real visible controller. The composer lives in a separate
-// UIHostingController, so attaching a photosPicker to the outer SwiftUI page
-// makes its presentation depend on another host and on menu dismissal timing.
+private struct ChatPhotoRequest: Identifiable {
+    let id = UUID()
+    let threadID: UUID
+    let limit: Int
+}
+
+private struct ChatPhotoLibrarySheet: UIViewControllerRepresentable {
+    let limit: Int
+    let selected: ([PHPickerResult]) -> Void
+
+    func makeCoordinator() -> Coordinator { Coordinator(selected: selected) }
+    func makeUIViewController(context: Context) -> PHPickerViewController {
+        let picker = ChatPhotoPicker.makePicker(limit: limit)
+        picker.delegate = context.coordinator
+        return picker
+    }
+    func updateUIViewController(_ picker: PHPickerViewController, context: Context) {}
+
+    @MainActor final class Coordinator: NSObject, PHPickerViewControllerDelegate {
+        let selected: ([PHPickerResult]) -> Void
+        init(selected: @escaping ([PHPickerResult]) -> Void) { self.selected = selected }
+        func picker(_ picker: PHPickerViewController, didFinishPicking results: [PHPickerResult]) {
+            selected(results)
+        }
+    }
+}
+
 @MainActor
 enum ChatPhotoPicker {
     private static var current: Coordinator?
@@ -203,12 +227,7 @@ enum ChatPhotoPicker {
         // A picker that never appeared (or vanished unannounced) must not block the next tap.
         if let open = current, !SystemPickerPresentation.isWaiting(open.picker), open.picker?.presentingViewController == nil { current = nil }
         guard current == nil else { onError("相册已打开，请先完成当前选择。"); return false }
-        var config = PHPickerConfiguration(photoLibrary: .shared())
-        config.filter = .images
-        config.selectionLimit = max(1, min(4, limit))
-        config.selection = .ordered
-        config.preferredAssetRepresentationMode = .current
-        let picker = PHPickerViewController(configuration: config)
+        let picker = makePicker(limit: limit)
         let coordinator = Coordinator(picked: picked)
         coordinator.picker = picker
         picker.delegate = coordinator
@@ -219,6 +238,15 @@ enum ChatPhotoPicker {
             if current === coordinator { current = nil }
             onError(issue)
         }) { picker.presentationController?.delegate = coordinator }
+    }
+
+    static func makePicker(limit: Int) -> PHPickerViewController {
+        var config = PHPickerConfiguration(photoLibrary: .shared())
+        config.filter = .images
+        config.selectionLimit = max(1, min(4, limit))
+        config.selection = .ordered
+        config.preferredAssetRepresentationMode = .current
+        return PHPickerViewController(configuration: config)
     }
 
     static func loadData(_ provider: NSItemProvider) async throws -> Data {
@@ -352,7 +380,7 @@ struct ChatScreen: View {
     @State private var timeReveal = SwipeTimeRevealModel()
     @State private var cachedContext: ContextUsageSnapshot?
     @State private var choosingFiles = false
-    @State private var choosingPhotos = false
+    @State private var photoRequest: ChatPhotoRequest?
     @State private var fileImportTask: Task<Void, Never>?
     @State private var fileImportThreadID: UUID?
     @State private var fileImportProgress = ""
@@ -373,7 +401,7 @@ struct ChatScreen: View {
     @State private var selectedDeliverable: ProjectDeliverable?
     @State private var showVoiceDictationSheet = false
     private var loadingPhotos: Bool { photoLoadThreadID == store.activeThreadID && photoLoadThreadID != nil }
-    private var attachmentBusy: Bool { choosingFiles || choosingPhotos || fileImportThreadID != nil || photoLoadThreadID != nil }
+    private var attachmentBusy: Bool { choosingFiles || photoRequest != nil || fileImportThreadID != nil || photoLoadThreadID != nil }
     private var pendingImages: [PendingImage] {
         get {
             guard let thread = store.activeThread, !store.isHidden(thread) else { return [] }
@@ -787,7 +815,18 @@ struct ChatScreen: View {
         }
     }
 
-    var body: some View { chatWithAlerts.background(PickerWindowReader(anchor: pickerAnchor)) }
+    var body: some View {
+        chatWithAlerts
+            .background(PickerWindowReader(anchor: pickerAnchor))
+            .sheet(item: $photoRequest) { request in
+                ChatPhotoLibrarySheet(limit: request.limit) { results in
+                    guard photoRequest?.id == request.id else { return }
+                    photoRequest = nil
+                    acceptPhotos(results, into: request.threadID)
+                }
+                .ignoresSafeArea()
+            }
+    }
 
     // Separate opaque view expressions keep type checking bounded. State remains
     // on ChatScreen, and the transcript preference stays inside its hosting tree.
@@ -1548,55 +1587,52 @@ struct ChatScreen: View {
         let remaining = 4 - (imagesByThread[origin]?.count ?? 0)
         guard remaining > 0 else { attachmentReport = "一次最多添加 4 张图片。"; return }
         focusComposer(false)
-        choosingPhotos = true
-        let shown = ChatPhotoPicker.present(limit: remaining, window: pickerAnchor.window, onError: { issue in
-            choosingPhotos = false; attachmentReport = issue
-        }) { results in
-            choosingPhotos = false
-            guard !results.isEmpty else { return }
-            let session = UUID()
-            photoLoadSessionID = session
-            photoLoadThreadID = origin
-            photoLoadTask = Task { @MainActor in
-                defer {
-                    if photoLoadSessionID == session {
-                        photoLoadThreadID = nil; photoLoadSessionID = nil; photoLoadTask = nil
-                    }
+        photoRequest = ChatPhotoRequest(threadID: origin, limit: remaining)
+    }
+
+    private func acceptPhotos(_ results: [PHPickerResult], into origin: UUID) {
+        guard !results.isEmpty else { return }
+        let session = UUID()
+        photoLoadSessionID = session
+        photoLoadThreadID = origin
+        photoLoadTask = Task { @MainActor in
+            defer {
+                if photoLoadSessionID == session {
+                    photoLoadThreadID = nil; photoLoadSessionID = nil; photoLoadTask = nil
                 }
-                var added = 0, failures = 0
-                for result in results {
-                    guard !Task.isCancelled, photoLoadSessionID == session else { return }
+            }
+            var added = 0, failures = 0
+            for result in results {
+                guard !Task.isCancelled, photoLoadSessionID == session else { return }
+                guard let current = store.threads.first(where: { $0.id == origin }), !store.isHidden(current) else {
+                    attachmentReport = "原对话已删除或上锁，图片没有加入其他对话。"
+                    return
+                }
+                guard (imagesByThread[origin]?.count ?? 0) < 4 else { break }
+                do {
+                    let raw = try await ChatPhotoPicker.loadData(result.itemProvider)
+                    try Task.checkCancellation()
+                    guard photoLoadSessionID == session else { return }
+                    let prepared = try await Task.detached(priority: .userInitiated) { try ImageStore.prepared(raw) }.value
+                    try Task.checkCancellation()
+                    guard photoLoadSessionID == session else { return }
                     guard let current = store.threads.first(where: { $0.id == origin }), !store.isHidden(current) else {
                         attachmentReport = "原对话已删除或上锁，图片没有加入其他对话。"
                         return
                     }
-                    guard (imagesByThread[origin]?.count ?? 0) < 4 else { break }
-                    do {
-                        let raw = try await ChatPhotoPicker.loadData(result.itemProvider)
-                        try Task.checkCancellation()
-                        guard photoLoadSessionID == session else { return }
-                        let prepared = try await Task.detached(priority: .userInitiated) { try ImageStore.prepared(raw) }.value
-                        try Task.checkCancellation()
-                        guard photoLoadSessionID == session else { return }
-                        guard let current = store.threads.first(where: { $0.id == origin }), !store.isHidden(current) else {
-                            attachmentReport = "原对话已删除或上锁，图片没有加入其他对话。"
-                            return
-                        }
-                        guard let preview = UIImage(data: prepared) else { failures += 1; continue }
-                        imagesByThread[origin, default: []].append(PendingImage(data: prepared, preview: preview))
-                        added += 1
-                    } catch is CancellationError { return }
-                    catch { failures += 1 }
-                }
-                guard !Task.isCancelled, photoLoadSessionID == session else { return }
-                if failures > 0 {
-                    attachmentReport = "已添加 \(added) 张图片，\(failures) 张未能读取。请确认云端照片已下载，或换一张普通照片/截图。"
-                } else if origin != store.activeThreadID {
-                    attachmentReport = "\(added) 张图片已加入原来对话的待发送区，切回即可查看。"
-                }
+                    guard let preview = UIImage(data: prepared) else { failures += 1; continue }
+                    imagesByThread[origin, default: []].append(PendingImage(data: prepared, preview: preview))
+                    added += 1
+                } catch is CancellationError { return }
+                catch { failures += 1 }
+            }
+            guard !Task.isCancelled, photoLoadSessionID == session else { return }
+            if failures > 0 {
+                attachmentReport = "已添加 \(added) 张图片，\(failures) 张未能读取。请确认云端照片已下载，或换一张普通照片/截图。"
+            } else if origin != store.activeThreadID {
+                attachmentReport = "\(added) 张图片已加入原来对话的待发送区，切回即可查看。"
             }
         }
-        if !shown { choosingPhotos = false }
     }
 
     private func cancelPhotoImport() {
