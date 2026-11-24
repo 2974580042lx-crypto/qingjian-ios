@@ -57,12 +57,12 @@ extension AppStore {
 
     /// Looks a question up in the project's material on the device and returns a note with the
     /// best passages, or nil when nothing matches.
-    func projectMaterialNote(_ query: String, project: ChatProject) async -> String? {
+    func projectMaterialNote(_ query: String, project: ChatProject) async throws -> String? {
         let library = projectLibrary, documents = project.documents, projectID = project.id
-        return await Task.detached(priority: .userInitiated) { () -> String? in
-            guard let hits = try? ProjectLibraryTools.search(query, limit: 6, projectID: projectID,
-                                                              inlineDocuments: documents, store: library),
-                  !hits.isEmpty else { return nil }
+        return try await Task.detached(priority: .userInitiated) { () throws -> String? in
+            let hits = try ProjectLibraryTools.search(query, limit: 6, projectID: projectID,
+                                                              inlineDocuments: documents, store: library)
+            guard !hits.isEmpty else { return nil }
             let passages = hits.enumerated().map { index, hit in
                 var text = hit.excerpt
                 if index < 3, !hit.documentID.hasPrefix("inline:"),

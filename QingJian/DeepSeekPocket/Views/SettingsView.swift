@@ -12,6 +12,7 @@ struct SettingsView: View {
     @State private var draftKey = ""
     @State private var backupURL: URL?
     @State private var showShare = false
+    @State private var feedbackDetails: String?
     @State private var checkingConnection = false
     @State private var checkedBalance: AccountBalance?
     @State private var connectionError: String?
@@ -171,12 +172,17 @@ struct SettingsView: View {
                 }
                 .tint(Ink.ink)
             }
-            .alert("暂时没有完成", isPresented: Binding(get: { store.errorMessage != nil }, set: { if !$0 { store.errorMessage = nil } })) {
-                Button("知道了") { store.errorMessage = nil }
-            } message: { Text(store.errorMessage ?? "") }
-            .alert("备份导入", isPresented: Binding(get: { store.noticeMessage != nil }, set: { if !$0 { store.noticeMessage = nil } })) {
-                Button("完成") { store.noticeMessage = nil }
-            } message: { Text(store.noticeMessage ?? "") }
+            .safeAreaInset(edge: .bottom) {
+                if let message = store.errorMessage ?? store.noticeMessage {
+                    ComposerNoticeBar(text: message, actionTitle: "详情", action: { feedbackDetails = message }, dismiss: {
+                        if store.errorMessage != nil { store.errorMessage = nil } else { store.noticeMessage = nil }
+                    })
+                    .padding(.horizontal)
+                }
+            }
+            .alert("详情", isPresented: Binding(get: { feedbackDetails != nil }, set: { if !$0 { feedbackDetails = nil } })) {
+                Button("完成") { feedbackDetails = nil }
+            } message: { Text(feedbackDetails ?? "") }
         }
         .tint(Ink.ink)
     }

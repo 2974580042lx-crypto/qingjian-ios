@@ -253,7 +253,7 @@ enum ChatPhotoPicker {
             let deliver = {
                 guard !delivered else { return }
                 delivered = true
-                ChatPhotoPicker.current = nil
+                if ChatPhotoPicker.current === self { ChatPhotoPicker.current = nil }
                 self.picked(results)
             }
             picker.dismiss(animated: true, completion: deliver)
@@ -262,7 +262,7 @@ enum ChatPhotoPicker {
         func presentationControllerDidDismiss(_ presentationController: UIPresentationController) {
             guard !finished else { return }
             finished = true
-            ChatPhotoPicker.current = nil
+            if ChatPhotoPicker.current === self { ChatPhotoPicker.current = nil }
             picked([])
         }
     }
@@ -1144,10 +1144,13 @@ struct ChatScreen: View {
     // Kept out of body so the compiler can type-check the page in reasonable time.
     private var messageRows: some View {
         let lastID = store.activeThread?.messages.last?.id, threadID = store.activeThreadID
-        let rounds = Self.roundNumbers(store.activeThread?.messages ?? [])
+        let messages = store.activeThread?.messages ?? []
+        let visible = visibleMessages
+        let start = messages.count - visible.count
+        let priorRounds = messages.prefix(start).reduce(0) { $0 + ($1.role == .user ? 1 : 0) }
+        let rounds = Self.roundNumbers(visible, startingAfter: priorRounds)
         let look = self.style
         let layout = self.currentLayoutMode
-        let visible = visibleMessages
         return ForEach(Array(visible.enumerated()), id: \.element.id) { index, message in
             let prev: ChatMessage? = index > 0 ? visible[index - 1] : nil
             let showDivider = !swiss && MessageTimeDivider.shouldShow(previous: prev, current: message)
@@ -1212,9 +1215,9 @@ struct ChatScreen: View {
     }
 
     /// Exchange numbers: each message of yours starts a new one, the answers after it share it.
-    static func roundNumbers(_ messages: [ChatMessage]) -> [UUID: Int] {
+    static func roundNumbers(_ messages: [ChatMessage], startingAfter previous: Int) -> [UUID: Int] {
         var result: [UUID: Int] = [:]
-        var round = 0
+        var round = previous
         for message in messages {
             if message.role == .user { round += 1 }
             result[message.id] = max(round, 1)
@@ -1944,29 +1947,29 @@ struct ChatScreen: View {
         }
     }
 
+    @ViewBuilder private var chatStatusNotice: some View {
+        if let issue = store.errorMessage {
+            ComposerNoticeBar(text: issue, actionTitle: "详情", action: { reportDetails = issue },
+                              dismiss: { store.errorMessage = nil })
+        } else if let report = attachmentReport {
+            ComposerNoticeBar(text: report, actionTitle: "详情", action: { reportDetails = report },
+                              dismiss: { attachmentReport = nil })
+        } else if let incoming = store.pendingShareIntake {
+            ComposerNoticeBar(text: "收到「\(incoming.title)」", actionTitle: "查看", action: reviewIncoming)
+        } else if let backup = store.unifiedRestorePreview {
+            ComposerNoticeBar(text: "备份已就绪：\(backup.fileName)", actionTitle: "查看", action: reviewBackup)
+        } else if let notice = store.noticeMessage {
+            ComposerNoticeBar(text: notice, actionTitle: "详情", action: { reportDetails = notice },
+                              dismiss: { store.noticeMessage = nil })
+        }
+    }
+
     private var composerBody: some View {
         let isCurrentGenerating = store.isGenerating(in: store.activeThreadID)
         let steerDraft = localDraft.trimmingCharacters(in: .whitespacesAndNewlines)
         let canSteerCurrentRun = isCurrentGenerating && !steerDraft.isEmpty && pendingImages.isEmpty && pendingDocuments.isEmpty
         return VStack(spacing: 8) {
-            if let incoming = store.pendingShareIntake {
-                ComposerNoticeBar(text: "收到「\(incoming.title)」", actionTitle: "查看", action: reviewIncoming)
-            }
-            if let backup = store.unifiedRestorePreview {
-                ComposerNoticeBar(text: "备份已就绪：\(backup.fileName)", actionTitle: "查看", action: reviewBackup)
-            }
-            if let issue = store.errorMessage {
-                ComposerNoticeBar(text: issue, actionTitle: "详情", action: { reportDetails = issue },
-                                  dismiss: { store.errorMessage = nil })
-            }
-            if let notice = store.noticeMessage {
-                ComposerNoticeBar(text: notice, actionTitle: "详情", action: { reportDetails = notice },
-                                  dismiss: { store.noticeMessage = nil })
-            }
-            if let report = attachmentReport {
-                ComposerNoticeBar(text: report, actionTitle: "详情", action: { reportDetails = report },
-                                  dismiss: { attachmentReport = nil })
-            }
+            chatStatusNotice
             if let approval = store.pendingApproval {
                 if approval.threadID == store.activeThreadID {
                     InlineToolApprovalCard(approval: approval) { store.resolveApproval($0) }

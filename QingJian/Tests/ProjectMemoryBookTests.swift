@@ -95,13 +95,16 @@ final class ProjectMemoryBookTests: XCTestCase {
 
     func testParsesOpsAndDropsUnknownIds() throws {
         let known = UUID()
+        let messages = [ChatMessage(role: .user, content: "我在准备考研。改成甲二，忘掉旧的。"),
+                        ChatMessage(role: .assistant, content: "你在学习吉他。")]
         let ops = try ProjectMemoryBook.parseOps("""
         {"ops":[{"op":"add","text":"在准备考研","quote":"我在准备考研","expires":"2026-12-20"},
-                {"op":"update","id":"m1","text":"甲二"},
+                {"op":"update","id":"m1","text":"甲二","quote":"改成甲二"},
                 {"op":"update","id":"m9","text":"不存在"},
-                {"op":"delete","id":"m1"},
+                {"op":"delete","id":"m1","quote":"忘掉旧的"},
+                {"op":"add","text":"学习吉他","quote":"你在学习吉他"},
                 {"op":"noop"}]}
-        """, ids: ["m1": known])
+        """, ids: ["m1": known], messages: messages)
         XCTAssertEqual(ops.count, 3)
         if case let .add(text, quote, expires) = ops[0] {
             XCTAssertEqual(text, "在准备考研")
@@ -109,8 +112,8 @@ final class ProjectMemoryBookTests: XCTestCase {
             XCTAssertNotNil(expires)
         } else { XCTFail("first op should add") }
         XCTAssertEqual(ops[2], .delete(id: known))
-        XCTAssertThrowsError(try ProjectMemoryBook.parseOps("没有 JSON", ids: [:]))
-        XCTAssertEqual(try ProjectMemoryBook.parseOps(#"{"ops":[]}"#, ids: [:]), [])
+        XCTAssertThrowsError(try ProjectMemoryBook.parseOps("没有 JSON", ids: [:], messages: []))
+        XCTAssertEqual(try ProjectMemoryBook.parseOps(#"{"ops":[]}"#, ids: [:], messages: []), [])
     }
 
     func testSystemPromptUsesTheChosenMemoryPart() {

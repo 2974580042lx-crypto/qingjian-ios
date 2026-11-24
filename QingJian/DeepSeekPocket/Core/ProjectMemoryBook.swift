@@ -270,14 +270,17 @@ enum ProjectMemoryBook {
         和已有条目（memory）意思重复的不要再加；有变化时用 update 改写那一条，写出前后变化，例如「改用 iPad 记笔记（之前用纸本）」；已过时或被用户否定的用 delete。
         有明确截止日期的事（考试、出行、截稿）在 expires 填 YYYY-MM-DD，过了就不再使用。
         每条一句话、不超过 80 字，直接陈述事实，不要写「用户说」。宁可少记，不确定的不记。
-        只输出 JSON，不要解释：{"ops":[{"op":"add","text":"……","quote":"用户原话片段","expires":""},{"op":"update","id":"m3","text":"……","quote":"……"},{"op":"delete","id":"m5"}]}。没有要改的输出 {"ops":[]}。
+        只输出 JSON，不要解释：{"ops":[{"op":"add","text":"……","quote":"用户原话片段","expires":""},{"op":"update","id":"m3","text":"……","quote":"……"},{"op":"delete","id":"m5","quote":"用户原话片段"}]}。没有要改的输出 {"ops":[]}。
         """
         return (ChatRequest(settings: config, messages: [ChatMessage(role: .user, content: text)]), ids)
     }
 
     /// Reads the writer's answer. Unknown ids and malformed entries are dropped; an answer that is
     /// not JSON at all is an error, so the same messages are tried again next time.
-    static func parseOps(_ text: String, ids: [String: UUID]) throws -> [ProjectMemoryOp] {
+    static func parseOps(_ text: String, ids: [String: UUID], messages: [ChatMessage]) throws -> [ProjectMemoryOp] {
+        let userStatements = messages.prefix(40).filter { $0.role == .user }.map {
+            PendingDocumentCodec.extractEditableUserText($0.content)
+        }
         guard let start = text.firstIndex(of: "{"), let end = text.lastIndex(of: "}"), start < end,
               let data = String(text[start...end]).data(using: .utf8),
               let object = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any],
@@ -296,13 +299,14 @@ enum ProjectMemoryBook {
             return raw
         }
         return list.prefix(30).compactMap { entry -> ProjectMemoryOp? in
+            guard let quote = string(entry["quote"]), userStatements.contains(where: { $0.contains(quote) }) else { return nil }
             switch (entry["op"] as? String)?.lowercased() {
             case "add":
                 guard let text = string(entry["text"]) else { return nil }
-                return .add(text: text, quote: string(entry["quote"]), expires: date(entry["expires"]))
+                return .add(text: text, quote: quote, expires: date(entry["expires"]))
             case "update":
                 guard let key = string(entry["id"]), let id = ids[key], let text = string(entry["text"]) else { return nil }
-                return .update(id: id, text: text, quote: string(entry["quote"]), expires: date(entry["expires"]))
+                return .update(id: id, text: text, quote: quote, expires: date(entry["expires"]))
             case "delete":
                 guard let key = string(entry["id"]), let id = ids[key] else { return nil }
                 return .delete(id: id)

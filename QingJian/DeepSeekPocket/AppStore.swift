@@ -39,7 +39,6 @@ final class AppStore: ObservableObject {
     // The answer being written lives here, so only the bubble showing it redraws at
     // screen speed. `threads` gets a copy about once a second and the final text at the end.
     let live = LiveStream()
-    private var lastCommit = Date.distantPast
     @Published private(set) var translatingThreadID: UUID?
     @Published private(set) var translatingMessageID: UUID?
     @Published private(set) var translationIssue: (threadID: UUID, messageID: UUID, text: String)?
@@ -1672,15 +1671,16 @@ final class AppStore: ObservableObject {
                         if capturedID != .invalid { UIApplication.shared.endBackgroundTask(capturedID) }
                         return
                     }
-                    // Issue #8: Synchronously flush latest streamed content & cancel task before returning to UIKit.
+                    guard capturedID != .invalid, self.backgroundTaskID == capturedID else { return }
+                    self.flushPending(force: true)
                     if self.canPersist, let persistence = self.persistence {
-                        try? persistence.save(self.snapshotWithLiveOverlay, allowShrink: false)
+                        do { try persistence.save(self.snapshotWithLiveOverlay, allowShrink: false) }
+                        catch { self.errorMessage = error.localizedDescription }
                     }
                     self.agentRunStore.flushToDisk()
-                    self.generationTask?.cancel()
-                    if self.backgroundTaskID == capturedID {
-                        self.backgroundTaskID = .invalid
-                    }
+                    // A suspended approval or pause needs its continuation resumed as well as cancellation.
+                    self.stopGeneration()
+                    self.backgroundTaskID = .invalid
                     if capturedID != .invalid {
                         UIApplication.shared.endBackgroundTask(capturedID)
                         capturedID = .invalid
@@ -2310,7 +2310,6 @@ final class AppStore: ObservableObject {
         guard persistNow() else { threads = old; return false }
         live.begin(messageID: answerID, startedAt: answer.createdAt)
         studyOutputGuard = StudyOutputGuard()
-        lastCommit = Date()
         isAgentPaused = false
         pendingSteeringNotes.removeAll()
         generatingThreadID = threadID
@@ -2332,12 +2331,19 @@ final class AppStore: ObservableObject {
                         if plan.web { routedWebQuery = plan.webQuery ?? searchQuery }
                     }
                     let tag = answerID.uuidString.prefix(6)
-                    if let query = plan.docsQuery, let proj = chatProject,
-                       let note = await self.projectMaterialNote(query, project: proj) {
-                        outgoing = outgoing.prefixingLastUserMessage(note)
-                        self.record(ToolActivity(id: "route-docs-\(tag)",
-                            title: "查阅项目资料：\(String(query.prefix(24)))", status: .done, detail: nil, kind: "library"),
-                            threadID: threadID, answerID: answerID)
+                    if let query = plan.docsQuery, let proj = chatProject {
+                        let id = "route-docs-\(tag)"
+                        do {
+                            let note = try await self.projectMaterialNote(query, project: proj)
+                            outgoing = outgoing.prefixingLastUserMessage(note ?? "【项目资料】本次检索没有匹配原文，回答时请说明。")
+                            self.record(ToolActivity(id: id, title: note == nil ? "项目资料未找到匹配" : "查阅项目资料：\(String(query.prefix(24)))",
+                                status: .done, detail: nil, kind: "library"), threadID: threadID, answerID: answerID)
+                        } catch {
+                            outgoing = outgoing.prefixingLastUserMessage("【项目资料】本次未能读取文献库，回答时请说明，勿据此声称查无资料。")
+                            self.record(ToolActivity(id: id, title: "项目资料读取失败", status: .failed,
+                                detail: error.localizedDescription, kind: "library"), threadID: threadID, answerID: answerID)
+                        }
+                        try Task.checkCancellation()
                     }
                     if let query = plan.chatsQuery, let proj = chatProject,
                        let found = await self.pastChatsNote(query, projectID: proj.id, excluding: threadID) {
@@ -3194,9 +3200,8 @@ final class AppStore: ObservableObject {
     // Copies the live text into the stored conversation when finishing, pausing, or saving synchronously.
     private func commitLive() {
         guard let id = live.messageID, live.isDirty,
-              let ti = threads.firstIndex(where: { $0.messages.contains(where: { $0.id == id }) }),
+              let ti = threads.firstIndex(where: { $0.id == generatingThreadID }),
               let mi = threads[ti].messages.firstIndex(where: { $0.id == id }) else { return }
-        lastCommit = Date()
         live.isDirty = false
         threads[ti].messages[mi].content = live.content
         threads[ti].messages[mi].reasoning = live.reasoning
@@ -3205,7 +3210,7 @@ final class AppStore: ObservableObject {
     private var snapshotWithLiveOverlay: AppSnapshot {
         var overlaidThreads = threads
         if let id = live.messageID,
-           let ti = overlaidThreads.firstIndex(where: { $0.messages.contains(where: { $0.id == id }) }),
+           let ti = overlaidThreads.firstIndex(where: { $0.id == generatingThreadID }),
            let mi = overlaidThreads[ti].messages.firstIndex(where: { $0.id == id }) {
             overlaidThreads[ti].messages[mi].content = live.content
             overlaidThreads[ti].messages[mi].reasoning = live.reasoning
@@ -3648,15 +3653,19 @@ final class AppStore: ObservableObject {
             defer { self.memoryTask = nil; self.memorizingProjectID = nil }
             do {
                 let reply = try await self.runAuxiliary(built.request, thread: thread, subscriptionModel: model, timeout: 90)
-                let ops = try ProjectMemoryBook.parseOps(reply.text, ids: built.ids)
+                let ops = try ProjectMemoryBook.parseOps(reply.text, ids: built.ids, messages: fresh)
                 // You may have edited the memory meanwhile; your version wins.
-                guard var latest = self.project(projectID), latest.currentMemoryItems == items else { return }
+                guard !Task.isCancelled, self.canPersist, var latest = self.project(projectID),
+                      latest.remembers, latest.remembersPrivate == project.remembersPrivate,
+                      let source = self.threads.first(where: { $0.id == threadID }),
+                      source.projectID == projectID, source.keepsOutOfMemory != true,
+                      latest.currentMemoryItems == items else { return }
                 let result = ProjectMemoryBook.apply(ops, to: items, threadID: threadID)
                 var counts = latest.memorizedCounts ?? [:]
                 counts[threadID.uuidString] = settled
                 latest.memorizedCounts = counts
                 if !result.changes.isEmpty { latest.recordMemory(result.items, changes: result.changes) }
-                self.storeQuietly(latest)
+                guard self.storeQuietly(latest) else { return }
                 if let batch = result.changes.first?.batchID {
                     self.composerNotice = ComposerNotice(threadID: nil, projectID: projectID,
                         kind: .memoryUpdated(projectID: projectID, batchID: batch))
@@ -3680,11 +3689,12 @@ final class AppStore: ObservableObject {
         updateMemory(leaving: threadID, minimum: explicit ? ProjectMemory.minimumNewMessages : ProjectMemory.midConversationMessages)
     }
     // Saves a project without the side effects of an edit (no alerts, suggestions stay).
-    private func storeQuietly(_ project: ChatProject) {
-        guard let index = projects.firstIndex(where: { $0.id == project.id }), (try? project.validate()) != nil else { return }
+    @discardableResult private func storeQuietly(_ project: ChatProject) -> Bool {
+        guard let index = projects.firstIndex(where: { $0.id == project.id }), (try? project.validate()) != nil else { return false }
         let old = projects
         projects[index] = project
-        if !persistNow() { projects = old }
+        guard persistNow() else { projects = old; return false }
+        return true
     }
     /// Saves the memory edited as text: kept lines keep their entry, the rest is logged as one
     /// change you can undo.
@@ -3853,7 +3863,7 @@ final class AppStore: ObservableObject {
                     counts[tid] = max(counts[tid] ?? 0, count)
                 }
                 latest.memorizedCounts = counts
-                self.storeQuietly(latest)
+                guard self.storeQuietly(latest) else { return }
                 if let batch = result.changes.first?.batchID {
                     self.composerNotice = ComposerNotice(threadID: nil, projectID: proj.id,
                         kind: .memoryUpdated(projectID: proj.id, batchID: batch))

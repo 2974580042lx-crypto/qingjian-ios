@@ -106,26 +106,32 @@ final class StudyMemoryStore: @unchecked Sendable {
         return result
     }
     func rows(projectID: UUID, kind: String) throws -> [Data] {
-        let query = try statement("SELECT payload FROM study_data WHERE project_id=? AND kind=? ORDER BY id", strings: [projectID.uuidString, kind])
-        defer { sqlite3_finalize(query) }
-        var result: [Data] = []
-        while true {
-            let status = sqlite3_step(query)
-            if status == SQLITE_DONE { return result }
-            guard status == SQLITE_ROW else { throw StudyMemoryError.unavailable }
-            result.append(try Self.columnBlob(query, index: 0))
+        try synchronized {
+            let query = try statement("SELECT payload FROM study_data WHERE project_id=? AND kind=? ORDER BY id", strings: [projectID.uuidString, kind])
+            defer { sqlite3_finalize(query) }
+            var result: [Data] = []
+            while true {
+                let status = sqlite3_step(query)
+                if status == SQLITE_DONE { return result }
+                guard status == SQLITE_ROW else { throw StudyMemoryError.unavailable }
+                result.append(try Self.columnBlob(query, index: 0))
+            }
         }
     }
     func read<T: Decodable>(_ type: T.Type, projectID: UUID, kind: String, id: String) throws -> T? {
-        let query = try statement("SELECT payload FROM study_data WHERE project_id=? AND kind=? AND id=?", strings: [projectID.uuidString, kind, id])
-        defer { sqlite3_finalize(query) }
-        let status = sqlite3_step(query)
-        if status == SQLITE_DONE { return nil }
-        guard status == SQLITE_ROW else { throw StudyMemoryError.unavailable }
-        return try StudyCoding.decode(type, from: Self.columnBlob(query, index: 0))
+        try synchronized {
+            let query = try statement("SELECT payload FROM study_data WHERE project_id=? AND kind=? AND id=?", strings: [projectID.uuidString, kind, id])
+            defer { sqlite3_finalize(query) }
+            let status = sqlite3_step(query)
+            if status == SQLITE_DONE { return nil }
+            guard status == SQLITE_ROW else { throw StudyMemoryError.unavailable }
+            return try StudyCoding.decode(type, from: Self.columnBlob(query, index: 0))
+        }
     }
     func write<T: Encodable>(_ value: T, projectID: UUID, kind: String, id: String) throws {
-        try writeData(StudyCoding.encode(value), projectID: projectID, kind: kind, id: id)
+        try synchronized {
+            try writeData(StudyCoding.encode(value), projectID: projectID, kind: kind, id: id)
+        }
     }
     private func writeData(_ data: Data, projectID: UUID, kind: String, id: String) throws {
         guard data.count <= encoderLimit else { throw StudyMemoryError.invalid("学习记录过大，保存未完成。") }

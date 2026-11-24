@@ -370,7 +370,7 @@ final class ProjectLibraryStore: @unchecked Sendable {
             let stmt = try prepare(db, "SELECT id, name, file_ext, char_count, chunk_count, imported_at FROM documents ORDER BY imported_at DESC")
             defer { sqlite3_finalize(stmt) }
             var result: [ProjectLibraryDocument] = []
-            while sqlite3_step(stmt) == SQLITE_ROW {
+            while try nextRow(stmt) {
                 result.append(ProjectLibraryDocument(
                     id: columnText(stmt, 0),
                     name: columnText(stmt, 1),
@@ -417,7 +417,7 @@ final class ProjectLibraryStore: @unchecked Sendable {
                 let names = try prepare(db, "SELECT id, name FROM documents")
                 defer { sqlite3_finalize(names) }
                 var ids: [String] = []
-                while sqlite3_step(names) == SQLITE_ROW {
+                while try nextRow(names) {
                     if columnText(names, 1).localizedCaseInsensitiveContains(docFilter) { ids.append(columnText(names, 0)) }
                 }
                 guard !ids.isEmpty else { return [] }
@@ -452,7 +452,7 @@ final class ProjectLibraryStore: @unchecked Sendable {
                 sqlite3_bind_int64(stmt, 2, Int64(safeLimit * 8))
                 if let filterIDs { bindText(stmt, 3, filterIDs) }
                 var out: [Candidate] = []
-                while sqlite3_step(stmt) == SQLITE_ROW {
+                while try nextRow(stmt) {
                     let docName = columnText(stmt, 2)
                     out.append(Candidate(
                         chunkRowID: sqlite3_column_int64(stmt, 0),
@@ -491,7 +491,7 @@ final class ProjectLibraryStore: @unchecked Sendable {
                 bindText(stmt, 1, "%\(literal)%")
                 sqlite3_bind_int64(stmt, 2, Int64(safeLimit * 4))
                 if let filterIDs { bindText(stmt, 3, filterIDs) }
-                while sqlite3_step(stmt) == SQLITE_ROW {
+                while try nextRow(stmt) {
                     let docName = columnText(stmt, 2)
                     candidates.append(Candidate(
                         chunkRowID: sqlite3_column_int64(stmt, 0),
@@ -563,7 +563,7 @@ final class ProjectLibraryStore: @unchecked Sendable {
             sqlite3_bind_int64(stmt, 3, Int64(hi))
 
             var sections: [String] = []
-            while sqlite3_step(stmt) == SQLITE_ROW {
+            while try nextRow(stmt) {
                 let idx = Int(sqlite3_column_int64(stmt, 0))
                 let label = columnText(stmt, 1)
                 let body = columnText(stmt, 2)
@@ -659,6 +659,15 @@ final class ProjectLibraryStore: @unchecked Sendable {
         guard sqlite3_exec(db, sql, nil, nil, nil) == SQLITE_OK else {
             let msg = sqlite3_errmsg(db).map { String(cString: $0) } ?? "SQLite 错误"
             throw ProjectLibraryError.unavailable(msg)
+        }
+    }
+
+    private func nextRow(_ statement: OpaquePointer) throws -> Bool {
+        switch sqlite3_step(statement) {
+        case SQLITE_ROW: return true
+        case SQLITE_DONE: return false
+        default:
+            throw ProjectLibraryError.unavailable(String(cString: sqlite3_errmsg(sqlite3_db_handle(statement))))
         }
     }
 
