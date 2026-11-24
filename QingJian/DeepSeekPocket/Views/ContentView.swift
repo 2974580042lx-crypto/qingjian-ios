@@ -356,6 +356,7 @@ struct ChatScreen: View {
     @State private var fileImportTask: Task<Void, Never>?
     @State private var fileImportThreadID: UUID?
     @State private var fileImportProgress = ""
+    @State private var queuedFileImports: [(urls: [URL], origin: UUID, removeAfterImport: Bool)] = []
     @State private var photoLoadThreadID: UUID?
     @State private var photoLoadSessionID: UUID?
     @State private var photoLoadTask: Task<Void, Never>?
@@ -1620,6 +1621,10 @@ struct ChatScreen: View {
 
     private func importDocuments(_ urls: [URL], into origin: UUID, removeAfterImport: Bool = false) {
         guard !urls.isEmpty else { return }
+        if fileImportThreadID != nil {
+            queuedFileImports.append((urls, origin, removeAfterImport))
+            return
+        }
         fileImportThreadID = origin
         fileImportTask = Task { @MainActor in
             defer {
@@ -1628,6 +1633,10 @@ struct ChatScreen: View {
                 fileImportProgress = ""
                 if removeAfterImport {
                     for url in urls { try? FileManager.default.removeItem(at: url) }
+                }
+                if !queuedFileImports.isEmpty {
+                    let next = queuedFileImports.removeFirst()
+                    importDocuments(next.urls, into: next.origin, removeAfterImport: next.removeAfterImport)
                 }
             }
             var successes = 0
@@ -1681,28 +1690,6 @@ struct ChatScreen: View {
         return thread.story == nil && thread.bookDiscussion == nil
     }
 
-    @ViewBuilder private var systemPromptControl: some View {
-        if showsSystemPromptControl, let thread = store.activeThread {
-            Button {
-                guard store.canChooseSystemPrompt(for: thread), !store.isGenerating, store.canPersist else { return }
-                focusComposer(false)
-                systemPromptTarget = ConversationPanelTarget(threadID: thread.id)
-            } label: {
-                Image(systemName: "text.bubble").font(.system(size: 17, weight: .medium))
-                    .foregroundStyle(Ink.ink)
-                    .frame(width: 44, height: 44)
-                    .floatingGlass(in: AnyShape(Circle()))
-                    .contentShape(Circle())
-            }
-            .buttonStyle(.plain)
-            .disabled(store.isGenerating || !store.canPersist || !store.canChooseSystemPrompt(for: thread))
-            .accessibilityLabel("切换系统指令")
-            .accessibilityValue(store.systemPromptTitle(for: thread))
-            .accessibilityHint("为当前对话选择系统指令，草稿保持不变")
-            .accessibilityIdentifier("chat-system-prompt")
-        }
-    }
-
     private var attachmentButton: some View {
         Button {
             Haptic.tap()
@@ -1732,22 +1719,27 @@ struct ChatScreen: View {
         _ = ChatCameraPicker.present(window: pickerAnchor.window, onError: { issue in
             attachmentReport = issue
         }) { captured in
-            Task { @MainActor in
-                guard let raw = captured.jpegData(compressionQuality: 0.90) ?? captured.pngData(),
-                      let prepared = try? await Task.detached(priority: .userInitiated, operation: {
-                          try ImageStore.prepared(raw)
-                      }).value,
-                      let preview = UIImage(data: prepared) else {
-                    attachmentReport = "拍摄的照片未能读取，请重新尝试。"
+            prepareCapturedImage(captured, origin: origin)
+        }
+    }
+
+    private func prepareCapturedImage(_ image: UIImage, origin: UUID) {
+        Task { @MainActor in
+            do {
+                let data = try await Task.detached(priority: .userInitiated) {
+                    guard let raw = image.jpegData(compressionQuality: 0.9) ?? image.pngData() else {
+                        throw ChatError.server("无法读取这张图片。")
+                    }
+                    return try ImageStore.prepared(raw)
+                }.value
+                guard let target = store.threads.first(where: { $0.id == origin }), !store.isHidden(target) else { return }
+                guard (imagesByThread[origin]?.count ?? 0) < 4 else {
+                    attachmentReport = "待发送区已满 4 张图片。"
                     return
                 }
-                guard let current = store.threads.first(where: { $0.id == origin }), !store.isHidden(current) else {
-                    return
-                }
-                if (imagesByThread[origin]?.count ?? 0) < 4 {
-                    imagesByThread[origin, default: []].append(PendingImage(data: prepared, preview: preview))
-                }
-            }
+                guard let preview = UIImage(data: data) else { throw ChatError.server("图片无法预览。") }
+                imagesByThread[origin, default: []].append(PendingImage(data: data, preview: preview))
+            } catch { attachmentReport = error.localizedDescription }
         }
     }
 
@@ -1758,18 +1750,15 @@ struct ChatScreen: View {
                 attachmentReport = "每条消息最多附加 4 张图片。"
                 return
             }
-            if let data = image.jpegData(compressionQuality: 0.85) ?? image.pngData() {
-                pendingImages.append(PendingImage(data: data, preview: image))
-                Haptic.tap()
-                return
-            }
+            prepareCapturedImage(image, origin: id)
+            return
         }
         guard let text = UIPasteboard.general.string, !text.isEmpty else {
             attachmentReport = "剪贴板里没有图片或文字。"
             return
         }
         flushDraft()
-        if store.appendImportedText(text, to: id) { focusComposer(true) }
+        _ = store.appendImportedText(text, to: id)
     }
 
     private var isSlashCommandActive: Bool {

@@ -12,7 +12,6 @@ struct SettingsView: View {
     @State private var draftKey = ""
     @State private var backupURL: URL?
     @State private var showShare = false
-    @State private var showImporter = false
     @State private var checkingConnection = false
     @State private var checkedBalance: AccountBalance?
     @State private var connectionError: String?

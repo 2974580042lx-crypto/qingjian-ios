@@ -1,9 +1,4 @@
 import Foundation
-#if canImport(UIKit)
-import UIKit
-#elseif canImport(AppKit)
-import AppKit
-#endif
 
 /// Extracts plain text from Office Open XML (`.docx`, `.xlsx`, `.pptx`), `.rtf`, `.epub`,
 /// and binary `.plist` files without any third-party dependencies.
@@ -134,19 +129,6 @@ enum OfficeAndDocumentExtractor {
         let joined = pages.joined(separator: "\n\n").trimmingCharacters(in: .whitespacesAndNewlines)
         guard !joined.isEmpty else { throw ImportFailure("这个 PPTX 文件没有读出可提取的文字。") }
         return joined
-    }
-
-    static func extractRTF(_ data: Data) throws -> String {
-        guard let attributed = try? NSAttributedString(
-            data: data,
-            options: [.documentType: NSAttributedString.DocumentType.rtf],
-            documentAttributes: nil
-        ) else {
-            throw ImportFailure("无法读取这个 RTF 文件。")
-        }
-        let text = attributed.string.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !text.isEmpty else { throw ImportFailure("这个 RTF 文件没有可提取的文字。") }
-        return text
     }
 
     static func extractEPUB(_ data: Data) throws -> (title: String?, text: String) {

@@ -90,6 +90,20 @@ final class Module4LibraryStudioSandboxTests: XCTestCase {
         XCTAssertTrue(searchOut.contains("官田私田化"))
     }
 
+    func testFilenameFilterPrecedesCandidateLimitAndWildcardIsLiteral() throws {
+        let dir = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        defer { try? FileManager.default.removeItem(at: dir) }
+        let store = ProjectLibraryStore(rootDirectory: dir)
+        let project = UUID()
+        for i in 0..<12 {
+            _ = try store.ingestDocument(projectID: project, name: "旧稿\(i)", fileExtension: "txt", text: "红契")
+        }
+        let target = try store.ingestDocument(projectID: project, name: "定稿", fileExtension: "txt", text: "红契及其使用说明")
+        XCTAssertEqual(try store.search(projectID: project, query: "红契", documentNameFilter: "定稿", limit: 1).first?.documentID, target.id)
+        XCTAssertTrue(try store.search(projectID: project, query: "%").isEmpty)
+        XCTAssertThrowsError(try store.readSection(projectID: project, documentID: target.id, chunkIndex: Int.max))
+    }
+
     func testDocxCompilerProducesValidOOXMLWithRealFootnotesAndRoundTrips() throws {
         let markdown = """
         # 第三节 宋代红白契争讼考辨

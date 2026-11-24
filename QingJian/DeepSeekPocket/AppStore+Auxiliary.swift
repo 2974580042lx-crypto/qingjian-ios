@@ -60,25 +60,19 @@ extension AppStore {
     func projectMaterialNote(_ query: String, project: ChatProject) async -> String? {
         let library = projectLibrary, documents = project.documents, projectID = project.id
         return await Task.detached(priority: .userInitiated) { () -> String? in
-            let payload: [String: Any] = ["query": query, "limit": 6]
-            let arguments = (try? JSONSerialization.data(withJSONObject: payload))
-                .flatMap { String(data: $0, encoding: .utf8) } ?? "{}"
-            let call = ToolCall(id: "route-docs", name: "project_search_docs", arguments: arguments)
-            guard let found = try? ProjectLibraryTools.execute(call, projectID: projectID,
-                                                               inlineDocuments: documents, store: library),
-                  !found.hasPrefix("在当前项目文献库中没有找到") else { return nil }
-            var passages: [String] = []
-            if let hits = try? library.search(projectID: projectID, query: query, limit: 3) {
-                for hit in hits {
-                    if let text = try? library.readSection(projectID: projectID, documentID: hit.documentID,
-                                                           chunkIndex: hit.chunkIndex, window: 1) {
-                        passages.append("《\(hit.documentName)》· \(hit.pageLabel)\n\(String(text.prefix(2400)))")
-                    }
+            guard let hits = try? ProjectLibraryTools.search(query, limit: 6, projectID: projectID,
+                                                              inlineDocuments: documents, store: library),
+                  !hits.isEmpty else { return nil }
+            let passages = hits.enumerated().map { index, hit in
+                var text = hit.excerpt
+                if index < 3, !hit.documentID.hasPrefix("inline:"),
+                   let section = try? library.readSection(projectID: projectID, documentID: hit.documentID,
+                                                         chunkIndex: hit.chunkIndex, window: 1) {
+                    text = String(section.prefix(2400))
                 }
+                return "《\(hit.documentName)》· \(hit.pageLabel)\n\(text)"
             }
-            var note = "<project_material query=\"\(query)\">\n以下是在本项目资料里按需检索到的内容，回答涉及时据此作答，并注明出处；资料没写的不要编造。\n\(String(found.prefix(5000)))"
-            if !passages.isEmpty { note += "\n\n【原文】\n" + passages.joined(separator: "\n\n") }
-            return note + "\n</project_material>"
+            return "<project_material>\n以下为项目资料，引用时注明出处。\n" + passages.joined(separator: "\n\n") + "\n</project_material>"
         }.value
     }
 }
@@ -154,10 +148,12 @@ extension AppStore {
     /// that match it.
     func memoryParts(for thread: ChatThread, project: ChatProject, query: String,
                      now: Date = Date()) -> (block: String?, note: String?, renewed: Bool) {
-        let pick = ProjectMemoryBook.select(project.currentMemoryItems, query: query, now: now)
+        let items = project.currentMemoryItems
+        let pick = ProjectMemoryBook.select(items, query: query, now: now)
         let edited = project.memoryUserEditedAt ?? .distantPast
         if let snapshot = thread.memorySnapshot, let at = thread.memorySnapshotAt,
-           now.timeIntervalSince(at) < 6 * 3600, edited < at {
+           now.timeIntervalSince(at) < 6 * 3600, edited < at,
+           !items.contains(where: { item in item.expiresAt.map { $0 > at && $0 <= now } ?? false }) {
             let extra = pick.relevant.filter { !snapshot.contains($0.text) }
             return (snapshot.isEmpty ? nil : snapshot, ProjectMemoryBook.relevantNote(extra), false)
         }

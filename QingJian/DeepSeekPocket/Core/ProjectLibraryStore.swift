@@ -411,6 +411,19 @@ final class ProjectLibraryStore: @unchecked Sendable {
         let docFilter = documentNameFilter?.trimmingCharacters(in: .whitespacesAndNewlines)
 
         return try withDatabase(for: projectID) { db in
+            // Select documents before limiting chunks, preserving Unicode filename matching.
+            var filterIDs: String?
+            if let docFilter, !docFilter.isEmpty {
+                let names = try prepare(db, "SELECT id, name FROM documents")
+                defer { sqlite3_finalize(names) }
+                var ids: [String] = []
+                while sqlite3_step(names) == SQLITE_ROW {
+                    if columnText(names, 1).localizedCaseInsensitiveContains(docFilter) { ids.append(columnText(names, 0)) }
+                }
+                guard !ids.isEmpty else { return [] }
+                filterIDs = String(decoding: try JSONEncoder().encode(ids), as: UTF8.self)
+            }
+            let filterClause = filterIDs == nil ? "" : "AND c.doc_id IN (SELECT value FROM json_each(?3))"
             struct Candidate {
                 let chunkRowID: Int64
                 let docID: String
@@ -429,20 +442,18 @@ final class ProjectLibraryStore: @unchecked Sendable {
                 FROM chunks_fts
                 JOIN chunks c ON c.id = chunks_fts.chunk_id
                 JOIN documents d ON d.id = c.doc_id
-                WHERE chunks_fts MATCH ?
+                WHERE chunks_fts MATCH ?1 \(filterClause)
                 ORDER BY bm25(chunks_fts)
-                LIMIT ?
+                LIMIT ?2
                 """
                 let stmt = try prepare(db, sql)
                 defer { sqlite3_finalize(stmt) }
                 bindText(stmt, 1, expr)
                 sqlite3_bind_int64(stmt, 2, Int64(safeLimit * 8))
+                if let filterIDs { bindText(stmt, 3, filterIDs) }
                 var out: [Candidate] = []
                 while sqlite3_step(stmt) == SQLITE_ROW {
                     let docName = columnText(stmt, 2)
-                    if let docFilter, !docFilter.isEmpty, !docName.localizedCaseInsensitiveContains(docFilter) {
-                        continue
-                    }
                     out.append(Candidate(
                         chunkRowID: sqlite3_column_int64(stmt, 0),
                         docID: columnText(stmt, 1),
@@ -471,18 +482,17 @@ final class ProjectLibraryStore: @unchecked Sendable {
                 SELECT c.id, c.doc_id, d.name, c.chunk_index, c.page_label, c.text
                 FROM chunks c
                 JOIN documents d ON d.id = c.doc_id
-                WHERE c.text LIKE ?
-                LIMIT ?
+                WHERE c.text LIKE ?1 ESCAPE '!' \(filterClause)
+                LIMIT ?2
                 """
                 let stmt = try prepare(db, sql)
                 defer { sqlite3_finalize(stmt) }
-                bindText(stmt, 1, "%\(cleanQuery)%")
+                let literal = cleanQuery.replacingOccurrences(of: "!", with: "!!").replacingOccurrences(of: "%", with: "!%").replacingOccurrences(of: "_", with: "!_")
+                bindText(stmt, 1, "%\(literal)%")
                 sqlite3_bind_int64(stmt, 2, Int64(safeLimit * 4))
+                if let filterIDs { bindText(stmt, 3, filterIDs) }
                 while sqlite3_step(stmt) == SQLITE_ROW {
                     let docName = columnText(stmt, 2)
-                    if let docFilter, !docFilter.isEmpty, !docName.localizedCaseInsensitiveContains(docFilter) {
-                        continue
-                    }
                     candidates.append(Candidate(
                         chunkRowID: sqlite3_column_int64(stmt, 0),
                         docID: columnText(stmt, 1),
@@ -532,8 +542,6 @@ final class ProjectLibraryStore: @unchecked Sendable {
     func readSection(projectID: UUID, documentID: String, chunkIndex: Int, window: Int = 1) throws -> String {
         guard hasDatabase(for: projectID) else { throw ProjectLibraryError.documentNotFound }
         let safeWindow = max(0, min(3, window))
-        let lo = max(0, chunkIndex - safeWindow)
-        let hi = chunkIndex + safeWindow
 
         return try withDatabase(for: projectID) { db in
             let docStmt = try prepare(db, "SELECT name, chunk_count FROM documents WHERE id = ?")
@@ -544,6 +552,9 @@ final class ProjectLibraryStore: @unchecked Sendable {
             }
             let docName = columnText(docStmt, 0)
             let totalChunks = Int(sqlite3_column_int64(docStmt, 1))
+            guard chunkIndex >= 0, chunkIndex < totalChunks else { throw ProjectLibraryError.documentNotFound }
+            let lo = max(0, chunkIndex - safeWindow)
+            let hi = chunkIndex + min(safeWindow, totalChunks - 1 - chunkIndex)
 
             let stmt = try prepare(db, "SELECT chunk_index, page_label, text FROM chunks WHERE doc_id = ? AND chunk_index BETWEEN ? AND ? ORDER BY chunk_index ASC")
             defer { sqlite3_finalize(stmt) }
@@ -719,10 +730,41 @@ enum ProjectLibraryTools {
             return q.isEmpty ? "检索项目文献库" : "检索项目文献：\(String(q.prefix(24)))"
         case "project_read_doc_section":
             let idx = (obj["chunk_index"] as? Int) ?? 0
-            return "核对项目文献第 \(idx + 1) 节原文"
+            return idx >= 0 && idx < Int.max ? "核对项目文献第 \(idx + 1) 节原文" : "核对项目文献原文"
         default:
             return "查阅项目文献"
         }
+    }
+
+    static func search(_ query: String, filter docFilter: String? = nil, limit: Int, projectID: UUID,
+                       inlineDocuments: [ProjectDocument], store: ProjectLibraryStore) throws -> [ProjectLibraryHit] {
+        var hits = try store.search(projectID: projectID, query: query, documentNameFilter: docFilter, limit: limit)
+        // Also search inline project docs that may have isIncluded == false
+        let subKeywords = query.components(separatedBy: CharacterSet.whitespacesAndNewlines).filter { !$0.isEmpty }
+        for doc in inlineDocuments {
+            if let docFilter, !docFilter.isEmpty, !doc.name.localizedCaseInsensitiveContains(docFilter) { continue }
+            let chunks = ProjectLibraryChunker.chunk(doc.text)
+            for chunk in chunks {
+                let exact = chunk.text.localizedCaseInsensitiveContains(query)
+                let anyKw = !subKeywords.isEmpty && subKeywords.allSatisfy { chunk.text.localizedCaseInsensitiveContains($0) }
+                guard exact || anyKw else { continue }
+                hits.append(ProjectLibraryHit(
+                    id: "inline:\(doc.id.uuidString):\(chunk.index)",
+                    documentID: "inline:\(doc.id.uuidString)",
+                    documentName: doc.name,
+                    chunkIndex: chunk.index,
+                    pageLabel: chunk.pageLabel,
+                    excerpt: ProjectLibraryStore.makeExcerpt(from: chunk.text, query: query, keywords: subKeywords),
+                    exactMatch: exact,
+                    score: exact ? 98.0 : 40.0
+                ))
+            }
+        }
+        hits.sort {
+            if $0.exactMatch != $1.exactMatch { return $0.exactMatch && !$1.exactMatch }
+            return $0.score > $1.score
+        }
+        return Array(hits.prefix(limit))
     }
 
     static func execute(
@@ -761,33 +803,8 @@ enum ProjectLibraryTools {
             let docFilter = (obj["document_name"] as? String)?.trimmingCharacters(in: .whitespacesAndNewlines)
             let limit = max(1, min(15, (obj["limit"] as? Int) ?? 6))
 
-            var hits = try store.search(projectID: projectID, query: query, documentNameFilter: docFilter, limit: limit)
-            // Also search inline project docs that may have isIncluded == false
-            let subKeywords = query.components(separatedBy: CharacterSet.whitespacesAndNewlines).filter { !$0.isEmpty }
-            for doc in inlineDocuments {
-                if let docFilter, !docFilter.isEmpty, !doc.name.localizedCaseInsensitiveContains(docFilter) { continue }
-                let chunks = ProjectLibraryChunker.chunk(doc.text)
-                for chunk in chunks {
-                    let exact = chunk.text.localizedCaseInsensitiveContains(query)
-                    let anyKw = !subKeywords.isEmpty && subKeywords.allSatisfy { chunk.text.localizedCaseInsensitiveContains($0) }
-                    guard exact || anyKw else { continue }
-                    hits.append(ProjectLibraryHit(
-                        id: "inline:\(doc.id.uuidString):\(chunk.index)",
-                        documentID: "inline:\(doc.id.uuidString)",
-                        documentName: doc.name,
-                        chunkIndex: chunk.index,
-                        pageLabel: chunk.pageLabel,
-                        excerpt: ProjectLibraryStore.makeExcerpt(from: chunk.text, query: query, keywords: subKeywords),
-                        exactMatch: exact,
-                        score: exact ? 98.0 : 40.0
-                    ))
-                }
-            }
-            hits.sort {
-                if $0.exactMatch != $1.exactMatch { return $0.exactMatch && !$1.exactMatch }
-                return $0.score > $1.score
-            }
-            let top = Array(hits.prefix(limit))
+            let top = try search(query, filter: docFilter, limit: limit, projectID: projectID,
+                                 inlineDocuments: inlineDocuments, store: store)
             guard !top.isEmpty else {
                 return "在当前项目文献库中没有找到与「\(query)」匹配的内容。可以尝试拆短关键词或调用 project_list_docs 查看全部文献。"
             }
@@ -813,6 +830,7 @@ enum ProjectLibraryTools {
                     throw ProjectLibraryError.documentNotFound
                 }
                 let chunks = ProjectLibraryChunker.chunk(doc.text)
+                guard chunks.indices.contains(chunkIndex) else { throw ProjectLibraryError.documentNotFound }
                 let lo = max(0, chunkIndex - window)
                 let hi = min(max(0, chunks.count - 1), chunkIndex + window)
                 guard !chunks.isEmpty, lo <= hi else { throw ProjectLibraryError.documentNotFound }

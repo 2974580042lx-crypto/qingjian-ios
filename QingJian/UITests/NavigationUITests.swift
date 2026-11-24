@@ -13,11 +13,31 @@ final class NavigationUITests: XCTestCase {
             XCTAssertTrue(action.waitForExistence(timeout: 5))
             action.tap()
             let cancel = app.buttons.matching(NSPredicate(format: "label IN %@", ["Cancel", "Close", "取消", "关闭"])).firstMatch
-            XCTAssertTrue(cancel.waitForExistence(timeout: 12), "Expected system picker for " + id)
+            XCTAssertTrue(cancel.waitForExistence(timeout: 12), "Expected system picker for " + id + "\n" + app.debugDescription)
             XCTAssertFalse(app.alerts.firstMatch.exists)
             cancel.tap()
             XCTAssertTrue(add.waitForExistence(timeout: 8))
         }
+    }
+
+    @MainActor func testSendPhotoFromSystemLibrary() throws {
+        let app = XCUIApplication()
+        app.launchArguments = ["--ui-preview", "--preview-empty", "-AppleLanguages", "(en)", "-AppleLocale", "en_US"]
+        app.launch()
+        let add = app.buttons["chat-attachments"]
+        XCTAssertTrue(add.waitForExistence(timeout: 8))
+        add.tap()
+        app.buttons["chat-add-photos"].tap()
+        let photo = app.collectionViews.cells.firstMatch
+        XCTAssertTrue(photo.waitForExistence(timeout: 12), app.debugDescription)
+        photo.tap()
+        let confirm = app.buttons.matching(NSPredicate(format: "label IN %@", ["Add", "Done", "添加", "完成"])).firstMatch
+        XCTAssertTrue(confirm.waitForExistence(timeout: 5), app.debugDescription)
+        confirm.tap()
+        XCTAssertTrue(app.buttons["移除这张图片"].waitForExistence(timeout: 12), app.debugDescription)
+        app.buttons["发送消息"].tap()
+        XCTAssertTrue(app.staticTexts["这是界面预览中的示例回答。"].waitForExistence(timeout: 8), app.debugDescription)
+        XCTAssertFalse(app.buttons["移除这张图片"].exists)
     }
 
     @MainActor func testFontChangeKeepsSettingsAndUnsavedPrompt() throws {

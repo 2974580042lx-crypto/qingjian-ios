@@ -119,6 +119,7 @@ struct AddToChatSheet: View {
     @State private var subPageNotice: String? = nil
     @State private var showRecentPhotos = false
     @State private var recentPhotos: [RecentPhotoItem] = []
+    @State private var sheetIsVisible = false
     @State private var loadingRecent = false
     @State private var inlineHint: String? = nil
 
@@ -170,6 +171,8 @@ struct AddToChatSheet: View {
         .presentationDetents([.fraction(0.60), .large])
         .presentationDragIndicator(.visible)
         .presentationCornerRadius(32)
+        .onAppear { sheetIsVisible = true }
+        .onDisappear { sheetIsVisible = false }
     }
 
     // MARK: - Headers
@@ -946,6 +949,7 @@ struct AddToChatSheet: View {
         case .notDetermined:
             Task {
                 let granted = await PHPhotoLibrary.requestAuthorization(for: .readWrite)
+                guard sheetIsVisible else { return }
                 if granted == .authorized || granted == .limited {
                     await loadRecentPhotosOrFallback()
                 } else {
@@ -979,6 +983,7 @@ struct AddToChatSheet: View {
             }
         }
 
+        guard sheetIsVisible else { return }
         if items.isEmpty {
             dismissThen(onPickPhotos)
         } else {
@@ -1031,6 +1036,7 @@ struct AddToChatSheet: View {
                     continuation.resume(returning: data)
                 }
             }
+            guard sheetIsVisible else { return }
             guard let rawData,
                   let prepared = try? await Task.detached(priority: .userInitiated, operation: {
                       try ImageStore.prepared(rawData)
@@ -1039,6 +1045,7 @@ struct AddToChatSheet: View {
                 dismissThen(onPickPhotos)
                 return
             }
+            guard sheetIsVisible else { return }
             onAttachPreparedImage(prepared, preview)
             dismiss()
         }

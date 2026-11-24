@@ -19,7 +19,6 @@ struct ProjectFilesSheet: View {
     @State private var importTask: Task<Void, Never>?
     @State private var previewingLibrary: ProjectWorkspaceSheet.LibrarySectionPreview?
     @State private var editingInlineDoc: ProjectDocument?
-    @State private var showAddModeDialog = false
 
     private var project: ChatProject? {
         store.isLocked(projectID) ? nil : store.project(projectID)
