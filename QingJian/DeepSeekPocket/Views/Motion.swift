@@ -22,6 +22,9 @@ enum Motion {
     static let lively = Animation.spring(response: 0.46, dampingFraction: 0.74)
     /// Large, calm moves: the welcome page, a chat coming in.
     static let gentle = Animation.spring(response: 0.62, dampingFraction: 0.9)
+    /// 1.47.1: the page keeping up with an answer being written. Critically damped, so it
+    /// glides up after each new line and never bounces; a new line mid-glide just retargets it.
+    static let follow = Animation.spring(response: 0.3, dampingFraction: 1)
     /// Lists reordering: pinning, deleting, moving into a project.
     static let list = Animation.spring(response: 0.42, dampingFraction: 0.86)
     /// Fades with no movement.

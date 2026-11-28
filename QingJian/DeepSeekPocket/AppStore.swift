@@ -4004,6 +4004,11 @@ final class LiveStream: ObservableObject {
     @Published private(set) var reasoning = ""
     private(set) var messageID: UUID?
     private(set) var thinkingSeconds: Int?
+    /// 1.47.1, for 出字震动: how many characters the answer has, and where in it the latest
+    /// sentences and paragraphs end. Counted chunk by chunk, so never by walking the whole text.
+    private(set) var contentCount = 0
+    private(set) var stops: [Int] = []
+    private static let stopMarks: Set<Character> = ["。", "！", "？", "!", "?", "…", "；", "\n"]
     private var startedAt = Date()
     var isDirty = false
 
@@ -4012,6 +4017,8 @@ final class LiveStream: ObservableObject {
         self.startedAt = startedAt
         content = ""
         reasoning = ""
+        contentCount = 0
+        stops = []
         thinkingSeconds = nil
         isDirty = false
     }
@@ -4019,7 +4026,14 @@ final class LiveStream: ObservableObject {
         if !more.isEmpty, content.isEmpty, !(reasoning + thought).isEmpty {
             thinkingSeconds = max(1, Int(Date().timeIntervalSince(startedAt)))
         }
-        if !more.isEmpty { content += more }
+        if !more.isEmpty {
+            for character in more {
+                if Self.stopMarks.contains(character) { stops.append(contentCount) }
+                contentCount += 1
+            }
+            if stops.count > 64 { stops.removeFirst(stops.count - 32) }
+            content += more
+        }
         if !thought.isEmpty { reasoning += thought }
         isDirty = true
     }
@@ -4027,6 +4041,8 @@ final class LiveStream: ObservableObject {
         messageID = nil
         thinkingSeconds = nil
         isDirty = false
+        contentCount = 0
+        stops = []
         content = ""
         reasoning = ""
     }

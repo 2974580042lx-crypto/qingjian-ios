@@ -61,10 +61,11 @@ struct StreamActivityView: View {
 struct LiveMessageRow<Row: View>: View {
     @ObservedObject var live: LiveStream
     let message: ChatMessage
-    var onGrow: () -> Void = {}
+    /// Each time a chunk arrives (the chat page feels it: 出字震动).
+    var onGrow: (LiveStream) -> Void = { _ in }
     @ViewBuilder let row: (ChatMessage) -> Row
     var body: some View {
         row(live.applied(to: message))
-            .onChange(of: live.content) { _, _ in onGrow() }
+            .onChange(of: live.content) { _, _ in onGrow(live) }
     }
 }

@@ -233,7 +233,6 @@ enum ChatPhotoPicker {
 
 @MainActor @Observable
 private final class ChatScrollUIState {
-    var nearBottom = true
     var showJumpToLatest = false
 }
 
@@ -251,9 +250,52 @@ private struct ComposerObserverScope<Content: View>: View {
     var body: some View { content() }
 }
 
+/// 1.47.1: how the conversation keeps up with what is being written.
+///
+/// While you are at the end of the page it stays there: new text, a card, a picture, the
+/// finished answer's controls, the keyboard coming or going all push the page up instead of
+/// running off below the screen. A finger on the page pauses that (the page never fights
+/// the finger); when you let go it carries on, unless you yourself moved the page up by
+/// more than about three lines, which means you are reading above. Back at the end, or
+/// with the 「↓」 button, it follows again.
+///
+/// Kept in a plain object, not view state: it changes as you scroll and the page does not
+/// need to redraw for it.
 @MainActor
 private final class TranscriptScrollBox {
     var proxy: ScrollViewProxy?
+    /// Following the end of the conversation.
+    var follows = true
+    /// The page as last measured.
+    var geometry = TranscriptGeometry()
+    /// A finger, or the fling it left, is moving the page: the page as it was when it began.
+    var touch: TranscriptGeometry?
+    var sidebarOpen = false
+    /// Until then the page also follows growth when nothing is being written (an answer's
+    /// controls arriving as it finishes, a chat you just opened finishing its layout).
+    private var followsGrowthUntil: TimeInterval = 0
+
+    /// Moved up by more than this yourself and the page stops following (about three lines).
+    static let readingAbove: CGFloat = 80
+
+    /// Someone is watching the end of the answer: for 出字震动.
+    var watchingLive: Bool { follows && touch == nil && !sidebarOpen }
+    var followsGrowth: Bool { Date().timeIntervalSinceReferenceDate < followsGrowthUntil }
+    func followGrowth(for seconds: TimeInterval) {
+        followsGrowthUntil = max(followsGrowthUntil, Date().timeIntervalSinceReferenceDate + seconds)
+    }
+
+    /// Down to the end: a short glide when it is near, a jump when it is more than a screen.
+    func glideToBottom() {
+        guard let proxy else { return }
+        let travel = abs(geometry.distance)
+        guard travel > 0.5 else { return }
+        if Motion.reduced || travel > geometry.visibleHeight * 1.2 {
+            proxy.scrollTo("chat-bottom-anchor", anchor: .bottom)
+        } else {
+            withAnimation(Motion.follow) { proxy.scrollTo("chat-bottom-anchor", anchor: .bottom) }
+        }
+    }
     func scrollToBottom(animated: Bool = false, with animation: Animation = Motion.snappy) {
         guard let proxy else { return }
         if animated && !Motion.reduced {
@@ -269,9 +311,31 @@ private final class TranscriptScrollBox {
     }
 }
 
-private struct ScrollBottomMetrics: Equatable {
-    let nearBottom: Bool
-    let showJump: Bool
+/// The transcript's scroll position and size, as much as following the end needs.
+private struct TranscriptGeometry: Equatable {
+    var contentHeight: CGFloat = 0
+    var insetTop: CGFloat = 0
+    var insetBottom: CGFloat = 0
+    var containerHeight: CGFloat = 0
+    var offsetY: CGFloat = 0
+
+    init() {}
+    init(_ g: ScrollGeometry) {
+        contentHeight = (g.contentSize.height * 2).rounded() / 2
+        insetTop = g.contentInsets.top
+        insetBottom = g.contentInsets.bottom
+        containerHeight = g.containerSize.height
+        offsetY = g.contentOffset.y
+    }
+    /// How much of the conversation is below the visible part (below zero: pulled past the end).
+    var distance: CGFloat { contentHeight + insetBottom - offsetY - containerHeight }
+    /// The part between the top bar and the composer.
+    var visibleHeight: CGFloat { max(0, containerHeight - insetTop - insetBottom) }
+    /// Same page, only scrolled.
+    func sameSize(as other: TranscriptGeometry) -> Bool {
+        abs(contentHeight - other.contentHeight) < 0.5 && abs(insetBottom - other.insetBottom) < 0.5
+            && abs(insetTop - other.insetTop) < 0.5 && abs(containerHeight - other.containerHeight) < 0.5
+    }
 }
 
 private struct ContextUsageSnapshot {
@@ -310,7 +374,11 @@ struct ChatScreen: View {
     @State private var editingThreadID: UUID?
     @State private var thinkingTarget: ThinkingTarget?
     @State private var pendingSuggestedReply: PendingSuggestedReply?
-    @State private var followsOutput = true
+    /// Following the end of the conversation (kept on `scrollBox`, see there).
+    private var followsOutput: Bool {
+        get { scrollBox.follows }
+        nonmutating set { scrollBox.follows = newValue }
+    }
     @State private var scrollUIState = ChatScrollUIState()
     @State private var timeReveal = SwipeTimeRevealModel()
     @State private var cachedContext: ContextUsageSnapshot?
@@ -457,7 +525,6 @@ struct ChatScreen: View {
     @State private var bottomObstruction: CGFloat = 0
     @State private var visibleMessageCount = 40
     @State private var hasPositionedInitially = false
-    @State private var lastAutoScrollAt = Date.distantPast
     private var visibleMessages: [ChatMessage] {
         guard let thread = store.activeThread, !store.isHidden(thread) else { return [] }
         return Array(thread.messages.suffix(visibleMessageCount))
@@ -634,6 +701,7 @@ struct ChatScreen: View {
                         VStack(alignment: .leading, spacing: rowSpacing) {
                             if totalMessagesCount > visibleMessageCount {
                                 Button("查看更早消息（还有 \(totalMessagesCount - visibleMessageCount) 条）") {
+                                    followsOutput = false
                                     let anchorID = visibleMessages.first?.id
                                     visibleMessageCount += 40
                                     if let anchorID {
@@ -691,34 +759,21 @@ struct ChatScreen: View {
                     .contentMargins(.bottom, bottomClearance + 14, for: .scrollContent)
                     .contentMargins(.bottom, bottomClearance + 14, for: .scrollIndicators)
                     .scrollDismissesKeyboard(.interactively)
-                    .onAppear {
-                        if !hasPositionedInitially && !store.isPreview {
-                            let threadID = store.activeThreadID
-                            DispatchQueue.main.async {
-                                if store.activeThreadID == threadID && shouldFollowOutput { scrollBox.scrollToBottom() }
-                            }
-                        }
-                        hasPositionedInitially = true
-                    }
-                    .onScrollGeometryChange(for: ScrollBottomMetrics.self) { g in
-                        let visibleHeight = max(0, g.containerSize.height - g.contentInsets.top - g.contentInsets.bottom)
-                        let distance = g.contentSize.height + g.contentInsets.bottom - g.contentOffset.y - g.containerSize.height
-                        let overflows = g.contentSize.height > visibleHeight + 80
-                        return ScrollBottomMetrics(nearBottom: distance < 56, showJump: overflows && distance > 220)
-                    } action: { _, value in
-                        if scrollUIState.nearBottom != value.nearBottom { scrollUIState.nearBottom = value.nearBottom }
-                        if scrollUIState.showJumpToLatest != value.showJump { scrollUIState.showJumpToLatest = value.showJump }
+                    .onAppear { transcriptAppeared() }
+                    .onScrollGeometryChange(for: TranscriptGeometry.self) { g in
+                        TranscriptGeometry(g)
+                    } action: { old, new in
+                        transcriptMoved(from: old, to: new)
                     }
                     .onScrollPhaseChange { _, phase in
                         if phase == .interacting || phase == .decelerating {
                             if timeReveal.offset != 0 { timeReveal.offset = 0 }
                         }
-                        if phase == .interacting { followsOutput = false; clearMessageNavigation() }
-                        if phase == .idle && scrollUIState.nearBottom && pendingMessageJump == nil && focusedMessageID == nil { followsOutput = true }
+                        transcriptPhase(phase)
                     }
                     .onChange(of: store.activeThread?.messages.count) { _, _ in
                         guard shouldFollowOutput else { return }
-                        lastAutoScrollAt = Date()
+                        scrollBox.followGrowth(for: 1.2)
                         // Right after you send, the page glides up with your message.
                         let justSent = Date().timeIntervalSince(lastSendAt) < 1
                         scrollBox.scrollToBottom(animated: justSent, with: Motion.lively)
@@ -872,6 +927,7 @@ struct ChatScreen: View {
             if focused && shouldFollowOutput { scrollBox.scrollToBottom() }
         }
         .onChange(of: sidebarOpen) { _, open in
+            scrollBox.sidebarOpen = open
             if open && timeReveal.offset != 0 { timeReveal.offset = 0 }
         }
         .onReceive(NotificationCenter.default.publisher(for: UIApplication.willResignActiveNotification)) { _ in
@@ -889,16 +945,24 @@ struct ChatScreen: View {
         chatWithFocusEvents
         .onChange(of: store.activeThread?.messages.count) { _, _ in refreshContextStats() }
         .onChange(of: store.isGenerating) { _, generating in if !generating { refreshContextStats() } }
-        // An answer here has just finished: one soft pulse, and its controls rise in.
-        .onChange(of: store.generatingThreadID) { old, new in
-            guard new == nil, let old, old == store.activeThreadID,
-                  let last = store.activeThread?.messages.last, last.role == .assistant,
-                  last.state == .complete else { return }
-            justFinishedID = last.id
-            Haptic.arrive()
-        }
+        // An answer here has just finished: 「嗒嗒」, and its controls rise in.
+        .onChange(of: store.generatingThreadID) { old, new in answerEnded(writingIn: old, now: new) }
         .onChange(of: store.compactingThreadID) { _, _ in refreshContextStats() }
         .onChange(of: store.activeChatSettings) { _, _ in refreshContextStats() }
+    }
+
+    private func answerEnded(writingIn old: UUID?, now new: UUID?) {
+        guard new == nil, let old, old == store.activeThreadID else { return }
+        // The answer's controls (or 重试) arrive below it: brought into view if you are at the end.
+        scrollBox.followGrowth(for: 1.6)
+        DispatchQueue.main.async {
+            if shouldFollowOutput && scrollBox.touch == nil { scrollBox.glideToBottom() }
+        }
+        guard let last = store.activeThread?.messages.last, last.role == .assistant,
+              last.state == .complete else { return }
+        justFinishedID = last.id
+        // 「嗒嗒」 when the last character lands, not when the network says it is done.
+        StreamHaptics.shared.finish(messageID: last.id, length: last.content.count) { Haptic.finish() }
     }
 
     private var chatWithDraftEvents: some View {
@@ -932,8 +996,10 @@ struct ChatScreen: View {
         quotingMessage = nil
         if timeReveal.offset != 0 { timeReveal.offset = 0 }
         visibleMessageCount = 40; followsOutput = true
-        scrollUIState.nearBottom = true
+        scrollBox.touch = nil
+        scrollBox.followGrowth(for: 1.0)
         scrollUIState.showJumpToLatest = false
+        StreamHaptics.shared.silence()
         justFinishedID = nil
         // The new chat settles in: drawn a little low and clear, then eased up into place.
         // Not for a retry or an edit, which open a new version of the same conversation.
@@ -1174,7 +1240,7 @@ struct ChatScreen: View {
         SwipeTimestampRow(timeReveal: timeReveal, timestamp: timestamp) {
             if message.state == .streaming {
                 // The answer being written redraws on its own, without the rest of the page.
-                LiveMessageRow(live: store.live, message: message, onGrow: followLiveText) { shown in
+                LiveMessageRow(live: store.live, message: message, onGrow: { StreamHaptics.shared.feed(from: $0) }) { shown in
                     messageBody(shown, threadID: threadID, isLast: isLast)
                 }
             } else {
@@ -1225,12 +1291,70 @@ struct ChatScreen: View {
             .equatable()
     }
 
-    private func followLiveText() {
-        guard shouldFollowOutput && store.generatingThreadID == store.activeThreadID else { return }
-        let now = Date()
-        guard now.timeIntervalSince(lastAutoScrollAt) >= 0.18 else { return }
-        lastAutoScrollAt = now
-        scrollBox.scrollToBottom()
+    private func transcriptAppeared() {
+        scrollBox.sidebarOpen = sidebarOpen
+        StreamHaptics.shared.isWatching = { [weak box = scrollBox] in box?.watchingLive ?? false }
+        if !hasPositionedInitially && !store.isPreview {
+            let threadID = store.activeThreadID
+            DispatchQueue.main.async {
+                if store.activeThreadID == threadID && shouldFollowOutput { scrollBox.scrollToBottom() }
+            }
+        }
+        hasPositionedInitially = true
+    }
+
+    // 1.47.1: following the end of the conversation (see `TranscriptScrollBox`).
+    private func transcriptMoved(from old: TranscriptGeometry, to new: TranscriptGeometry) {
+        scrollBox.geometry = new
+        // 「↓」 only once you have left the end, so it does not flash while a card or a
+        // picture is being followed into view.
+        let overflows = new.contentHeight > new.visibleHeight + 80
+        let showJump = overflows && new.distance > 220 && !scrollBox.follows
+        if scrollUIState.showJumpToLatest != showJump { scrollUIState.showJumpToLatest = showJump }
+        // Only a page that changed size: not your own scrolling, and not the first measure
+        // (the chat positions itself when it opens).
+        guard !new.sameSize(as: old), old.containerHeight > 0, !store.isPreview,
+              shouldFollowOutput, scrollBox.touch == nil else { return }
+        let windowChanged = abs(new.insetBottom - old.insetBottom) >= 0.5
+            || abs(new.insetTop - old.insetTop) >= 0.5
+            || abs(new.containerHeight - old.containerHeight) >= 0.5
+        if !windowChanged {
+            // Taller: followed while an answer is being written here, or just after
+            // something that should land in view; not when something higher up opens out.
+            guard new.contentHeight > old.contentHeight else { return }
+            let writingHere = store.generatingThreadID != nil && store.generatingThreadID == store.activeThreadID
+            guard writingHere || scrollBox.followsGrowth else { return }
+        }
+        scrollBox.glideToBottom()
+    }
+
+    private func transcriptPhase(_ phase: ScrollPhase) {
+        switch phase {
+        case .interacting:
+            guard scrollBox.touch == nil else { return }
+            // A finger on the page: stop pushing it, so the page never fights the finger.
+            scrollBox.touch = scrollBox.geometry
+            followsOutput = false
+            clearMessageNavigation()
+        case .idle:
+            let now = scrollBox.geometry
+            if let start = scrollBox.touch {
+                scrollBox.touch = nil
+                // How far you moved the page up yourself: what is below the screen now, less
+                // what was written below it while you held it. Putting the keyboard away
+                // with a swipe moves nothing up.
+                let added = max(0, now.contentHeight - start.contentHeight)
+                if now.distance - added < TranscriptScrollBox.readingAbove {
+                    followsOutput = true
+                    scrollBox.glideToBottom()
+                }
+            } else if now.distance < 28 && pendingMessageJump == nil && focusedMessageID == nil {
+                // A scroll of ours that ended at the end (the 「↓」 button, say) follows on.
+                followsOutput = true
+            }
+        default:
+            break
+        }
     }
 
     private func regeneratePreservingDraftImages() {

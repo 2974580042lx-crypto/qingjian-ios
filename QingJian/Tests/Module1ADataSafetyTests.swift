@@ -200,6 +200,7 @@ final class Module1ADataSafetyTests: XCTestCase {
         srcDefaults.set("system", forKey: "qingjian.font.choice")
         srcDefaults.set(17.0, forKey: "qingjian.reading.size")
         srcDefaults.set(false, forKey: "qingjian.haptics")
+        srcDefaults.set(0, forKey: "sermo.haptics.writing")
         srcDefaults.set(true, forKey: "qingjian.speech.auto")
         srcDefaults.set("indigo", forKey: "sermo.personal.accent")
         srcDefaults.set("nativeChatGPT", forKey: "sermo.web.channel.chatGPT")
@@ -218,6 +219,9 @@ final class Module1ADataSafetyTests: XCTestCase {
         let rawHaptics = try XCTUnwrap(dstDefaults.object(forKey: "qingjian.haptics"))
         XCTAssertEqual(CFGetTypeID(rawHaptics as CFTypeRef), CFBooleanGetTypeID())
         XCTAssertEqual(dstDefaults.bool(forKey: "qingjian.haptics"), false)
+        // 出字震动 comes back as a number, so 「关」 stays off (a string would read as the default).
+        XCTAssertEqual(captured["sermo.haptics.writing"], "0")
+        XCTAssertEqual(dstDefaults.object(forKey: "sermo.haptics.writing") as? Int, 0)
         XCTAssertEqual(dstDefaults.bool(forKey: "qingjian.speech.auto"), true)
         XCTAssertEqual(dstDefaults.double(forKey: "qingjian.reading.size"), 17.0, accuracy: 0.001)
         XCTAssertEqual(dstDefaults.string(forKey: "sermo.interface.style"), "paper")

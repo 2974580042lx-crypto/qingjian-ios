@@ -183,50 +183,6 @@ struct PressFeedbackStyle: ButtonStyle {
 }
 extension ButtonStyle where Self == PressFeedbackStyle { static var pressFeedback: PressFeedbackStyle { PressFeedbackStyle() } }
 
-/// What you feel in the hand, unless haptics are switched off in Settings (1.47: one
-/// kind per moment, so sending, an answer finishing and a switch each feel different).
-enum Haptic {
-    @MainActor private static var enabled: Bool {
-        UserDefaults.standard.object(forKey: "qingjian.haptics") as? Bool ?? true
-    }
-    @MainActor private static let light = UIImpactFeedbackGenerator(style: .light)
-    @MainActor private static let soft = UIImpactFeedbackGenerator(style: .soft)
-    @MainActor private static let rigid = UIImpactFeedbackGenerator(style: .rigid)
-    @MainActor private static let selectionFeedback = UISelectionFeedbackGenerator()
-    @MainActor private static let notice = UINotificationFeedbackGenerator()
-
-    /// A plain button press.
-    @MainActor static func tap() {
-        guard enabled else { return }
-        light.impactOccurred(intensity: 0.7)
-    }
-    /// Your message leaves: a firm, short knock.
-    @MainActor static func send() {
-        guard enabled else { return }
-        rigid.impactOccurred(intensity: 0.55)
-    }
-    /// An answer has finished: one soft, low pulse.
-    @MainActor static func arrive() {
-        guard enabled else { return }
-        soft.impactOccurred(intensity: 0.5)
-    }
-    /// Moving between choices: a model, an option, the next suggestion.
-    @MainActor static func select() {
-        guard enabled else { return }
-        selectionFeedback.selectionChanged()
-    }
-    /// Something worked that you will want to know about: copied, saved, undone.
-    @MainActor static func success() {
-        guard enabled else { return }
-        notice.notificationOccurred(.success)
-    }
-    /// The drawer or a sheet settles open or shut.
-    @MainActor static func settle() {
-        guard enabled else { return }
-        soft.impactOccurred(intensity: 0.65)
-    }
-}
-
 /// Chinese reading text: Chinese punctuation (full-width quotes) even in the system font,
 /// whose Latin quotes left odd gaps. No extra letter spacing: Apple sets Chinese without
 /// it, and the 0.3 pt tried in 1.28 made the page read like Android.

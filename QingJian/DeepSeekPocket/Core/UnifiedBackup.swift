@@ -143,6 +143,7 @@ enum UnifiedBackupCodec {
         "qingjian.font.choice",
         "qingjian.reading.size",
         "qingjian.haptics",
+        "sermo.haptics.writing",
         "sermo.personal.text",
         "sermo.personal.accent",
         "sermo.personal.paper",
@@ -172,6 +173,9 @@ enum UnifiedBackupCodec {
     private static let doublePreferenceKeys: Set<String> = [
         "qingjian.reading.size"
     ]
+    private static let integerPreferenceKeys: Set<String> = [
+        "sermo.haptics.writing"
+    ]
 
     static func collectPreferences(from defaults: UserDefaults = .standard) -> [String: String] {
         var result: [String: String] = [:]
@@ -195,6 +199,8 @@ enum UnifiedBackupCodec {
             if value == "true" || value == "false" {
                 defaults.set(value == "true", forKey: key)
             } else if doublePreferenceKeys.contains(key), let number = Double(value) {
+                defaults.set(number, forKey: key)
+            } else if integerPreferenceKeys.contains(key), let number = Int(value) {
                 defaults.set(number, forKey: key)
             } else {
                 defaults.set(value, forKey: key)

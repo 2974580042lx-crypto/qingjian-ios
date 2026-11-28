@@ -93,7 +93,8 @@ struct FlowRows: Layout {
 @MainActor
 struct PersonalizationView: View {
     @AppStorage("qingjian.reading.size") private var readingSize = 16.0
-    @AppStorage("qingjian.haptics") private var hapticsEnabled = true
+    @AppStorage(Haptic.enabledKey) private var hapticsEnabled = true
+    @AppStorage(Haptic.writingKey) private var writingHaptics = 2
     @State private var confirmReset = false
 
     var body: some View {
@@ -131,8 +132,18 @@ struct PersonalizationView: View {
                 choice("左右留白", key: Personal.marginKey, fallback: "standard",
                        options: [("narrow", "窄"), ("standard", "标准"), ("wide", "宽")])
                 Toggle("触感反馈", isOn: $hapticsEnabled).tint(Ink.seal)
+                if hapticsEnabled {
+                    Picker("出字震动", selection: $writingHaptics) {
+                        Text("关").tag(0)
+                        Text("轻").tag(1)
+                        Text("中").tag(2)
+                        Text("重").tag(3)
+                    }
+                    // Feel the new strength the moment you pick it.
+                    .onChange(of: writingHaptics) { _, level in StreamHaptics.shared.sample(level: level) }
+                }
             } header: { Text("布局与手感") } footer: {
-                Text("动效跟随 iOS「设置 → 辅助功能 → 动态效果 → 减弱动态效果」：打开后只淡入淡出，不再移动或循环。")
+                Text("「出字震动」跟着回答出字的节奏轻轻地震，句子结尾稍重；只在你停在对话底部看着时才震。换档时会震一下给你试。动效跟随 iOS「设置 → 辅助功能 → 动态效果 → 减弱动态效果」：打开后只淡入淡出，不再移动或循环。")
             }
             .claudeCardRow()
             Section {
