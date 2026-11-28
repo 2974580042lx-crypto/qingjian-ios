@@ -864,7 +864,7 @@ struct ChatScreen: View {
         }
     }
 
-    private var chatWithMessageSheets: some View {
+    private var chatWithFocusEvents: some View {
         chatWithPromptAndVersionSheets
         .onChange(of: isComposerFocused) { _, focused in
             keyboardVisible = focused
@@ -883,6 +883,10 @@ struct ChatScreen: View {
             refreshContextStats()
             consumeIncomingChatTransfers()
         }
+    }
+
+    private var chatWithGenerationEvents: some View {
+        chatWithFocusEvents
         .onChange(of: store.activeThread?.messages.count) { _, _ in refreshContextStats() }
         .onChange(of: store.isGenerating) { _, generating in if !generating { refreshContextStats() } }
         // An answer here has just finished: one soft pulse, and its controls rise in.
@@ -895,6 +899,10 @@ struct ChatScreen: View {
         }
         .onChange(of: store.compactingThreadID) { _, _ in refreshContextStats() }
         .onChange(of: store.activeChatSettings) { _, _ in refreshContextStats() }
+    }
+
+    private var chatWithDraftEvents: some View {
+        chatWithGenerationEvents
         .onChange(of: store.incomingChatFileURL) { _, _ in consumeIncomingChatTransfers() }
         .onChange(of: store.incomingChatImageURL) { _, _ in consumeIncomingChatTransfers() }
         .onChange(of: store.incomingChatPrefillText) { _, _ in consumeIncomingChatTransfers() }
@@ -906,37 +914,45 @@ struct ChatScreen: View {
             if new != localDraft && new != lastPushedDraft { localDraft = new; lastPushedDraft = new }
         }
         .onChange(of: store.activeThreadID) { oldID, newID in
-            // Typing still waiting belongs to the chat you were in.
-            draftPushTask?.cancel(); draftPushTask = nil
-            if let old = draftThreadID, old != newID, store.draft(of: old) != localDraft { store.setDraft(localDraft, threadID: old) }
-            loadDraft()
-            refreshContextStats()
-            store.speech.stop()
-            systemPromptTarget = nil; versionsTarget = nil
-            messageBrowser = nil; clearMessageNavigation()
-            store.webSearchEnabled = false
-            pendingSuggestedReply = nil
-            quotingMessage = nil
-            if timeReveal.offset != 0 { timeReveal.offset = 0 }
-            visibleMessageCount = 40; followsOutput = true
-            scrollUIState.nearBottom = true
-            scrollUIState.showJumpToLatest = false
-            justFinishedID = nil
-            // The new chat settles in: drawn a little low and clear, then eased up into place.
-            // Not for a retry or an edit, which open a new version of the same conversation.
-            let sameConversation = oldID.flatMap { old in
-                newID.map { ConversationHistory.memberIDs(for: $0, in: store.threads).contains(old) }
-            } ?? false
-            if !reduceMotion && !sameConversation {
-                var still = Transaction()
-                still.disablesAnimations = true
-                withTransaction(still) { threadEntrance = 0 }
-            }
-            DispatchQueue.main.async {
-                if store.activeThreadID == newID && shouldFollowOutput { scrollBox.scrollToBottom() }
-                withMotion(Motion.gentle) { threadEntrance = 1 }
-            }
+            activeChatChanged(from: oldID, to: newID)
         }
+    }
+
+    private func activeChatChanged(from oldID: UUID?, to newID: UUID?) {
+        // Typing still waiting belongs to the chat you were in.
+        draftPushTask?.cancel(); draftPushTask = nil
+        if let old = draftThreadID, old != newID, store.draft(of: old) != localDraft { store.setDraft(localDraft, threadID: old) }
+        loadDraft()
+        refreshContextStats()
+        store.speech.stop()
+        systemPromptTarget = nil; versionsTarget = nil
+        messageBrowser = nil; clearMessageNavigation()
+        store.webSearchEnabled = false
+        pendingSuggestedReply = nil
+        quotingMessage = nil
+        if timeReveal.offset != 0 { timeReveal.offset = 0 }
+        visibleMessageCount = 40; followsOutput = true
+        scrollUIState.nearBottom = true
+        scrollUIState.showJumpToLatest = false
+        justFinishedID = nil
+        // The new chat settles in: drawn a little low and clear, then eased up into place.
+        // Not for a retry or an edit, which open a new version of the same conversation.
+        let sameConversation = oldID.flatMap { old in
+            newID.map { ConversationHistory.memberIDs(for: $0, in: store.threads).contains(old) }
+        } ?? false
+        if !reduceMotion && !sameConversation {
+            var still = Transaction()
+            still.disablesAnimations = true
+            withTransaction(still) { threadEntrance = 0 }
+        }
+        DispatchQueue.main.async {
+            if store.activeThreadID == newID && shouldFollowOutput { scrollBox.scrollToBottom() }
+            withMotion(Motion.gentle) { threadEntrance = 1 }
+        }
+    }
+
+    private var chatWithMessageSheets: some View {
+        chatWithDraftEvents
         .onDisappear { keyboardVisible = false }
         .sheet(item: $messageBrowser, onDismiss: {
             messageBrowserVisible = false

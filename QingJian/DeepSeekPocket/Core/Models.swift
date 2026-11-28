@@ -53,6 +53,8 @@ struct ChatMessage: Identifiable, Codable, Equatable, Sendable {
     var id = UUID()
     var role: MessageRole
     var content = ""
+    // Retain the previous message field when saving older chat histories.
+    var innerThoughts: String?
     var reasoning = ""
     var createdAt = Date()
     var state: MessageState = .complete
