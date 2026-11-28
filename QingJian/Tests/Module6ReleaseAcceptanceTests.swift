@@ -144,8 +144,6 @@ final class Module6ReleaseAcceptanceTests: XCTestCase {
         let payload = try UnifiedBackupCodec.capture(
             snapshot: snapshot,
             learning: StudyMemoryArchive(version: 1, rows: []),
-            booksMetadata: [],
-            personas: [],
             preferences: [
                 "sermo.interface.style": "paper",
                 "sermo.appearance.mode": "system",

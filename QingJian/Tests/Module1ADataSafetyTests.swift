@@ -230,8 +230,6 @@ final class Module1ADataSafetyTests: XCTestCase {
         let badPayload = UnifiedBackupPayload(
             snapshot: snap,
             learning: StudyMemoryArchive(version: 1, rows: [badRow]),
-            booksMetadata: [],
-            personas: [],
             images: []
         )
         XCTAssertThrowsError(try UnifiedBackupCodec.validate(badPayload))
@@ -343,27 +341,4 @@ final class Module1ADataSafetyTests: XCTestCase {
         XCTAssertTrue(name2 > name1, "Lexicographical order must match chronological order")
     }
 
-    func testBinaryParsersRejectCraftedOffsetsWithoutCrashing() {
-        // Crafted Fat64 Mach-O header with huge sliceOffset + sliceSize that would overflow 64-bit signed addition
-        var craftedMachO = Data()
-        func appendU32BE(_ v: UInt32) {
-            craftedMachO.append(UInt8((v >> 24) & 0xFF))
-            craftedMachO.append(UInt8((v >> 16) & 0xFF))
-            craftedMachO.append(UInt8((v >> 8) & 0xFF))
-            craftedMachO.append(UInt8(v & 0xFF))
-        }
-        func appendU64BE(_ v: UInt64) {
-            appendU32BE(UInt32((v >> 32) & 0xFF_FF_FF_FF))
-            appendU32BE(UInt32(v & 0xFF_FF_FF_FF))
-        }
-        appendU32BE(0xCAFEBABF) // FAT_MAGIC_64
-        appendU32BE(1)          // nfat_arch = 1
-        appendU32BE(0x0100000C) // cputype
-        appendU32BE(0)          // cpusubtype
-        appendU64BE(UInt64(Int.max - 10)) // offset
-        appendU64BE(64)                   // size -> Int.max - 10 + 64 overflows Int!
-        appendU32BE(0)          // align
-        appendU32BE(0)          // reserved
-        XCTAssertTrue(IPAAnalyzer.parseMachO(craftedMachO).isEmpty)
-    }
 }

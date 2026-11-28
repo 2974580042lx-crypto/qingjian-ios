@@ -16,7 +16,6 @@ enum ConversationEditing {
         copy.messages[index].reasoningTranslation = nil
         copy.messages[index].translationUsage = nil
         copy.messages[index].replySuggestions = nil
-        copy.messages[index].innerThoughts = nil
         copy.messages[index].usage = nil
         copy.messages[index].state = .complete
         copy.messages[index].note = "已手动编辑"

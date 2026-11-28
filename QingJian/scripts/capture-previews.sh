@@ -69,18 +69,6 @@ for screen in empty conversation long keyboard sidebar waiting thinking reasonin
   sleep 3
   xcrun simctl io "$UDID" screenshot "$BUILD_DIR/previews/$screen.png"
 done
-# The Swiss look, in light and dark, from the same preview data.
-for appearance in light dark; do
-  xcrun simctl ui "$UDID" appearance "$appearance"
-  for screen in conversation empty reply-suggestions sidebar settings; do
-    args=(--ui-preview --preview-swiss)
-    if [[ "$screen" != conversation ]]; then args+=("--preview-$screen"); fi
-    xcrun simctl launch --terminate-running-process --stdout="$BUILD_DIR/previews/swiss-$appearance-$screen.log" \
-      "$UDID" com.xiaolong.qingjian "${args[@]}" -AppleLanguages '(zh-Hans)' -AppleLocale zh_CN
-    sleep 3
-    xcrun simctl io "$UDID" screenshot "$BUILD_DIR/previews/swiss-$appearance-$screen.png"
-  done
-done
 echo "UI previews captured from the actual simulator app."
 set +e
 xcodebuild -project QingJian.xcodeproj -scheme QingJian -configuration Release \

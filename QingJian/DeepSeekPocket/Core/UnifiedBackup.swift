@@ -15,9 +15,9 @@ enum UnifiedRestoreMode: String, CaseIterable, Identifiable, Sendable {
     var summary: String {
         switch self {
         case .merge:
-            return "保留本机现有对话、项目、书架和设置；把备份里缺失的对话、项目、指令、书架档案和人物卡合并进来，学习项目按备份更新。"
+            return "保留本机现有对话、项目和设置；把备份里缺失的对话、项目和指令合并进来，学习项目按备份更新。"
         case .replace:
-            return "先自动把本机当前数据另存一份安全快照，再用备份里的对话、项目、指令、学习数据库、书架档案和设置替换本机数据（API Key 与小说正文保留）。"
+            return "先自动把本机当前数据另存一份安全快照，再用备份里的对话、项目、指令、学习数据库和设置替换本机数据（API Key 保留）。"
         }
     }
 }
@@ -29,8 +29,10 @@ struct UnifiedBackupPayload: Codable, Sendable {
     var createdAt: Date = Date()
     var snapshot: AppSnapshot
     var learning: StudyMemoryArchive
-    var booksMetadata: [Book]
-    var personas: [PersonaCard]
+    // The bookshelf was removed in 1.47. Both keys stay, always empty, so 1.46 and
+    // older can still restore a backup made now; old entries are read and ignored.
+    var booksMetadata: [RetiredShelfRecord] = []
+    var personas: [RetiredShelfRecord] = []
     var images: [StudyBackupImage]
     var omittedImages: [StudyOmittedImage]? = nil
     var preferences: [String: String]? = nil
@@ -41,17 +43,18 @@ struct UnifiedBackupPayload: Codable, Sendable {
     var isComplete: Bool { omittedImages?.isEmpty != false }
 }
 
+/// Stands in for a bookshelf book or persona card in older backups. Decodes any object.
+struct RetiredShelfRecord: Codable, Sendable {}
+
 enum DecodedBackupPackage: Sendable {
     case unified(UnifiedBackupPayload)
     case legacyStudy(StudyBackupPayload)
-    case legacyShelf(ShelfArchive)
     case legacyChat(AppSnapshot)
 
     var formatTitle: String {
         switch self {
         case .unified: return "Sermo 完整备份（.sermobackup）"
         case .legacyStudy: return "旧版学习项目备份（.json）"
-        case .legacyShelf: return "旧版完整书架备份（.json）"
         case .legacyChat: return "旧版聊天与项目备份（.json）"
         }
     }
@@ -60,7 +63,6 @@ enum DecodedBackupPackage: Sendable {
         switch self {
         case .unified(let p): return p.createdAt
         case .legacyStudy(let p): return p.createdAt
-        case .legacyShelf(let p): return p.exportedAt
         case .legacyChat(let p): return p.exportedAt
         }
     }
@@ -69,7 +71,6 @@ enum DecodedBackupPackage: Sendable {
         switch self {
         case .unified(let p): return p.snapshot.threads.count
         case .legacyStudy(let p): return p.snapshot.threads.count
-        case .legacyShelf(let p): return p.stories.count
         case .legacyChat(let p): return p.threads.count
         }
     }
@@ -78,7 +79,6 @@ enum DecodedBackupPackage: Sendable {
         switch self {
         case .unified(let p): return (p.snapshot.projects ?? []).count
         case .legacyStudy(let p): return (p.snapshot.projects ?? []).count
-        case .legacyShelf(let p): return (p.projects ?? []).count
         case .legacyChat(let p): return (p.projects ?? []).count
         }
     }
@@ -87,7 +87,6 @@ enum DecodedBackupPackage: Sendable {
         switch self {
         case .unified(let p): return (p.snapshot.systemPromptPresets ?? []).count
         case .legacyStudy: return 0
-        case .legacyShelf: return 0
         case .legacyChat(let p): return (p.systemPromptPresets ?? []).count
         }
     }
@@ -96,23 +95,7 @@ enum DecodedBackupPackage: Sendable {
         switch self {
         case .unified(let p): return p.learning.rows.count
         case .legacyStudy(let p): return p.learning.rows.count
-        case .legacyShelf, .legacyChat: return 0
-        }
-    }
-
-    var bookCount: Int {
-        switch self {
-        case .unified(let p): return p.booksMetadata.count
-        case .legacyShelf(let p): return p.books.count
-        case .legacyStudy, .legacyChat: return 0
-        }
-    }
-
-    var personaCount: Int {
-        switch self {
-        case .unified(let p): return p.personas.count
-        case .legacyShelf(let p): return p.personas.count
-        case .legacyStudy, .legacyChat: return 0
+        case .legacyChat: return 0
         }
     }
 
@@ -120,7 +103,6 @@ enum DecodedBackupPackage: Sendable {
         switch self {
         case .unified(let p): return p.images.count
         case .legacyStudy(let p): return p.images.count
-        case .legacyShelf(let p): return p.images.count
         case .legacyChat: return 0
         }
     }
@@ -129,14 +111,14 @@ enum DecodedBackupPackage: Sendable {
         switch self {
         case .unified(let p): return p.omittedImages?.count ?? 0
         case .legacyStudy(let p): return p.omittedImages?.count ?? 0
-        case .legacyShelf, .legacyChat: return 0
+        case .legacyChat: return 0
         }
     }
 
     var manualChapterCount: Int {
         switch self {
         case .unified(let p): return p.operationManual?.chapters.count ?? 0
-        case .legacyStudy, .legacyShelf, .legacyChat: return 0
+        case .legacyStudy, .legacyChat: return 0
         }
     }
 }
@@ -180,19 +162,6 @@ enum UnifiedBackupCodec {
         "qingjian.speech.auto",
         "qingjian.speech.voice",
         "qingjian.manual.dismissed",
-        // Bookshelf reader preferences
-        "sermo.reader.font",
-        "sermo.reader.size",
-        "sermo.reader.line",
-        "sermo.reader.paragraph",
-        "sermo.reader.margin",
-        "sermo.reader.palette",
-        "sermo.reader.mode",
-        "sermo.reader.spread",
-        "sermo.reader.indent",
-        "sermo.reader.orientation",
-        "sermo.reader.volumeKeys",
-        "sermo.reader.volumeReverse",
         // Legacy keys kept for backward compatibility
         "qingjian.theme.paper",
         "qingjian.theme.fontChoice",
@@ -201,11 +170,7 @@ enum UnifiedBackupCodec {
     ]
 
     private static let doublePreferenceKeys: Set<String> = [
-        "qingjian.reading.size",
-        "sermo.reader.size",
-        "sermo.reader.line",
-        "sermo.reader.paragraph",
-        "sermo.reader.margin"
+        "qingjian.reading.size"
     ]
 
     static func collectPreferences(from defaults: UserDefaults = .standard) -> [String: String] {
@@ -238,24 +203,12 @@ enum UnifiedBackupCodec {
     }
 
     static func allReferencedImageNames(snapshot: AppSnapshot, learning: StudyMemoryArchive) throws -> Set<String> {
-        var names = try StudyBackupCodec.imageReferences(snapshot: snapshot, learning: learning)
-        for thread in snapshot.threads {
-            for cp in thread.storyCheckpoints ?? [] {
-                for msg in cp.messages {
-                    for img in msg.images ?? [] where StudyBackupCodec.safeImageName(img) {
-                        names.insert(img)
-                    }
-                }
-            }
-        }
-        return names
+        try StudyBackupCodec.imageReferences(snapshot: snapshot, learning: learning)
     }
 
     static func capture(
         snapshot: AppSnapshot,
         learning: StudyMemoryArchive,
-        booksMetadata: [Book],
-        personas: [PersonaCard],
         preferences: [String: String]? = nil,
         operationManual: OperationManualBook? = nil,
         localProfile: BackupUserProfile? = nil,
@@ -292,11 +245,6 @@ enum UnifiedBackupCodec {
                 omitted.append(.init(name: name, sha256: hash, bytes: raw.count, reason: "capacity"))
             }
         }
-        let cleanBooks = booksMetadata.map { book -> Book in
-            var copy = book
-            if copy.status == .reading { copy.status = .imported }
-            return copy
-        }
         return UnifiedBackupPayload(
             version: 1,
             format: format,
@@ -304,8 +252,6 @@ enum UnifiedBackupCodec {
             createdAt: Date(),
             snapshot: snapshot,
             learning: learning,
-            booksMetadata: cleanBooks,
-            personas: personas,
             images: images,
             omittedImages: omitted.isEmpty ? nil : omitted,
             preferences: preferences,
@@ -324,8 +270,6 @@ enum UnifiedBackupCodec {
             var presets: [SystemPromptPreset]?
             var studySubjects: [StudySubject]?
             var learning: StudyMemoryArchive
-            var books: [Book]
-            var personas: [PersonaCard]
             var imageHashes: [String]
             var preferences: [String: String]?
             var manual: OperationManualBook?
@@ -340,8 +284,6 @@ enum UnifiedBackupCodec {
             presets: payload.snapshot.systemPromptPresets,
             studySubjects: payload.snapshot.installedStudySubjects,
             learning: payload.learning,
-            books: payload.booksMetadata,
-            personas: payload.personas,
             imageHashes: payload.images.map { "\($0.name):\($0.sha256)" },
             preferences: payload.preferences,
             manual: payload.operationManual,
@@ -417,11 +359,6 @@ enum UnifiedBackupCodec {
         if let study = try? StudyBackupCodec.decode(data) {
             return .legacyStudy(study)
         }
-        let decoder = JSONDecoder()
-        decoder.dateDecodingStrategy = .iso8601
-        if let shelf = try? decoder.decode(ShelfArchive.self, from: data), (try? shelf.validate()) != nil {
-            return .legacyShelf(shelf)
-        }
         let chat = try AppSnapshot.decodeLocal(data)
         return .legacyChat(chat)
     }
@@ -444,7 +381,7 @@ enum UnifiedBackupCodec {
             throw ChatError.invalidBackup(error.localizedDescription)
         }
         guard payload.booksMetadata.count <= 500, payload.personas.count <= 500 else {
-            throw ChatError.invalidBackup("备份中的书架或人物卡数量超出上限。")
+            throw ChatError.invalidBackup("备份中的旧书架记录数量超出上限。")
         }
         if let profile = payload.localProfile {
             guard profile.name.count <= 100, profile.handle.count <= 100, (profile.avatar?.count ?? 0) <= 8 * 1024 * 1024 else {

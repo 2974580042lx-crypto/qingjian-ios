@@ -35,14 +35,14 @@ struct ComposerNoticeBar: View {
             .lineLimit(2)
             Spacer(minLength: 10)
             if let dismiss {
-                Button(action: dismiss) {
+                Button(action: { withMotion(Motion.snappy) { dismiss() } }) {
                     Image(systemName: "xmark")
                         .font(.system(size: 12, weight: .medium))
                         .foregroundStyle(Ink.ink3)
                         .frame(width: 28, height: 24)
                         .contentShape(Rectangle())
                 }
-                .buttonStyle(.plain)
+                .buttonStyle(.pressFeedback)
                 .accessibilityLabel("关闭提示")
             }
         }
@@ -51,7 +51,7 @@ struct ComposerNoticeBar: View {
         .padding(.vertical, 10)
         .background(Ink.raised, in: RoundedRectangle(cornerRadius: 16, style: .continuous))
         .overlay(RoundedRectangle(cornerRadius: 16, style: .continuous).stroke(Ink.line, lineWidth: 0.6))
-        .transition(.opacity.combined(with: .move(edge: .bottom)))
+        .transition(.barRise)
         .accessibilityElement(children: .contain)
     }
 }

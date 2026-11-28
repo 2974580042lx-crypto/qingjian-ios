@@ -16,7 +16,6 @@ final class PhotoStackGestureHostView: UIView {}
 @MainActor
 struct PhotoStackView: View {
     let names: [String]
-    var swiss: Bool = false
 
     @State private var topIndex = 0
     @State private var dragOffsetX: CGFloat = 0
@@ -68,7 +67,7 @@ struct PhotoStackView: View {
     }
 
     private func singleCard(name: String) -> some View {
-        let radius: CGFloat = swiss ? 0 : 18
+        let radius: CGFloat = 18
         return thumbnailImage(named: name)
             .frame(width: 192, height: 192)
             .clipShape(RoundedRectangle(cornerRadius: radius, style: .continuous))
@@ -76,14 +75,14 @@ struct PhotoStackView: View {
                 RoundedRectangle(cornerRadius: radius, style: .continuous)
                     .stroke(Ink.line, lineWidth: 0.8)
             )
-            .shadow(color: swiss ? .clear : Color.black.opacity(0.08), radius: 6, y: 2)
+            .shadow(color: Color.black.opacity(0.08), radius: 6, y: 2)
     }
 
     private var stackedDeck: some View {
         let total = names.count
         let safeTop = ((topIndex % total) + total) % total
         let visibleCount = min(total, 4)
-        let radius: CGFloat = swiss ? 0 : 18
+        let radius: CGFloat = 18
         let dragProgress = min(1.0, abs(dragOffsetX) / 110.0)
 
         return ZStack {
@@ -114,9 +113,9 @@ struct PhotoStackView: View {
                     .clipShape(RoundedRectangle(cornerRadius: radius, style: .continuous))
                     .overlay(
                         RoundedRectangle(cornerRadius: radius, style: .continuous)
-                            .stroke(swiss ? Ink.line : Ink.paper, lineWidth: swiss ? 1 : 2.2)
+                            .stroke(Ink.paper, lineWidth: 2.2)
                     )
-                    .shadow(color: swiss ? .clear : Color.black.opacity(isFront ? 0.16 : 0.10), radius: 7, y: 3)
+                    .shadow(color: Color.black.opacity(isFront ? 0.16 : 0.10), radius: 7, y: 3)
                     .overlay(alignment: .bottomTrailing) {
                         if isFront {
                             HStack(spacing: 4) {

@@ -4,12 +4,12 @@ import UIKit
 
 /// Pure-UIKit drawer host for 120Hz sidebar dragging with zero SwiftUI body
 /// invalidations mid-gesture, lazy sidebar mounting while closed, and cached
-/// shadow geometry.
+/// shadow geometry. 1.47: the chat page steps back as the drawer opens: it shrinks
+/// a little, rounds its corners and dims, all tied to the finger.
 @MainActor
 struct SidebarDrawerContainer<Sidebar: View, Main: View>: UIViewControllerRepresentable {
     @Binding var isOpen: Bool
     let reduceMotion: Bool
-    let isSwiss: Bool
     let appearanceRaw: String
     let styleRevision: Int
     let composerExcludedHeight: CGFloat
@@ -21,7 +21,6 @@ struct SidebarDrawerContainer<Sidebar: View, Main: View>: UIViewControllerRepres
             isOpen: isOpen,
             isOpenChanged: { open in isOpen = open },
             reduceMotion: reduceMotion,
-            isSwiss: isSwiss,
             appearanceRaw: appearanceRaw,
             composerExcludedHeight: composerExcludedHeight,
             sidebarBuilder: sidebarBuilder,
@@ -37,7 +36,6 @@ struct SidebarDrawerContainer<Sidebar: View, Main: View>: UIViewControllerRepres
         controller.mainHost.rootView = main
         controller.refreshIfNeeded(
             targetOpen: isOpen,
-            isSwiss: isSwiss,
             appearanceRaw: appearanceRaw,
             styleRevision: styleRevision
         )
@@ -53,7 +51,6 @@ struct SidebarDrawerContainer<Sidebar: View, Main: View>: UIViewControllerRepres
         var composerExcludedHeight: CGFloat
 
         private var currentOpen: Bool
-        private var isSwiss: Bool
         private var appearanceRaw: String
         private var styleRevision: Int = -1
         private var isDragging = false
@@ -67,6 +64,8 @@ struct SidebarDrawerContainer<Sidebar: View, Main: View>: UIViewControllerRepres
         private let frontShadowView = UIView()
         private let frontClipView = UIView()
         private let frontTapOverlay = UIView()
+        // Darkens the page as it steps back; never takes touches.
+        private let frontDimView = UIView()
 
         private lazy var pan: UIPanGestureRecognizer = {
             let recognizer = UIPanGestureRecognizer(target: self, action: #selector(handlePan(_:)))
@@ -81,7 +80,6 @@ struct SidebarDrawerContainer<Sidebar: View, Main: View>: UIViewControllerRepres
             isOpen: Bool,
             isOpenChanged: @escaping (Bool) -> Void,
             reduceMotion: Bool,
-            isSwiss: Bool,
             appearanceRaw: String,
             composerExcludedHeight: CGFloat,
             sidebarBuilder: @escaping () -> Sidebar,
@@ -90,7 +88,6 @@ struct SidebarDrawerContainer<Sidebar: View, Main: View>: UIViewControllerRepres
             self.currentOpen = isOpen
             self.isOpenChanged = isOpenChanged
             self.reduceMotion = reduceMotion
-            self.isSwiss = isSwiss
             self.appearanceRaw = appearanceRaw
             self.composerExcludedHeight = composerExcludedHeight
             self.sidebarBuilder = sidebarBuilder
@@ -123,6 +120,11 @@ struct SidebarDrawerContainer<Sidebar: View, Main: View>: UIViewControllerRepres
             addChild(mainHost)
             frontClipView.addSubview(mainHost.view)
             mainHost.didMove(toParent: self)
+
+            frontDimView.backgroundColor = .black
+            frontDimView.alpha = 0
+            frontDimView.isUserInteractionEnabled = false
+            frontClipView.addSubview(frontDimView)
 
             frontTapOverlay.backgroundColor = .clear
             frontTapOverlay.isHidden = !currentOpen
@@ -166,6 +168,7 @@ struct SidebarDrawerContainer<Sidebar: View, Main: View>: UIViewControllerRepres
                 frontShadowView.center = CGPoint(x: bounds.midX, y: bounds.midY)
                 frontClipView.frame = frontShadowView.bounds
                 mainHost.view.frame = frontClipView.bounds
+                frontDimView.frame = frontClipView.bounds
                 frontTapOverlay.frame = frontClipView.bounds
             }
 
@@ -180,11 +183,9 @@ struct SidebarDrawerContainer<Sidebar: View, Main: View>: UIViewControllerRepres
             }
         }
 
-        func refreshIfNeeded(targetOpen: Bool, isSwiss: Bool, appearanceRaw: String, styleRevision: Int) {
-            let appearanceChanged = self.isSwiss != isSwiss
-                || self.appearanceRaw != appearanceRaw
+        func refreshIfNeeded(targetOpen: Bool, appearanceRaw: String, styleRevision: Int) {
+            let appearanceChanged = self.appearanceRaw != appearanceRaw
                 || self.styleRevision != styleRevision
-            self.isSwiss = isSwiss
             self.appearanceRaw = appearanceRaw
             self.styleRevision = styleRevision
 
@@ -206,14 +207,10 @@ struct SidebarDrawerContainer<Sidebar: View, Main: View>: UIViewControllerRepres
         }
 
         private func applyAppearanceStyle() {
-            if InterfaceStyle.isNight {
-                overrideUserInterfaceStyle = .dark
-            } else {
-                switch AppearanceMode(rawValue: appearanceRaw) ?? .system {
-                case .system: overrideUserInterfaceStyle = .unspecified
-                case .light: overrideUserInterfaceStyle = .light
-                case .dark: overrideUserInterfaceStyle = .dark
-                }
+            switch AppearanceMode(rawValue: appearanceRaw) ?? .system {
+            case .system: overrideUserInterfaceStyle = .unspecified
+            case .light: overrideUserInterfaceStyle = .light
+            case .dark: overrideUserInterfaceStyle = .dark
             }
         }
 
@@ -265,12 +262,20 @@ struct SidebarDrawerContainer<Sidebar: View, Main: View>: UIViewControllerRepres
         private func applyProgress(_ progress: CGFloat, revealed: Bool) {
             let p = min(1, max(0, progress))
             let width = drawerWidth
-            frontShadowView.transform = CGAffineTransform(translationX: width * p, y: 0)
+            // The page shrinks about its centre while it slides, so it reads as stepping back.
+            let depth: CGFloat = reduceMotion ? 1 : 1 - Motion.Drawer.pageShrink * p
+            frontShadowView.transform = CGAffineTransform(translationX: width * p, y: 0).scaledBy(x: depth, y: depth)
+            // The drawer comes in from slightly behind and a touch small, then settles.
+            let sidebarScale: CGFloat = reduceMotion ? 1 : 1 - Motion.Drawer.sidebarShrink * (1 - p)
             backContainerView.transform = CGAffineTransform(translationX: -width * 0.16 * (1 - p), y: 0)
+                .scaledBy(x: sidebarScale, y: sidebarScale)
             backContainerView.alpha = revealed ? min(1, max(0.01, p * 2.5)) : 0
-            frontShadowView.layer.shadowOpacity = revealed ? Float(0.08 * min(1, p * 3)) : 0
+            frontShadowView.layer.shadowOpacity = revealed ? Float(0.10 * min(1, p * 3)) : 0
+            let dark = traitCollection.userInterfaceStyle == .dark || overrideUserInterfaceStyle == .dark
+            frontDimView.alpha = revealed ? p * (dark ? Motion.Drawer.dimDark : Motion.Drawer.dimLight) : 0
 
-            let frontRadius: CGFloat = (revealed && !isSwiss) ? Radius.pageFront : 0
+            // Corners grow with the slide instead of snapping round at the first pixel.
+            let frontRadius: CGFloat = revealed ? Radius.pageFront * min(1, p * 4) : 0
             frontClipView.layer.cornerRadius = frontRadius
             frontClipView.layer.borderWidth = revealed ? 0.5 : 0
             backContainerView.layer.cornerRadius = 0
@@ -289,10 +294,10 @@ struct SidebarDrawerContainer<Sidebar: View, Main: View>: UIViewControllerRepres
             let targetProgress: CGFloat = open ? 1 : 0
             if animated && hasLaidOut {
                 UIView.animate(
-                    withDuration: 0.28,
+                    withDuration: Motion.Drawer.duration,
                     delay: 0,
-                    usingSpringWithDamping: 0.92,
-                    initialSpringVelocity: 0.35,
+                    usingSpringWithDamping: Motion.Drawer.damping,
+                    initialSpringVelocity: Motion.Drawer.velocity,
                     options: [.allowUserInteraction, .beginFromCurrentState],
                     animations: {
                         // Keep page rounded corners & shadow during the slide; snap to flat once shut.

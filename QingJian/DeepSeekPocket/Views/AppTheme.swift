@@ -17,76 +17,31 @@ extension Color {
     }
 }
 
-// 纸笺 (after the Claude app): warm paper, near-black at night, one terracotta accent,
-// and the gamboge highlighter kept from the earlier design.
-// 瑞士: cool grey-white, true black ink, one ultramarine accent, a black send button.
-// Every value is read through `InterfaceStyle`, so switching the look redraws in place.
-// 夜江: night-river blue-black, moon-white text and one pale gold moon. The same in
-// light and dark mode (the app is held in dark mode while it is chosen). Colours were
-// set in oklch: ground L .17 C .02 H 232, moon L .88 C .075 H 88.
+// After the Claude app: a neutral page, near-black at night, one terracotta accent.
+// Colours the user can change live in `Personal`; everything else is fixed here.
 enum Ink {
-    private static var swiss: Bool { InterfaceStyle.isSwiss }
-    private static var night: Bool { InterfaceStyle.isNight }
-    private static func fixed(_ hex: UInt32, alpha: CGFloat = 1) -> Color {
-        Color.adaptive(light: hex, dark: hex, lightAlpha: alpha, darkAlpha: alpha)
-    }
-    static var paper: Color {
-        if night { return fixed(0x051117) }
-        return swiss ? Color.adaptive(light: 0xF2F2EF, dark: 0x111214) : Personal.paper
-    }
-    static var sheet: Color {
-        if night { return fixed(0x071419) }
-        // One step from the page in the same neutral hue (Claude iOS sidebar #F3F3F1).
-        return swiss ? Color.adaptive(light: 0xE7E7E3, dark: 0x0A0A0B) : Personal.sheet
-    }
+    static var paper: Color { Personal.paper }
+    // One step from the page in the same neutral hue (Claude iOS sidebar #F3F3F1).
+    static var sheet: Color { Personal.sheet }
     /// Background behind insetGrouped white/dark cards in Settings, Projects, and modal forms.
-    static var groupedBg: Color {
-        if night { return fixed(0x051117) }
-        return swiss ? Color.adaptive(light: 0xF2F2EF, dark: 0x111214) : Personal.groupedBg
-    }
+    static var groupedBg: Color { Personal.groupedBg }
     /// Crisp elevated card surface floating over `Ink.groupedBg`.
-    static var card: Color {
-        if night { return fixed(0x0F1D24) }
-        return swiss ? Color.adaptive(light: 0xFFFFFF, dark: 0x1D1E21) : Personal.card
-    }
-    static var raised: Color {
-        if night { return fixed(0x0F1D24) }
-        return swiss ? Color.adaptive(light: 0xFFFFFF, dark: 0x1D1E21) : Color.adaptive(light: 0xF2F2F1, dark: 0x262626)
-    }
-    static var ink: Color {
-        if night { return fixed(0xDBEBEF) }
-        return swiss ? Color.adaptive(light: 0x111111, dark: 0xEDEDE9) : Personal.ink
-    }
-    static var ink2: Color {
-        if night { return fixed(0xB4C3C9) }
-        return swiss ? Color.adaptive(light: 0x3B3B3B, dark: 0xC6C6C1) : Color.adaptive(light: 0x424240, dark: 0xC8C8C4)
-    }
-    static var ink3: Color {
-        if night { return fixed(0x92A1A8) }
-        return swiss ? Color.adaptive(light: 0x5E5E5E, dark: 0x9B9B96) : Color.adaptive(light: 0x757572, dark: 0x969692)
-    }
+    static var card: Color { Personal.card }
+    static var raised: Color { Color.adaptive(light: 0xF2F2F1, dark: 0x262626) }
+    static var ink: Color { Personal.ink }
+    static var ink2: Color { Color.adaptive(light: 0x424240, dark: 0xC8C8C4) }
+    static var ink3: Color { Color.adaptive(light: 0x757572, dark: 0x969692) }
     static var line: Color {
-        if night { return fixed(0xDBEBEF, alpha: 0.13) }
-        return swiss ? Color.adaptive(light: 0x111111, dark: 0xEDEDE9, lightAlpha: 0.16, darkAlpha: 0.18)
-            : Color.adaptive(light: 0x171717, dark: 0xEDEDEB, lightAlpha: 0.075, darkAlpha: 0.10)
+        Color.adaptive(light: 0x171717, dark: 0xEDEDEB, lightAlpha: 0.075, darkAlpha: 0.10)
     }
-    static var seal: Color {
-        if night { return fixed(0xECD59F) }
-        return swiss ? Color.adaptive(light: 0x2B3DE0, dark: 0x6B79FF) : Personal.accent
-    }
-    static var onSeal: Color { night ? fixed(0x051117) : Color.adaptive(light: 0xFFFFFF, dark: 0xFFFFFF) }
-    // Highlighter stroke behind emphasised words (纸笺); a pale blue wash for the
-    // sidebar's selected row in the Swiss look, which has no highlighter in answers;
-    // moonlight on the water in 夜江.
-    static var mark: Color {
-        if night { return fixed(0xECD59F, alpha: 0.26) }
-        return swiss ? Color.adaptive(light: 0x2B3DE0, dark: 0x6B79FF, lightAlpha: 0.14, darkAlpha: 0.28)
-            : Color.adaptive(light: 0xFFE169, dark: 0xF7C81E, darkAlpha: 0.36)
-    }
+    static var seal: Color { Personal.accent }
+    static var onSeal: Color { Color.adaptive(light: 0xFFFFFF, dark: 0xFFFFFF) }
+    // Highlighter stroke kept for older marked text.
+    static var mark: Color { Color.adaptive(light: 0xFFE169, dark: 0xF7C81E, darkAlpha: 0.36) }
     static var solid: Color { ink }
     static var onSolid: Color { paper }
-    static var sendFill: Color { swiss ? ink : seal }
-    static var sendGlyph: Color { swiss ? paper : onSeal }
+    static var sendFill: Color { seal }
+    static var sendGlyph: Color { onSeal }
 }
 
 enum Palette {
@@ -104,9 +59,9 @@ enum Space {
 
 enum Radius {
     static let control: CGFloat = 14, field: CGFloat = 20, sheet: CGFloat = 34
-    // The page corners while the sidebar is open; the Swiss look keeps them square.
-    static var pageFront: CGFloat { InterfaceStyle.isSwiss ? 0 : 54 }
-    static var pageBack: CGFloat { InterfaceStyle.isSwiss ? 0 : 44 }
+    // The page corners while the sidebar is open.
+    static let pageFront: CGFloat = 54
+    static let pageBack: CGFloat = 44
 }
 
 enum TypeScale {
@@ -116,11 +71,8 @@ enum TypeScale {
     static func ui(_ size: CGFloat, weight: Font.Weight = .regular, relativeTo style: Font.TextStyle = .body) -> Font {
         .system(size: scaled(size, style), weight: weight)
     }
-    /// Editorial serif display font strictly for brand wordmark ("Sermo"), Welcome greeting, and Night book titles.
+    /// Editorial serif display font strictly for the brand wordmark ("Sermo").
     static func editorialDisplay(_ size: CGFloat, weight: Font.Weight = .regular, relativeTo style: Font.TextStyle = .title) -> Font {
-        if InterfaceStyle.isSwiss {
-            return .system(size: scaled(size, style), weight: weight == .regular ? .semibold : weight)
-        }
         let isBold = (weight == .medium || weight == .semibold || weight == .bold || weight == .heavy)
         return Font(FontLibrary.editorialUIFont(size: scaled(size, style), bold: isBold, italic: false))
     }
@@ -150,10 +102,9 @@ enum TypeScale {
     static var heavyName: String { FontLibrary.boldFace }
     static var hasHeavy: Bool { UIFont(name: heavyName, size: 12) != nil }
     static func heavy(_ size: CGFloat, relativeTo style: Font.TextStyle = .body) -> Font {
-        if InterfaceStyle.isSwiss { return .system(size: size, weight: .heavy) }
         return .system(size: scaled(size, style), weight: .semibold)
     }
-    /// Numbers and small labels in the Swiss look: Q.01, COPY, 2026.10.20.
+    /// Small monospaced numbers and code labels.
     static func mono(_ size: CGFloat, relativeTo style: Font.TextStyle = .caption) -> Font {
         .system(size: size, weight: .medium, design: .monospaced)
     }
@@ -186,14 +137,10 @@ enum InkAppearance {
         }
         let rawMode = UserDefaults.standard.string(forKey: AppearanceMode.key) ?? AppearanceMode.system.rawValue
         let targetStyle: UIUserInterfaceStyle
-        if InterfaceStyle.isNight {
-            targetStyle = .dark
-        } else {
-            switch AppearanceMode(rawValue: rawMode) ?? .system {
-            case .system: targetStyle = .unspecified
-            case .light: targetStyle = .light
-            case .dark: targetStyle = .dark
-            }
+        switch AppearanceMode(rawValue: rawMode) ?? .system {
+        case .system: targetStyle = .unspecified
+        case .light: targetStyle = .light
+        case .dark: targetStyle = .dark
         }
         for scene in UIApplication.shared.connectedScenes.compactMap({ $0 as? UIWindowScene }) {
             for window in scene.windows {
@@ -208,46 +155,75 @@ enum InkAppearance {
 
 struct AppBackground: View { var body: some View { Ink.paper.ignoresSafeArea() } }
 
-// Liquid glass in the paper look; a white box with a black frame in the Swiss look.
+// Liquid glass.
 struct ClearGlass: ViewModifier {
     var radius: CGFloat = 28
-    @ViewBuilder func body(content: Content) -> some View {
-        if InterfaceStyle.isSwiss {
-            content.background(Ink.raised).overlay(Rectangle().stroke(Ink.ink, lineWidth: 1.5).allowsHitTesting(false))
-        } else {
-            content.glassEffect(.regular.interactive(), in: .rect(cornerRadius: radius))
-        }
+    func body(content: Content) -> some View {
+        content.glassEffect(.regular.interactive(), in: .rect(cornerRadius: radius))
     }
 }
 
 extension View {
-    /// A small control floating over the page: liquid glass in its own shape on paper
-    /// and 夜江, a white box with a black frame in the Swiss look.
-    @ViewBuilder func floatingGlass(in shape: AnyShape) -> some View {
-        if InterfaceStyle.isSwiss {
-            self.background(Ink.raised).overlay(Rectangle().stroke(Ink.ink, lineWidth: 1.5).allowsHitTesting(false))
-        } else {
-            self.glassEffect(.regular.interactive(), in: shape)
-        }
+    /// A small control floating over the page: liquid glass in its own shape.
+    func floatingGlass(in shape: AnyShape) -> some View {
+        self.glassEffect(.regular.interactive(), in: shape)
     }
 }
 
-/// Small controls dim and shrink a touch while pressed, so a tap is felt as well as seen.
+/// Small controls dip and shrink a touch while pressed and spring back on release,
+/// so a tap is felt as well as seen.
 struct PressFeedbackStyle: ButtonStyle {
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
     func makeBody(configuration: Configuration) -> some View {
         configuration.label
-            .scaleEffect(configuration.isPressed ? 0.92 : 1)
-            .opacity(configuration.isPressed ? 0.6 : 1)
-            .animation(.snappy(duration: 0.16), value: configuration.isPressed)
+            .scaleEffect(configuration.isPressed && !reduceMotion ? 0.9 : 1)
+            .opacity(configuration.isPressed ? 0.62 : 1)
+            .animation(configuration.isPressed ? Motion.pressDown : Motion.pressUp, value: configuration.isPressed)
     }
 }
 extension ButtonStyle where Self == PressFeedbackStyle { static var pressFeedback: PressFeedbackStyle { PressFeedbackStyle() } }
 
-/// A light tap felt in the hand, unless haptics are switched off in Settings.
+/// What you feel in the hand, unless haptics are switched off in Settings (1.47: one
+/// kind per moment, so sending, an answer finishing and a switch each feel different).
 enum Haptic {
+    @MainActor private static var enabled: Bool {
+        UserDefaults.standard.object(forKey: "qingjian.haptics") as? Bool ?? true
+    }
+    @MainActor private static let light = UIImpactFeedbackGenerator(style: .light)
+    @MainActor private static let soft = UIImpactFeedbackGenerator(style: .soft)
+    @MainActor private static let rigid = UIImpactFeedbackGenerator(style: .rigid)
+    @MainActor private static let selectionFeedback = UISelectionFeedbackGenerator()
+    @MainActor private static let notice = UINotificationFeedbackGenerator()
+
+    /// A plain button press.
     @MainActor static func tap() {
-        guard UserDefaults.standard.object(forKey: "qingjian.haptics") as? Bool ?? true else { return }
-        UIImpactFeedbackGenerator(style: .light).impactOccurred(intensity: 0.7)
+        guard enabled else { return }
+        light.impactOccurred(intensity: 0.7)
+    }
+    /// Your message leaves: a firm, short knock.
+    @MainActor static func send() {
+        guard enabled else { return }
+        rigid.impactOccurred(intensity: 0.55)
+    }
+    /// An answer has finished: one soft, low pulse.
+    @MainActor static func arrive() {
+        guard enabled else { return }
+        soft.impactOccurred(intensity: 0.5)
+    }
+    /// Moving between choices: a model, an option, the next suggestion.
+    @MainActor static func select() {
+        guard enabled else { return }
+        selectionFeedback.selectionChanged()
+    }
+    /// Something worked that you will want to know about: copied, saved, undone.
+    @MainActor static func success() {
+        guard enabled else { return }
+        notice.notificationOccurred(.success)
+    }
+    /// The drawer or a sheet settles open or shut.
+    @MainActor static func settle() {
+        guard enabled else { return }
+        soft.impactOccurred(intensity: 0.65)
     }
 }
 
@@ -306,7 +282,7 @@ struct ReadingStyle: ViewModifier {
     var heavy = false
     func body(content: Content) -> some View {
         let _ = (choice, revision, StyleAppearance.shared.revision, FontAppearance.shared.revision)
-        let applyCustomMedium = !heavy && Personal.mediumBody && FontLibrary.choice == .custom && !InterfaceStyle.isSwiss
+        let applyCustomMedium = !heavy && Personal.mediumBody && FontLibrary.choice == .custom
         content.font(font).fontWeight(applyCustomMedium ? .medium : nil)
     }
     private var font: Font {
@@ -321,7 +297,7 @@ struct UserMessageStyle: ViewModifier {
     @AppStorage("qingjian.reading.size") private var size = 16.0
     func body(content: Content) -> some View {
         let _ = (choice, revision, StyleAppearance.shared.revision, FontAppearance.shared.revision)
-        if FontLibrary.choice == .custom && !InterfaceStyle.isSwiss {
+        if FontLibrary.choice == .custom {
             content.modifier(ReadingStyle(adjustment: -0.5))
         } else {
             let weight: Font.Weight = (FontLibrary.usesSystemFace && Personal.mediumBody) ? .medium : .regular
@@ -347,31 +323,6 @@ struct SealStamp: View {
         Text(text).font(TypeScale.serif(size * 0.57)).fontWeight(.semibold)
             .foregroundStyle(Ink.onSeal).frame(width: size, height: size)
             .background(Ink.seal, in: RoundedRectangle(cornerRadius: size * 0.23, style: .continuous))
-            .accessibilityHidden(true)
-    }
-}
-
-// Sermo's own mark: a terracotta disc. Breathes while an answer is on its way.
-struct PulseDot: View {
-    var size: CGFloat = 9
-    var pulsing = true
-    @Environment(\.accessibilityReduceMotion) private var reduceMotion
-    @State private var dim = false
-    var body: some View {
-        // A disc on paper, a small square in the Swiss look, the moon in 夜江.
-        Group {
-            if InterfaceStyle.isNight {
-                MoonDisc(size: size, glow: pulsing && !dim)
-            } else {
-                RoundedRectangle(cornerRadius: InterfaceStyle.isSwiss ? 0 : size / 2, style: .continuous)
-                    .fill(Ink.seal).frame(width: size, height: size)
-            }
-        }
-            .opacity(dim ? 0.35 : 1).scaleEffect(dim ? 0.72 : 1)
-            .onAppear {
-                guard pulsing && !reduceMotion else { return }
-                withAnimation(.easeInOut(duration: 0.8).repeatForever(autoreverses: true)) { dim = true }
-            }
             .accessibilityHidden(true)
     }
 }
@@ -413,7 +364,7 @@ struct InkPrimaryButtonStyle: ButtonStyle {
     func makeBody(configuration: Configuration) -> some View {
         configuration.label.font(TypeScale.serif(16).weight(.semibold)).foregroundStyle(Ink.onSolid)
             .padding(.horizontal, 22).frame(maxWidth: .infinity).frame(height: height)
-            .background(Ink.solid, in: RoundedRectangle(cornerRadius: InterfaceStyle.isSwiss ? 0 : height / 2, style: .continuous))
+            .background(Ink.solid, in: RoundedRectangle(cornerRadius: height / 2, style: .continuous))
             .opacity(isEnabled ? (configuration.isPressed ? 0.82 : 1) : 0.4)
     }
 }
@@ -456,7 +407,7 @@ struct SidebarGlyph: View {
     }
 }
 
-/// Unified circular modal close button (`×`) for Settings, Projects, All Chats, Bookshelf, and secondary sheets.
+/// Unified circular modal close button (`×`) for Settings, Projects, All Chats and secondary sheets.
 struct ClaudeSheetCloseButton: View {
     var label: String = "关闭"
     let action: () -> Void
@@ -616,32 +567,23 @@ private struct ClaudeActionShape: Shape {
 }
 
 /// Solid dark charcoal Claude-style pill for "+ 新建会话" in Sidebar and Project Detail.
-/// Preserves Night-River gold and Swiss square black pills.
 struct ClaudeSecondaryPillStyle: ButtonStyle {
     var height: CGFloat = 42
     var horizontalPadding: CGFloat = 16
     func makeBody(configuration: Configuration) -> some View {
-        let swiss = InterfaceStyle.isSwiss
-        let night = InterfaceStyle.isNight
         configuration.label
             .font(.system(size: 15, weight: .medium))
-            .foregroundStyle(night ? Ink.onSeal : (swiss ? Ink.onSolid : Color.adaptive(light: 0xFFFFFF, dark: 0x1A1A18)))
+            .foregroundStyle(Color.adaptive(light: 0xFFFFFF, dark: 0x1A1A18))
             .padding(.horizontal, horizontalPadding)
             .frame(height: height)
             .background {
-                if night {
-                    Capsule(style: .continuous).fill(Ink.seal)
-                } else if swiss {
-                    Rectangle().fill(Ink.solid)
-                } else {
-                    Capsule(style: .continuous)
-                        .fill(Color.adaptive(light: 0x222220, dark: 0xECEBE7))
-                }
+                Capsule(style: .continuous)
+                    .fill(Color.adaptive(light: 0x222220, dark: 0xECEBE7))
             }
             .contentShape(InkCapsule())
-            .scaleEffect(configuration.isPressed ? 0.96 : 1)
-            .opacity(configuration.isPressed ? 0.84 : 1)
-            .animation(.snappy(duration: 0.16), value: configuration.isPressed)
+            .scaleEffect(configuration.isPressed ? 0.95 : 1)
+            .opacity(configuration.isPressed ? 0.86 : 1)
+            .animation(configuration.isPressed ? Motion.pressDown : Motion.pressUp, value: configuration.isPressed)
     }
 }
 
@@ -683,7 +625,7 @@ extension View {
 }
 
 /// 个性化: the few things you can tune yourself, each changing the look as a set so it
-/// cannot drift out of tune. They apply to the 纸笺 look; 瑞士 and 夜江 keep their own.
+/// cannot drift out of tune.
 /// A value is a preset name, or "#RRGGBB" for a colour picked by hand (used in light
 /// mode; dark mode keeps a matching default so text stays readable).
 enum Personal {
@@ -796,7 +738,6 @@ enum Personal {
     /// Your message bubble: crisp Claude-neutral light grey (#F1F1F0) by default, a wash of the accent, or a picked colour.
     static var bubble: Color {
         let raw = stored(bubbleKey)
-        if InterfaceStyle.isSwiss || InterfaceStyle.isNight { return Ink.raised }
         if raw == "accent" { return accent.opacity(0.14) }
         if let custom = hex(raw) { return Color.adaptive(light: custom, dark: 0x292928) }
         let darkBubble: UInt32 = switch stored(paperKey) {

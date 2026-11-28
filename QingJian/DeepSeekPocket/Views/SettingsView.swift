@@ -337,7 +337,7 @@ struct SettingsView: View {
                     } header: { Text("内置文档规范（按需查阅）") }
                     Section {
                         Button {
-                            withAnimation(.snappy(duration: 0.25)) { promptExpanded.toggle() }
+                            withMotion(Motion.snappy) { promptExpanded.toggle() }
                         } label: {
                             HStack(alignment: .top, spacing: 10) {
                                 VStack(alignment: .leading, spacing: 4) {
@@ -418,7 +418,7 @@ struct SettingsView: View {
                             Label("本机数据状态与安全快照", systemImage: "externaldrive.badge.checkmark")
                         }
                     } header: { Text("数据安全") } footer: {
-                        Text("查看本机聊天、项目、学习库、书架和图片的实时统计，以及防缩水保护留存的安全快照。")
+                        Text("查看本机聊天、项目、学习库和图片的实时统计，以及防缩水保护留存的安全快照。")
                     }
                     StudyCloudBackupSection(cloud: store.studyCloud)
                     Section {
@@ -455,7 +455,7 @@ struct SettingsView: View {
                             } label: { Label("仅导出聊天与项目 JSON", systemImage: "square.and.arrow.up") }
                         }
                     } header: { Text("完整备份与恢复") } footer: {
-                        Text("「导出完整备份」会将所有聊天、项目、资料、自定义指令、用量日历、学习数据库、聊天与学习图片、以及书架阅读进度与角色档案打包成单个 .sermobackup 文件（不含体积巨大的小说原文，小说原文可随时重新导入并自动关联回已有档案）。「从备份文件恢复」支持新版 .sermobackup，也自动兼容旧版聊天 JSON、学习备份 JSON 和书架备份 JSON；选择文件后会先展示内容清单供你核对。")
+                        Text("「导出完整备份」会将所有聊天、项目、资料、自定义指令、用量日历、学习数据库以及聊天与学习图片打包成单个 .sermobackup 文件。「从备份文件恢复」支持新版 .sermobackup，也自动兼容旧版聊天 JSON 和学习备份 JSON；选择文件后会先展示内容清单供你核对。")
                     }
                 AutoBackupSection()
         }
@@ -835,7 +835,7 @@ struct SystemPromptPickerSheet: View {
                     } header: { Text("我的指令") }
                 } else {
                     ContentUnavailableView("当前对话无法切换指令", systemImage: "text.book.closed",
-                        description: Text("对话可能已删除或上锁；书架角色扮演和本书讨论使用各自的专用指令。"))
+                        description: Text("对话可能已删除或上锁。"))
                 }
                 Section {
                     NavigationLink { SystemPromptLibraryView() } label: {
@@ -918,7 +918,6 @@ struct LocalDataStatusView: View {
             Group {
             Section("运行与存储状态") {
                 LabeledContent("主记录保存权限", value: store.canPersist ? "正常" : "只读保护中")
-                LabeledContent("书架保存权限", value: store.books.canPersist ? "正常" : "只读保护中")
                 LabeledContent("主文件体积", value: formatBytes(stats.conversationsBytes))
                 LabeledContent("最近写入时间", value: stats.conversationsModified?.formatted(date: .abbreviated, time: .shortened) ?? "尚未落盘")
             }
@@ -930,11 +929,10 @@ struct LocalDataStatusView: View {
                 LabeledContent("自定义指令库", value: "\(stats.presetCount) 份")
                 LabeledContent("用量记录天数", value: "\(stats.usageDays) 天")
             }
-            Section("学习数据库、图片与书架") {
+            Section("学习数据库与图片") {
                 LabeledContent("学习数据库体积", value: formatBytes(stats.studyBytes))
                 LabeledContent("学习数据总行数", value: "\(stats.studyRows) 行")
                 LabeledContent("本机保存图片", value: "\(stats.imageCount) 张 · \(formatBytes(stats.imageBytes))")
-                LabeledContent("书架小说与档案", value: "\(stats.bookCount) 本 · 人物卡 \(stats.personaCount) 张 · \(formatBytes(stats.bookBytes))")
             }
             Section {
                 Button("立即创建一份安全快照") {
@@ -1009,7 +1007,7 @@ struct UnifiedRestorePreviewSheet: View {
     private var supportsModeChoice: Bool {
         switch preview.package {
         case .unified, .legacyChat: return true
-        case .legacyStudy, .legacyShelf: return false
+        case .legacyStudy: return false
         }
     }
 
@@ -1036,9 +1034,6 @@ struct UnifiedRestorePreviewSheet: View {
                     }
                     if preview.package.studyRowCount > 0 {
                         LabeledContent("学习数据库记录", value: "\(preview.package.studyRowCount) 行")
-                    }
-                    if preview.package.bookCount > 0 || preview.package.personaCount > 0 {
-                        LabeledContent("书架档案与进度", value: "\(preview.package.bookCount) 本 · 人物卡 \(preview.package.personaCount) 张")
                     }
                     if preview.package.imageCount > 0 || preview.package.omittedImageCount > 0 {
                         LabeledContent("图片实体", value: "\(preview.package.imageCount) 张已校验")

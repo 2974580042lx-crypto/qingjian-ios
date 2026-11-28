@@ -320,13 +320,9 @@ final class StudyBackupTests: XCTestCase {
 
     func testUnifiedBackupCompressesVerifiesAndAutoDetectsLegacyFormats() throws {
         let fixture = try BackupFixture(root: root)
-        let book = Book(title: "测试小说（仅档案不含正文）", characterCount: 120_000, chapterTitles: ["第一章", "第二章"], segments: [BookSegment(first: 0, last: 1)], notes: [nil])
-        let persona = PersonaCard(name: "测试主角", detail: "性格沉稳")
         let unified = try UnifiedBackupCodec.capture(
             snapshot: fixture.snapshot,
             learning: fixture.store.exportAllStudyData(),
-            booksMetadata: [book],
-            personas: [persona],
             preferences: ["qingjian.profile.name": "小龙"],
             imageSize: { name in try fixture.images.appendingPathComponent(name).resourceValues(forKeys: [.fileSizeKey]).fileSize ?? 0 },
             imageLoader: { name in try Data(contentsOf: fixture.images.appendingPathComponent(name)) }
@@ -339,8 +335,8 @@ final class StudyBackupTests: XCTestCase {
         }
         XCTAssertEqual(roundTrip.snapshot.threads.count, fixture.snapshot.threads.count)
         XCTAssertEqual(roundTrip.learning.rows.count, unified.learning.rows.count)
-        XCTAssertEqual(roundTrip.booksMetadata.map { $0.title }, ["测试小说（仅档案不含正文）"])
-        XCTAssertEqual(roundTrip.personas.map { $0.name }, ["测试主角"])
+        XCTAssertTrue(roundTrip.booksMetadata.isEmpty)
+        XCTAssertTrue(roundTrip.personas.isEmpty)
         XCTAssertEqual(roundTrip.images.count, 1)
         XCTAssertEqual(roundTrip.preferences?["qingjian.profile.name"], "小龙")
 

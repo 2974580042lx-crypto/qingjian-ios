@@ -185,7 +185,7 @@ enum ZipProjectExtractor {
            let xml = String(data: xmlData, encoding: .utf8) {
             return xml
         }
-        guard let decoded = BookText.decode(data) else { return nil }
+        guard let decoded = PlainText.decode(data) else { return nil }
         let normalized = decoded.replacingOccurrences(of: "\r\n", with: "\n").replacingOccurrences(of: "\r", with: "\n")
         if normalized.unicodeScalars.contains(where: { CharacterSet.controlCharacters.contains($0) && $0.value != 9 && $0.value != 10 }) {
             return nil

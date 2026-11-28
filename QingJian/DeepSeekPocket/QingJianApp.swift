@@ -3,13 +3,11 @@ import SwiftUI
 @main
 @MainActor
 struct QingJianApp: App {
-    @UIApplicationDelegateAdaptor(ReaderAppDelegate.self) private var readerDelegate
     @StateObject private var store = AppStore()
     @StateObject private var profile = ProfileStore()
     @Environment(\.scenePhase) private var scenePhase
     @AppStorage(FontLibrary.choiceKey) private var fontChoice = ""
     @AppStorage(FontLibrary.revisionKey) private var fontRevision = 0
-    @AppStorage(InterfaceStyle.key) private var interfaceStyle = ""
 
     init() {
         FontLibrary.registerSaved()
@@ -26,9 +24,6 @@ struct QingJianApp: App {
                 }
                 .onChange(of: fontRevision) { _, _ in FontAppearance.shared.invalidate(); InkAppearance.apply() }
                 .onChange(of: fontChoice) { _, _ in FontAppearance.shared.invalidate(); InkAppearance.apply() }
-                .onChange(of: interfaceStyle) { _, _ in
-                    StyleAppearance.shared.reload(); FontAppearance.shared.invalidate(); InkAppearance.apply()
-                }
                 .environmentObject(store)
                 .environmentObject(profile)
                 .tint(Ink.ink)

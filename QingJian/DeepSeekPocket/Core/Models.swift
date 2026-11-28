@@ -59,8 +59,6 @@ struct ChatMessage: Identifiable, Codable, Equatable, Sendable {
     var usage: TokenUsage?
     var note: String?
     var isBookmarked: Bool?
-    // The complete play state at this message, for a true rewind/branch.
-    var storyState: StorySession?
     var reasoningTranslation: String?
     var translationUsage: TokenUsage?
     // File names of attached pictures; the image data lives beside conversations.json.
@@ -80,17 +78,11 @@ struct ChatMessage: Identifiable, Codable, Equatable, Sendable {
     var translatedBy: AIProvider?
     // Tools the answer used (1.5.8), shown under it; their raw output is not kept.
     var toolActivity: [ToolActivity]?
-    // A request the app wrote for you (1.8.0), e.g. a bookshelf character's opening.
+    // A request the app wrote for you (1.8.0), e.g. a compaction or a project starter.
     // It goes to the model like your own message but shows only as this short label.
     var directive: String?
-    // Shown under the marker for you to read, e.g. the recap a story starts from (1.9.0).
+    // Shown under the marker for you to read (1.9.0).
     var directiveDetail: String?
-    // 「他在想什么」(1.12.0): the character's unspoken thoughts behind this answer, written
-    // on request and shown apart from it. Never sent back into the conversation.
-    var innerThoughts: String?
-    var bookReferences: [BookReference]?
-    // An explicit, one-turn question to a book character; nil is ordinary discussion.
-    var discussionCharacter: String?
     var isSubscription: Bool { provider == .chatGPT }
 }
 
@@ -149,11 +141,6 @@ struct ChatThread: Identifiable, Codable, Equatable, Sendable {
     var parentThreadID: UUID?
     var projectID: UUID?
     var modelSelection: ChatModelSelection?
-    // Set for conversations started from the bookshelf (1.8.0).
-    var story: StorySession?
-    var bookDiscussion: BookDiscussionSession?
-    var discussionDraftCharacter: String?
-    var storyCheckpoints: [StoryCheckpoint]?
     // A copy selected for this conversation; library edits cannot silently change it.
     var systemPromptPreset: SystemPromptPreset?
     // Pure role-play mode (1.37): omits external tool schemas, manual notes, and historical reasoning echo.

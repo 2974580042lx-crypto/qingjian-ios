@@ -7,31 +7,25 @@ import UIKit
 @MainActor
 struct DeliverableFileRow: View {
     let item: ProjectDeliverable
-    var swiss: Bool = false
     let open: () -> Void
 
     private var rowBackground: Color {
-        if swiss { return Ink.card }
         return Color.adaptive(light: 0xF6F6F5, dark: 0x202020)
     }
 
     private var tileBackground: Color {
-        if swiss { return Ink.raised }
         return Color.adaptive(light: 0xE6EFF9, dark: 0x6096E6, lightAlpha: 1, darkAlpha: 0.17)
     }
 
     private var tileGlyph: Color {
-        if swiss { return Ink.ink }
         return Color.adaptive(light: 0x1C4D8C, dark: 0x8AB6F9)
     }
 
     private var titleColor: Color {
-        if swiss { return Ink.ink }
         return Color.adaptive(light: 0x1F1F1E, dark: 0xE8E8E6)
     }
 
     private var subtitleColor: Color {
-        if swiss { return Ink.ink3 }
         return Color.adaptive(light: 0x767673, dark: 0x949490)
     }
 
@@ -41,7 +35,7 @@ struct DeliverableFileRow: View {
             open()
         } label: {
             HStack(spacing: 14) {
-                RoundedRectangle(cornerRadius: swiss ? 0 : 11, style: .continuous)
+                RoundedRectangle(cornerRadius: 11, style: .continuous)
                     .fill(tileBackground)
                     .frame(width: 52, height: 52)
                     .overlay {
@@ -70,12 +64,12 @@ struct DeliverableFileRow: View {
             .padding(.leading, 7)
             .padding(.trailing, 14)
             .frame(maxWidth: .infinity, alignment: .leading)
-            .background(rowBackground, in: RoundedRectangle(cornerRadius: swiss ? 0 : 16, style: .continuous))
+            .background(rowBackground, in: RoundedRectangle(cornerRadius: 16, style: .continuous))
             .overlay(
-                RoundedRectangle(cornerRadius: swiss ? 0 : 16, style: .continuous)
-                    .stroke(swiss ? Ink.ink : Ink.line, lineWidth: swiss ? 1 : 0.8)
+                RoundedRectangle(cornerRadius: 16, style: .continuous)
+                    .stroke(Ink.line, lineWidth: 0.8)
             )
-            .contentShape(RoundedRectangle(cornerRadius: swiss ? 0 : 16, style: .continuous))
+            .contentShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
         }
         .buttonStyle(.pressFeedback)
         .accessibilityLabel("\(item.title)，\(item.claudeSubtitle)，点击预览或导出")
@@ -97,13 +91,12 @@ struct DeliverableFileRow: View {
 @MainActor
 struct DeliverableFileRowList: View {
     let deliverables: [ProjectDeliverable]
-    var swiss: Bool = false
     let open: (ProjectDeliverable) -> Void
 
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
             ForEach(deliverables) { item in
-                DeliverableFileRow(item: item, swiss: swiss) {
+                DeliverableFileRow(item: item) {
                     open(item)
                 }
             }
@@ -302,7 +295,7 @@ struct DeliverableDetailSheet: View {
             case .md:
                 let text = store.deliverableTextContent(for: activeItem)
                 ScrollView {
-                    MarkdownAnswer(content: text, style: InterfaceStyle.current, expandsWidth: true)
+                    MarkdownAnswer(content: text, expandsWidth: true)
                         .padding(.horizontal, 18)
                         .padding(.vertical, 16)
                 }

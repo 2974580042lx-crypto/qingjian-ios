@@ -99,8 +99,7 @@ extension AppStore {
     /// After an answer: offers to compact a chat that has grown long. Asks, never does it alone.
     func considerCompactionOffer(threadID: UUID) {
         guard settings.offersCompaction, activeThreadID == threadID, compactingThreadID == nil,
-              let thread = threads.first(where: { $0.id == threadID }), thread.story == nil,
-              thread.bookDiscussion == nil else { return }
+              let thread = threads.first(where: { $0.id == threadID }) else { return }
         // A line already showing here stays; one meant for another project gives way.
         if let shown = composerNotice, shown.projectID == nil || shown.projectID == thread.projectID { return }
         let config = settings(for: thread)

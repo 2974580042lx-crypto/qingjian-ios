@@ -195,18 +195,6 @@ struct ChatRequest: Encodable, Sendable {
         copy.messages[index] = APIMessage(role: "user", content: note + "\n" + target.content, images: target.images)
         return copy
     }
-    func withBookMaterial(_ material: String) -> ChatRequest {
-        var copy = prefixingLastUserMessage(material)
-        while copy.messages.reduce(0, { $0 + $1.content.utf8.count + ($1.reasoningContent?.utf8.count ?? 0) }) > Self.contextByteBudget,
-              let last = copy.messages.lastIndex(where: { $0.role == "user" }),
-              let first = copy.messages.firstIndex(where: { $0.role != "system" }), first < last {
-            copy.messages.remove(at: first)
-        }
-        while let first = copy.messages.firstIndex(where: { $0.role != "system" }), copy.messages[first].role == "assistant" {
-            copy.messages.remove(at: first)
-        }
-        return copy
-    }
 
     func appending(_ more: [APIMessage]) -> ChatRequest {
         var copy = self

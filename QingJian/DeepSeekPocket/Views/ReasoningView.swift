@@ -23,21 +23,18 @@ struct ThinkingRow: View {
 
     var body: some View {
         Button(action: open) {
-            HStack(spacing: 6) {
+            HStack(spacing: 7) {
+                // The flower breathes while it thinks, and slows to rest, grey, when it is done.
+                ThinkingMark(live: live, size: 14, tint: live ? Ink.seal : Ink.ink3.opacity(0.8))
                 if live {
-                    if InterfaceStyle.isNight || InterfaceStyle.isSwiss {
-                        ThinkingMark(live: true, size: 14)
-                    } else {
-                        ClaudeThinkingDots()
-                    }
                     line(head: snippet.isEmpty ? "正在思考…" : snippet)
                         .lineLimit(1)
                         .truncationMode(.tail)
+                        .shimmering()
+                        .transition(.opacity)
                 } else {
-                    Image(systemName: "clock")
-                        .font(.system(size: 13, weight: .light))
-                        .foregroundStyle(Ink.ink3)
                     line(head: message.thinkingSeconds.map { "已思考 \($0) 秒" } ?? "思考过程")
+                        .transition(.opacity)
                 }
                 Image(systemName: "chevron.right")
                     .font(.system(size: 11, weight: .light))
@@ -48,7 +45,8 @@ struct ThinkingRow: View {
             .frame(minHeight: 28, alignment: .leading)
             .contentShape(Rectangle())
         }
-        .buttonStyle(.plain)
+        .buttonStyle(.pressFeedback)
+        .animation(Motion.fade.motionSafe, value: live)
         .accessibilityLabel(live ? "正在思考，打开思考过程" : "打开思考过程")
         .accessibilityIdentifier("thinking-row")
     }
@@ -58,61 +56,136 @@ struct ThinkingRow: View {
     }
 }
 
-/// Claude iOS-style two tiny pulsing terracotta dots shown beside live thinking / connecting lines.
-struct ClaudeThinkingDots: View {
-    @Environment(\.accessibilityReduceMotion) private var reduceMotion
-    @State private var pulse = false
-
-    var body: some View {
-        HStack(spacing: 4) {
-            ForEach(0..<2, id: \.self) { index in
-                Circle()
-                    .fill(Ink.seal)
-                    .frame(width: 4.5, height: 4.5)
-                    .opacity(reduceMotion ? 0.85 : (pulse == (index == 0) ? 1.0 : 0.32))
-                    .scaleEffect(reduceMotion ? 1.0 : (pulse == (index == 0) ? 1.05 : 0.82))
-                    .animation(
-                        reduceMotion ? nil : .easeInOut(duration: 0.72).repeatForever(autoreverses: true),
-                        value: pulse
-                    )
-            }
-        }
-        .onAppear { if !reduceMotion { pulse = true } }
-        .accessibilityHidden(true)
-    }
-}
-
-/// Sermo's thinking mark: five small terracotta petals round a seed.
+/// Sermo's mark: five small terracotta petals round a seed (the app icon's flower).
+///
+/// 1.47: drawn in a Canvas from a clock, so it can do more than spin.
+/// - While `live`, a breath runs round the petals one after another and the flower turns slowly.
+/// - When `live` ends, the turning slows to a stop and the petals settle back to full size,
+///   instead of snapping still.
+/// - With `blooms`, it unfolds once when it appears: the seed first, then each petal out from
+///   the middle with a little overshoot.
 struct ThinkingMark: View {
     var live: Bool
     var size: CGFloat = 18
+    var blooms = false
+    var tint: Color = Ink.seal
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
-    @State private var moving = false
-    private var animated: Bool { live && !reduceMotion }
+    @State private var born = Date()
+    @State private var stoppedAt: Date?
+    @State private var restAngle: Double = 0
+    // Bumped once the flower is at rest, so the clock below stops ticking.
+    @State private var restTick = 0
+
+    private static let turn: Double = 360 / 5.6        // degrees a second while thinking
+    private static let settle: Double = 0.42            // seconds to come to rest
+    private static let bloom: Double = 0.95             // seconds to unfold
 
     var body: some View {
-        let dot = size * 0.26
-        let ring = size * 0.34
-        ZStack {
-            ForEach(0..<5, id: \.self) { index in
-                Circle().fill(Ink.seal)
-                    .frame(width: dot, height: dot)
-                    .scaleEffect(animated && moving ? 0.72 : 1)
-                    .opacity(animated && moving ? 0.6 : 0.9)
-                    .animation(animated
-                               ? .easeInOut(duration: 0.9).repeatForever(autoreverses: true).delay(Double(index) * 0.18)
-                               : .easeOut(duration: 0.3), value: moving)
-                    .offset(y: -ring)
-                    .rotationEffect(.degrees(Double(index) * 72))
+        let _ = restTick
+        Group {
+            if reduceMotion {
+                canvas(at: Date(), still: true)
+            } else if needsClock {
+                TimelineView(.animation) { frame in canvas(at: frame.date) }
+            } else {
+                canvas(at: Date())
             }
-            Circle().fill(Ink.seal).frame(width: dot * 0.7, height: dot * 0.7)
         }
-        .rotationEffect(.degrees(animated && moving ? 360 : 0))
-        .animation(animated ? .linear(duration: 5.2).repeatForever(autoreverses: false) : .easeOut(duration: 0.3), value: moving)
         .frame(width: size, height: size)
-        .onAppear { if animated { moving = true } }
-        .onChange(of: animated) { _, now in moving = now }
+        .onChange(of: live) { _, now in
+            let at = Date()
+            if now {
+                // Pick up turning from where it stopped.
+                restAngle = angle(at: at)
+                stoppedAt = nil
+                born = at.addingTimeInterval(-restAngle / Self.turn)
+            } else {
+                restAngle = angle(at: at)
+                stoppedAt = at
+            }
+        }
+        // Stop the clock once the flower is at rest.
+        .task(id: TaskKey(live: live, stopped: stoppedAt, blooms: blooms)) {
+            guard !live else { return }
+            let remaining = max(blooms ? Self.bloom - Date().timeIntervalSince(born) : 0,
+                                stoppedAt.map { Self.settle - Date().timeIntervalSince($0) } ?? 0)
+            guard remaining > 0 else { return }
+            try? await Task.sleep(nanoseconds: UInt64((remaining + 0.05) * 1_000_000_000))
+            if !Task.isCancelled { restTick &+= 1 }
+        }
         .accessibilityHidden(true)
+    }
+
+    private struct TaskKey: Equatable { let live: Bool; let stopped: Date?; let blooms: Bool }
+
+    private var needsClock: Bool {
+        if live { return true }
+        let now = Date()
+        if blooms && now.timeIntervalSince(born) < Self.bloom { return true }
+        if let stoppedAt, now.timeIntervalSince(stoppedAt) < Self.settle { return true }
+        return false
+    }
+
+    /// 1 while thinking, easing to 0 as it comes to rest.
+    private func liveness(at date: Date) -> Double {
+        if live { return 1 }
+        guard let stoppedAt else { return 0 }
+        let d = date.timeIntervalSince(stoppedAt) / Self.settle
+        return d >= 1 ? 0 : (1 - d) * (1 - d)
+    }
+
+    private func angle(at date: Date) -> Double {
+        if live { return date.timeIntervalSince(born) * Self.turn }
+        guard let stoppedAt else { return restAngle }
+        // Decelerate evenly to a stop over `settle`.
+        let d = min(Self.settle, max(0, date.timeIntervalSince(stoppedAt)))
+        return restAngle + Self.turn * (d - d * d / (2 * Self.settle))
+    }
+
+    private func canvas(at date: Date, still: Bool = false) -> some View {
+        let t: Double = still ? 10 : date.timeIntervalSince(born)
+        let alive: Double = still ? 0 : liveness(at: date)
+        let rotation: Double = still ? 0 : angle(at: date)
+        return Canvas { context, canvasSize in
+            let side = min(canvasSize.width, canvasSize.height)
+            let center = CGPoint(x: canvasSize.width / 2, y: canvasSize.height / 2)
+            let dot: CGFloat = side * 0.26
+            let ring: CGFloat = side * 0.34
+            // The seed, a touch smaller, arrives first when blooming.
+            let seedGrow: CGFloat = blooms ? Self.overshoot(t / 0.32) : 1
+            let seed: CGFloat = dot * 0.7 * seedGrow
+            if seed > 0.1 {
+                context.fill(Path(ellipseIn: CGRect(x: center.x - seed / 2, y: center.y - seed / 2, width: seed, height: seed)),
+                             with: .color(tint))
+            }
+            for index in 0..<5 {
+                let grow: CGFloat = blooms ? Self.overshoot((t - 0.12 - Double(index) * 0.07) / 0.62) : 1
+                guard grow > 0.01 else { continue }
+                // A breath running round the ring: each petal a fifth of a cycle behind.
+                let phase: Double = (t / 1.25 - Double(index) / 5).truncatingRemainder(dividingBy: 1)
+                let breath: Double = 0.5 - 0.5 * cos(phase * 2 * Double.pi)
+                let shrink = CGFloat(1 - 0.30 * breath * alive)
+                let opacity: Double = 0.92 - 0.38 * breath * alive
+                let theta: Double = (rotation + Double(index) * 72 - 90) * Double.pi / 180
+                let swell = CGFloat(1 + 0.06 * breath * alive)
+                let reach: CGFloat = ring * min(CGFloat(1.08), grow) * swell
+                let x: CGFloat = center.x + CGFloat(cos(theta)) * reach
+                let y: CGFloat = center.y + CGFloat(sin(theta)) * reach
+                let d: CGFloat = dot * shrink * grow
+                var petal = context
+                petal.opacity = opacity
+                petal.fill(Path(ellipseIn: CGRect(x: x - d / 2, y: y - d / 2, width: d, height: d)), with: .color(tint))
+            }
+        }
+    }
+
+    /// 0 → 1 with a small overshoot (easeOutBack), clamped outside 0…1 of `x`.
+    private static func overshoot(_ x: Double) -> CGFloat {
+        guard x > 0 else { return 0 }
+        guard x < 1 else { return 1 }
+        let c1 = 1.70158, c3 = c1 + 1
+        let p = x - 1
+        return CGFloat(1 + c3 * p * p * p + c1 * p * p)
     }
 }
 
@@ -270,7 +343,7 @@ struct ThinkingTimeline: View {
     private func row(_ step: String, last: Bool, chevron: Bool) -> some View {
         HStack(alignment: .top, spacing: 14) {
             Group {
-                if live && last { PulseDot(size: 9) } else { Circle().fill(Ink.seal.opacity(0.36)).frame(width: 8, height: 8) }
+                if live && last { ThinkingMark(live: true, size: 12) } else { Circle().fill(Ink.seal.opacity(0.36)).frame(width: 8, height: 8) }
             }
             .frame(width: 9).padding(.top, 8)
             Text(step).font(TypeScale.serif(15)).lineSpacing(6).foregroundStyle(Ink.ink)

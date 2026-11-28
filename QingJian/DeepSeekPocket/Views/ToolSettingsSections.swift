@@ -67,7 +67,7 @@ struct AutoBackupSection: View {
             }
             if let issue = store.backupIssue { Text(issue).font(TypeScale.serif(13)).foregroundStyle(.secondary) }
         } header: { Text("本机自动备份") } footer: {
-            Text("每天第一次打开 Sermo 时自动生成一份完整备份（.sermobackup，包含聊天、项目、指令库、内置文档规范、学习进度、书架档案与人物卡，不含小说正文），存进「文件」App 的「我的 iPhone › Sermo › 自动备份」。\n• 想手动把备份存进任意目录：点「立即备份并另存到文件夹…」，直接点进目标文件夹后按右上角「存储」。\n• 想设置每日自动同步目录：点「额外存一份到其他文件夹」，在列表中勾选文件夹左侧圆圈（不要点进文件夹内部），再点右上角「打开」。按时间戳保存最近 7 份版本；不含 API Key 和登录凭证。")
+            Text("每天第一次打开 Sermo 时自动生成一份完整备份（.sermobackup，包含聊天、项目、指令库、内置文档规范与学习进度），存进「文件」App 的「我的 iPhone › Sermo › 自动备份」。\n• 想手动把备份存进任意目录：点「立即备份并另存到文件夹…」，直接点进目标文件夹后按右上角「存储」。\n• 想设置每日自动同步目录：点「额外存一份到其他文件夹」，在列表中勾选文件夹左侧圆圈（不要点进文件夹内部），再点右上角「打开」。按时间戳保存最近 7 份版本；不含 API Key 和登录凭证。")
         }
     }
     private func chooseFolder() {
@@ -153,7 +153,7 @@ struct DriveFullBackupSection: View {
         } header: {
             Text("Google 云盘每日自动全量备份")
         } footer: {
-            Text("每天打开或回到 Sermo 时自动检查并上传一份带时间戳的完整备份（覆盖聊天、历史分支、项目、长期记忆、学习数据库、书架档案、个人资料与设置），默认永久保留全部成功历史版本，绝不自动删除旧备份。\n• 隐私与恢复说明：采用免恢复密码直存标准包，重装、重签或换新手机后登录同一 Google 账号即可直接校验并恢复（恢复前自动留存本机快照，失败自动回滚）。API Key 与各类登录令牌绝不写入备份包；因备份文件未另设独立加密密码，请妥善开启 Google 账号两步验证，切勿对外共享 /Sermo Backups/ 文件夹。")
+            Text("每天打开或回到 Sermo 时自动检查并上传一份带时间戳的完整备份（覆盖聊天、历史分支、项目、长期记忆、学习数据库、个人资料与设置），默认永久保留全部成功历史版本，绝不自动删除旧备份。\n• 隐私与恢复说明：采用免恢复密码直存标准包，重装、重签或换新手机后登录同一 Google 账号即可直接校验并恢复（恢复前自动留存本机快照，失败自动回滚）。API Key 与各类登录令牌绝不写入备份包；因备份文件未另设独立加密密码，请妥善开启 Google 账号两步验证，切勿对外共享 /Sermo Backups/ 文件夹。")
         }
     }
 }
@@ -341,7 +341,7 @@ struct FontSettingsRows: View {
             Button("删除导入的字体", role: .destructive) { FontLibrary.removeCustomFonts() }
                 .disabled(FontLibrary.regularName == nil)
         }
-        Text("所选字体只作用于聊天正文，菜单、侧栏和设置界面始终保持清爽的系统字体。「内置宋体」将 Georgia 与思源宋体混排；导入的字体只保存在本机，不进备份。瑞士风格固定用系统黑体。")
+        Text("所选字体只作用于聊天正文，菜单、侧栏和设置界面始终保持清爽的系统字体。「内置宋体」将 Georgia 与思源宋体混排；导入的字体只保存在本机，不进备份。")
             .font(TypeScale.caption).foregroundStyle(.secondary)
     }
     private func importFont(bold: Bool) {

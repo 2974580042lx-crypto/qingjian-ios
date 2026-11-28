@@ -1,13 +1,5 @@
 import SwiftUI
 
-extension Text {
-    /// The Swiss look's emphasis: bold phrases in the accent colour, nothing
-    /// drawn behind them, and no limit on how many.
-    init(markdown value: AttributedString, emphasis color: Color) {
-        self.init(value.applyingEditorialStyle(baseSize: 16, boldColor: color))
-    }
-}
-
 extension AttributedString {
     /// Applies Claude Desktop / Antigravity editorial typography per run:
     /// - Resolves `Georgia` + `NotoSerifSC` cascaded fonts directly onto runs (removing `.stronglyEmphasized`
@@ -16,10 +8,8 @@ extension AttributedString {
     /// - Draws `` `inline code` `` in warm terracotta brick (`#B84A27` / `#E28262`) over an oatmeal chip (`#ECE8DE` / `#2D2B27`).
     func applyingEditorialStyle(baseSize: CGFloat = 17, boldColor: Color? = nil, forceBold: Bool = false) -> AttributedString {
         var copy = self
-        let codeInk: Color = InterfaceStyle.isSwiss || InterfaceStyle.isNight ? Ink.seal : Ink.ink
-        let codeFill: Color = InterfaceStyle.isSwiss || InterfaceStyle.isNight
-            ? Ink.raised
-            : Color.adaptive(light: 0xF1F1F0, dark: 0x2A2A29)
+        let codeInk: Color = Ink.ink
+        let codeFill: Color = Color.adaptive(light: 0xF1F1F0, dark: 0x2A2A29)
         let monoSize = max(13.5, TypeScale.scaled(baseSize - 2, .body))
         let resolvedBoldColor = boldColor ?? (Personal.boldUsesAccent ? Ink.seal : Ink.ink)
 
@@ -50,11 +40,6 @@ extension AttributedString {
             }
         }
         return copy
-    }
-
-    /// Backwards-compatible wrapper delegating to `applyingEditorialStyle`.
-    func applyingTerracottaCodeAndEmphasis(baseSize: CGFloat = 18, boldColor: Color = Ink.seal) -> AttributedString {
-        applyingEditorialStyle(baseSize: baseSize, boldColor: boldColor)
     }
 }
 

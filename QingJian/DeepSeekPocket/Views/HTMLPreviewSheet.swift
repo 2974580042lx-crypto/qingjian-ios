@@ -121,7 +121,6 @@ struct ArtifactCardView: View {
     let subtitle: String
     let iconName: String
     let actionHint: String
-    let swiss: Bool
     let open: () -> Void
 
     var body: some View {
@@ -134,7 +133,7 @@ struct ArtifactCardView: View {
                     .font(.system(size: 16, weight: .regular))
                     .foregroundStyle(Ink.ink2)
                     .frame(width: 38, height: 38)
-                    .background(Ink.raised, in: RoundedRectangle(cornerRadius: swiss ? 0 : 10, style: .continuous))
+                    .background(Ink.raised, in: RoundedRectangle(cornerRadius: 10, style: .continuous))
                 VStack(alignment: .leading, spacing: 2.5) {
                     Text(title)
                         .font(TypeScale.ui(15, weight: .medium))
@@ -157,12 +156,12 @@ struct ArtifactCardView: View {
             }
             .padding(.horizontal, 13)
             .padding(.vertical, 11)
-            .background(Ink.card, in: RoundedRectangle(cornerRadius: swiss ? 0 : 16, style: .continuous))
+            .background(Ink.card, in: RoundedRectangle(cornerRadius: 16, style: .continuous))
             .overlay(
-                RoundedRectangle(cornerRadius: swiss ? 0 : 16, style: .continuous)
-                    .stroke(swiss ? Ink.ink : Ink.line, lineWidth: swiss ? 1 : 0.7)
+                RoundedRectangle(cornerRadius: 16, style: .continuous)
+                    .stroke(Ink.line, lineWidth: 0.7)
             )
-            .contentShape(RoundedRectangle(cornerRadius: swiss ? 0 : 16, style: .continuous))
+            .contentShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
         }
         .buttonStyle(.pressFeedback)
     }
@@ -206,7 +205,7 @@ struct ArtifactPreviewSheet: View {
                 case .document(let markdown, _):
                     if mode == .preview {
                         ScrollView {
-                            MarkdownAnswer(content: markdown, style: InterfaceStyle.current, expandsWidth: true)
+                            MarkdownAnswer(content: markdown, expandsWidth: true)
                                 .padding(.horizontal, 18)
                                 .padding(.vertical, 18)
                         }
@@ -414,7 +413,6 @@ struct WebSourcesSheet: View {
 @MainActor
 struct GeneratedImagesGalleryView: View {
     let urls: [URL]
-    let swiss: Bool
     @State private var fullScreenURL: URL?
     @State private var savedURLs: Set<URL> = []
     @State private var saveError: String?
@@ -429,9 +427,9 @@ struct GeneratedImagesGalleryView: View {
                                 .resizable()
                                 .scaledToFit()
                                 .frame(maxWidth: .infinity, maxHeight: 360)
-                                .clipShape(RoundedRectangle(cornerRadius: swiss ? 0 : 16, style: .continuous))
+                                .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
                                 .overlay(
-                                    RoundedRectangle(cornerRadius: swiss ? 0 : 16, style: .continuous)
+                                    RoundedRectangle(cornerRadius: 16, style: .continuous)
                                         .stroke(Ink.line, lineWidth: 0.6)
                                 )
                         }

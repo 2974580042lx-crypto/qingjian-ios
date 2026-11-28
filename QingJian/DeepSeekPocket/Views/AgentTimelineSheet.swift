@@ -15,9 +15,6 @@ struct AgentWorkingSummaryRow: View {
     let signInDrive: () -> Void
     let openTimeline: () -> Void
 
-    @State private var pulse = false
-    @Environment(\.accessibilityReduceMotion) private var reduceMotion
-
     private var needsDriveSignIn: Bool {
         toolItems.contains { $0.status == .needsSignIn && $0.kind != "github" }
     }
@@ -36,25 +33,20 @@ struct AgentWorkingSummaryRow: View {
                 Haptic.tap()
                 openTimeline()
             } label: {
-                HStack(alignment: .center, spacing: 6) {
+                HStack(alignment: .center, spacing: 7) {
+                    // 1.47: while it works, the flower breathes and light passes over the step
+                    // it is on; each new step crossfades in rather than replacing the last.
                     if record.isActive {
-                        Circle()
-                            .fill(Ink.seal)
-                            .frame(width: 7, height: 7)
-                            .scaleEffect(record.phase == .running && pulse && !reduceMotion ? 0.82 : 1.0)
-                            .opacity(record.phase == .running && pulse && !reduceMotion ? 0.38 : 1.0)
-                            .onAppear {
-                                guard !reduceMotion else { return }
-                                withAnimation(.easeInOut(duration: 1.35).repeatForever(autoreverses: true)) {
-                                    pulse = true
-                                }
-                            }
+                        ThinkingMark(live: record.phase == .running, size: 13)
+                            .transition(.pop)
                     }
                     Text(record.summaryLine)
                         .font(.system(size: 15, weight: .regular))
                         .foregroundStyle(Ink.ink3)
                         .lineLimit(1)
                         .truncationMode(.tail)
+                        .contentTransition(.opacity)
+                        .shimmering(record.phase == .running)
                     Image(systemName: "chevron.right")
                         .font(.system(size: 11.5, weight: .semibold))
                         .foregroundStyle(Ink.ink3.opacity(0.85))
@@ -63,6 +55,8 @@ struct AgentWorkingSummaryRow: View {
                 .contentShape(Rectangle())
             }
             .buttonStyle(.pressFeedback)
+            .animation(Motion.fade.motionSafe, value: record.summaryLine)
+            .animation(Motion.snappy.motionSafe, value: record.isActive)
             .frame(maxWidth: .infinity, alignment: .leading)
             .accessibilityLabel("工作过程：\(record.summaryLine)")
             .accessibilityHint("点按查看完整工作步骤时间线")
@@ -275,7 +269,7 @@ struct AgentWorkingTimelineSheet: View {
             VStack(alignment: .leading, spacing: 6) {
                 if hasTech {
                     Button {
-                        withAnimation(.snappy(duration: 0.18)) {
+                        withMotion(Motion.snappy) {
                             if expandedIDs.contains(step.id) {
                                 expandedIDs.remove(step.id)
                             } else {
@@ -336,18 +330,8 @@ struct AgentWorkingTimelineSheet: View {
                 .frame(width: 6.5, height: 6.5)
                 .padding(.top, 8)
         } else if step.kind == .live || isActivelyRunning {
-            Circle()
-                .fill(Ink.seal)
-                .frame(width: 7.5, height: 7.5)
-                .scaleEffect(!store.isAgentPaused && livePulse && !reduceMotion ? 0.82 : 1.0)
-                .opacity(!store.isAgentPaused && livePulse && !reduceMotion ? 0.35 : 1.0)
-                .padding(.top, 7.5)
-                .onAppear {
-                    guard !reduceMotion else { return }
-                    withAnimation(.easeInOut(duration: 1.35).repeatForever(autoreverses: true)) {
-                        livePulse = true
-                    }
-                }
+            ThinkingMark(live: !store.isAgentPaused, size: 13)
+                .padding(.top, 4)
         } else {
             AgentTimelineEventGlyph(kind: step.icon ?? .task)
                 .foregroundStyle(primaryGlyphColor(for: step))

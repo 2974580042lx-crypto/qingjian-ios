@@ -190,10 +190,10 @@ enum FontLibrary {
 
     /// True when text should use the real system font (SF for Latin and digits,
     /// PingFang for Chinese, with the system's own optical sizing), not a named face.
-    static var usesSystemFace: Bool { InterfaceStyle.isSwiss || choice == .system }
+    static var usesSystemFace: Bool { choice == .system }
 
     /// True when prose and display headings should use the Georgia (Latin/digits) + NotoSerifSC (CJK) cascade.
-    static var usesEditorialSerif: Bool { !InterfaceStyle.isSwiss && choice == .builtIn }
+    static var usesEditorialSerif: Bool { choice == .builtIn }
 
     private struct EditorialFontKey: Hashable {
         let tenthsOfPoint: Int
@@ -241,10 +241,8 @@ enum FontLibrary {
         return resolved
     }
 
-    // Names TypeScale and ReadingStyle draw with. The Swiss look always uses the
-    // system sans (PingFang SC); the chosen font comes back with the paper look.
+    // Names TypeScale and ReadingStyle draw with.
     static var regularFace: String {
-        if InterfaceStyle.isSwiss { return "PingFangSC-Regular" }
         switch choice {
         case .builtIn: return "NotoSerifSC-Regular"
         case .system: return "PingFangSC-Regular"
@@ -252,7 +250,6 @@ enum FontLibrary {
         }
     }
     static var boldFace: String {
-        if InterfaceStyle.isSwiss { return "PingFangSC-Semibold" }
         switch choice {
         case .builtIn: return "NotoSerifSC-Bold"
         case .system: return "PingFangSC-Semibold"

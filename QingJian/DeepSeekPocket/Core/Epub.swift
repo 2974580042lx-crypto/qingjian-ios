@@ -1,9 +1,9 @@
 import Foundation
 import Compression
 
-// EPUB import (1.12.0). An EPUB is a ZIP of XHTML pages; the reading order is the
-// spine of the package file named in META-INF/container.xml. Each page becomes text
-// (headings and paragraphs on their own lines), and the pages become chapters.
+// EPUB text for attachments and project files. An EPUB is a ZIP of XHTML pages; the
+// reading order is the spine of the package file named in META-INF/container.xml.
+// Each page becomes text, headings and paragraphs on their own lines.
 
 enum ZipArchive {
     struct Entry {
@@ -133,32 +133,6 @@ enum EpubBook {
         return (title?.trimmingCharacters(in: .whitespacesAndNewlines), pages)
     }
 
-    /// Chapters for the bookshelf. Pages whose text already has 第X章 headings are
-    /// split by those; otherwise each page is a chapter, tiny pages (cover,
-    /// copyright) folded into the next.
-    static func chapters(from pages: [Page]) -> [BookChapter] {
-        let joined = pages.map { page in
-            if let title = page.title, !page.text.hasPrefix(title) { return title + "\n" + page.text }
-            return page.text
-        }.joined(separator: "\n")
-        let byHeadings = ChapterSplitter.split(joined)
-        if byHeadings.count >= max(2, pages.count / 2), byHeadings.first?.title.hasPrefix("第 ") != true { return byHeadings }
-        var result: [BookChapter] = []
-        var carry = ""
-        for (index, page) in pages.enumerated() {
-            let text = (carry.isEmpty ? "" : carry + "\n") + page.text
-            if text.count < 200 && index < pages.count - 1 { carry = text; continue }
-            carry = ""
-            let title = page.title ?? "第 \(result.count + 1) 节"
-            if text.count > ChapterSplitter.longestChapter {
-                result.append(contentsOf: ChapterSplitter.parts(of: text, titled: { "\(title)（\($0)）" }))
-            } else {
-                result.append(BookChapter(title: String(title.prefix(40)), text: text))
-            }
-        }
-        return result
-    }
-
     // MARK: Text
 
     static func plainText(fromHTML html: String) -> String {
@@ -169,7 +143,7 @@ enum EpubBook {
         text = text.replacingOccurrences(of: #"(?i)<br\s*/?>"#, with: "\n", options: .regularExpression)
         text = text.replacingOccurrences(of: #"(?i)</?(p|div|h[1-6]|li|tr|blockquote|section|article)\b[^>]*>"#, with: "\n", options: .regularExpression)
         text = text.replacingOccurrences(of: #"<[^>]+>"#, with: "", options: .regularExpression)
-        return BookText.normalized(decodeEntities(text))
+        return PlainText.normalized(decodeEntities(text))
     }
 
     private static func heading(in html: String) -> String? {

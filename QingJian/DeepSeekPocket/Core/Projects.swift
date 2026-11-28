@@ -270,12 +270,11 @@ enum DocumentTextImporter {
     static let maximumTextBytes = 15 * 1024 * 1024
     static let maximumLibraryTextBytes = 30 * 1024 * 1024
     static let maximumZipBytes = ZipProjectExtractor.maximumZipBytes
-    static let maximumIPABytes = StreamZipReader.maximumArchiveBytes
     static let maximumPDFPages = 1000
     static let maximumLibraryPDFPages = 3000
     static var allowedContentTypes: [UTType] {
         var types: [UTType] = [.data, .text, .sourceCode, .archive, .pdf, .plainText, .json, .xml, .rtf]
-        let extraExts = ["ipa", "ips", "crash", "docx", "xlsx", "pptx", "epub", "md", "plist", "pbxproj", "xcconfig", "xcstrings", "yaml", "yml", "toml", "log"]
+        let extraExts = ["ips", "crash", "docx", "xlsx", "pptx", "epub", "md", "plist", "pbxproj", "xcconfig", "xcstrings", "yaml", "yml", "toml", "log"]
         for ext in extraExts {
             if let ut = UTType(filenameExtension: ext) { types.append(ut) }
         }
@@ -321,13 +320,12 @@ enum DocumentTextImporter {
         let ext = url.pathExtension.lowercased()
         let fileNameLower = url.lastPathComponent.lowercased()
         let isPDF = ext == "pdf"
-        let isIPA = ext == "ipa"
         let isZIP = ext == "zip"
         let isOfficeOrEbook = ["docx", "xlsx", "pptx", "rtf", "epub"].contains(ext)
         let isSupportedText = ext.isEmpty || developerAndTextExtensions.contains(ext) || extensionlessTextNames.contains(fileNameLower)
 
-        guard isPDF || isIPA || isZIP || isOfficeOrEbook || isSupportedText else {
-            throw ImportFailure("暂不支持 .\(ext) 格式；支持代码/日志/配置、PDF、IPA、ZIP、Word/Excel/PPT、RTF 和 EPUB。")
+        guard isPDF || isZIP || isOfficeOrEbook || isSupportedText else {
+            throw ImportFailure("暂不支持 .\(ext) 格式；支持代码/日志/配置、PDF、ZIP、Word/Excel/PPT、RTF 和 EPUB。")
         }
 
         let originalName = url.deletingPathExtension().lastPathComponent.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -338,9 +336,9 @@ enum DocumentTextImporter {
         let textLimitBytes = isLibraryMode ? maximumLibraryTextBytes : maximumTextBytes
         let pdfLimitBytes = isLibraryMode ? maximumLibraryPDFBytes : maximumPDFBytes
 
-        // Streaming path for .ipa and .zip so large archives never load completely into memory.
-        if isIPA || isZIP {
-            let limit = isIPA ? maximumIPABytes : maximumZipBytes
+        // Streaming path for .zip so large archives never load completely into memory.
+        if isZIP {
+            let limit = maximumZipBytes
             var coordinatedError: NSError?
             var result: Result<ImportedTextDocument, Error>?
             NSFileCoordinator(filePresenter: nil).coordinate(readingItemAt: url, options: .withoutChanges, error: &coordinatedError) { local in
@@ -349,14 +347,10 @@ enum DocumentTextImporter {
                     guard info.isDirectory != true else { throw ImportFailure("请选择文件，不能导入文件夹。") }
                     guard (info.fileSize ?? 0) <= limit else {
                         let mb = limit / (1024 * 1024)
-                        throw ImportFailure(isIPA ? "IPA 超过 \(mb) MB 上限。" : "ZIP 超过 \(mb) MB 上限。")
+                        throw ImportFailure("ZIP 超过 \(mb) MB 上限。")
                     }
-                    if isIPA {
-                        return try IPAAnalyzer.analyze(url: local)
-                    } else {
-                        let zipBudget = isLibraryMode ? min(maxCharacters, 2_000_000) : min(maxCharacters, ZipProjectExtractor.defaultCharacterBudget)
-                        return try ZipProjectExtractor.extract(url: local, maxCharacters: zipBudget)
-                    }
+                    let zipBudget = isLibraryMode ? min(maxCharacters, 2_000_000) : min(maxCharacters, ZipProjectExtractor.defaultCharacterBudget)
+                    return try ZipProjectExtractor.extract(url: local, maxCharacters: zipBudget)
                 }
             }
             if let coordinatedError { throw ImportFailure("文件未能读取，请确认云盘文件已下载：\(coordinatedError.localizedDescription)") }
@@ -451,8 +445,8 @@ enum DocumentTextImporter {
         }
 
         guard !data.starts(with: [0x50, 0x4B, 0x03, 0x04]), !data.starts(with: Array("{\\rtf".utf8)),
-              let decoded = BookText.decode(data) else {
-            throw ImportFailure("无法按文字读取此文件。支持代码、日志、PDF、IPA、ZIP、Office 文档及 UTF-8/UTF-16/GB18030/Big5 文字。")
+              let decoded = PlainText.decode(data) else {
+            throw ImportFailure("无法按文字读取此文件。支持代码、日志、PDF、ZIP、Office 文档及 UTF-8/UTF-16/GB18030/Big5 文字。")
         }
         let normalized = decoded.replacingOccurrences(of: "\r\n", with: "\n").replacingOccurrences(of: "\r", with: "\n")
         guard !normalized.unicodeScalars.contains(where: { CharacterSet.controlCharacters.contains($0) && $0.value != 9 && $0.value != 10 }) else {
@@ -719,11 +713,7 @@ enum ConversationExport {
     static func markdown(_ thread: ChatThread, userName: String) -> String {
         var lines = ["# \(thread.title)", "", thread.createdAt.formatted(date: .long, time: .shortened), ""]
         for message in thread.messages where !message.content.isEmpty {
-            if let character = message.discussionCharacter {
-                lines.append(message.role == .user ? "**\(userName) · 问\(character)**" : "**\(character) · 角色回答（依据原文演绎）**")
-            } else {
-                lines.append(message.role == .user ? "**\(userName)**" : "**Sermo**")
-            }
+            lines.append(message.role == .user ? "**\(userName)**" : "**Sermo**")
             lines.append("")
             if message.role == .user {
                 let docDecoded = PendingDocumentCodec.decode(message.content)

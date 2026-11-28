@@ -13,7 +13,6 @@ struct HistorySidebar: View {
     let openSettings: () -> Void
     let openProjects: () -> Void
     let openAllChats: () -> Void
-    var openBooks: () -> Void = {}
     @State private var searching = false
     @State private var search = ""
     @FocusState private var searchFocused: Bool
@@ -22,6 +21,8 @@ struct HistorySidebar: View {
     @State private var deleteTarget: ChatThread?
     // Pinned projects folded open in the sidebar.
     @State private var expanded: Set<UUID> = []
+    // 1.47: the sidebar is built fresh each time it opens; its rows then slide in one by one.
+    @State private var appeared = false
     private static let recentLimit = 12
 
     private var results: [ChatThread] {
@@ -32,37 +33,26 @@ struct HistorySidebar: View {
     }
 
     var body: some View {
-        let night = InterfaceStyle.isNight
-        let swiss = InterfaceStyle.isSwiss
         VStack(alignment: .leading, spacing: 0) {
-            HStack(alignment: night ? .top : .center) {
-                VStack(alignment: .leading, spacing: 4) {
-                    // Crisp bold serif wordmark matching Claude iOS's compact sidebar title.
-                    Text("Sermo")
-                        .font(TypeScale.editorialDisplay(25, weight: .regular, relativeTo: .title))
-                        .foregroundStyle(Ink.ink)
-                        .accessibilityAddTraits(.isHeader).accessibilityIdentifier("history-title")
-                    if night {
-                        Text("千江有水千江月").font(TypeScale.ui(12.5)).tracking(3).foregroundStyle(Ink.ink3)
-                    }
-                }
+            HStack(alignment: .center) {
+                // Crisp bold serif wordmark matching Claude iOS's compact sidebar title.
+                Text("Sermo")
+                    .font(TypeScale.editorialDisplay(25, weight: .regular, relativeTo: .title))
+                    .foregroundStyle(Ink.ink)
+                    .accessibilityAddTraits(.isHeader).accessibilityIdentifier("history-title")
+                    .opacity(appeared ? 1 : 0)
+                    .offset(x: appeared ? 0 : -8)
                 Spacer()
                 Button {
-                    withAnimation(.easeOut(duration: 0.2)) { searching.toggle() }
+                    withMotion(Motion.snappy) { searching.toggle() }
                     if searching { searchFocused = true } else { search = ""; searchFocused = false }
                 } label: {
                     Image(systemName: searching ? "xmark" : "magnifyingglass")
                         .font(.system(size: 15.5, weight: .regular))
                         .foregroundStyle(Ink.ink2)
+                        .contentTransition(.symbolEffect(.replace))
                         .frame(width: 40, height: 40)
-                        .background {
-                            if swiss {
-                                Rectangle().fill(Ink.raised).overlay(Rectangle().stroke(Ink.ink, lineWidth: 1.5))
-                            } else if night {
-                                Circle().fill(Ink.raised).overlay(Circle().stroke(Ink.line, lineWidth: 0.6))
-                            }
-                        }
-                        .modifier(SidebarGlassCircle(enabled: !swiss && !night))
+                        .modifier(SidebarGlassCircle(enabled: true))
                         .contentShape(Circle())
                 }
                 .buttonStyle(.pressFeedback)
@@ -79,33 +69,33 @@ struct HistorySidebar: View {
                     .overlay(InkRounded(radius: 20).stroke(Ink.line, lineWidth: 0.7))
                     .padding(.horizontal, 10)
                     .padding(.bottom, 10)
+                    .transition(.move(edge: .top).combined(with: .opacity))
             }
             ScrollView {
                 LazyVStack(alignment: .leading, spacing: 2) {
                     if searching && !search.isEmpty {
                         groupLabel(results.isEmpty ? "没有找到相关对话" : "搜索结果")
-                        ForEach(results) { row($0) }
+                        ForEach(results) { row($0).transition(.opacity) }
                     } else {
                         navRow("项目", symbol: "folder", identifier: "sidebar-projects") { openProjects() }
-                        navRow("书架", symbol: "books.vertical", identifier: "sidebar-books") { openBooks() }
-                        ForEach(store.projects.filter { $0.isPinned == true }) { projectGroup($0) }
+                            .modifier(SidebarCascade(index: 0, shown: appeared))
+                        ForEach(Array(store.projects.filter { $0.isPinned == true }.enumerated()), id: \.element.id) { index, project in
+                            projectGroup(project)
+                                .modifier(SidebarCascade(index: 1 + index, shown: appeared))
+                        }
                         groupLabel("最近")
+                            .modifier(SidebarCascade(index: 2, shown: appeared))
                         let recent = store.recentThreads
                         if recent.isEmpty {
                             Text("还没有对话").font(TypeScale.ui(15)).foregroundStyle(Ink.ink3)
                                 .padding(.vertical, 10).padding(.horizontal, 10)
                         }
-                        ForEach(recent.prefix(Self.recentLimit)) { row($0) }
-                        if night && !recent.isEmpty {
-                            HStack(spacing: 8) {
-                                MoonPhaseIcon(phase: 0.15, size: 13)
-                                MoonPhaseIcon(phase: 0.5, size: 13)
-                                MoonPhaseIcon(phase: 1, size: 13)
-                                Text("月越圆，这局戏聊得越深").font(TypeScale.ui(12.5)).foregroundStyle(Ink.ink3)
-                            }
-                            .padding(.top, 10).padding(.horizontal, 10)
-                            .accessibilityElement(children: .ignore)
-                            .accessibilityLabel("对话前的月相表示聊了多久")
+                        ForEach(Array(recent.prefix(Self.recentLimit).enumerated()), id: \.element.id) { index, thread in
+                            row(thread)
+                                .modifier(SidebarCascade(index: 3 + index, shown: appeared))
+                                // Pinned, moved or deleted: the rest of the list slides to its new place.
+                                .transition(.asymmetric(insertion: .opacity.combined(with: .move(edge: .top)),
+                                                        removal: .opacity.combined(with: .scale(scale: 0.96))))
                         }
                         Button { openAllChats() } label: {
                             HStack(spacing: 5) {
@@ -126,6 +116,7 @@ struct HistorySidebar: View {
         }
         .padding(.horizontal, 12).padding(.top, 16)
         .foregroundStyle(Ink.ink)
+        .onAppear { withMotion(Motion.snappy) { appeared = true } }
         .alert("重命名对话", isPresented: Binding(get: { renameID != nil }, set: { if !$0 { renameID = nil } })) {
             TextField("对话名称", text: $renameText)
             Button("取消", role: .cancel) { renameID = nil }
@@ -133,7 +124,10 @@ struct HistorySidebar: View {
         }
         .alert("删除这个对话？", isPresented: Binding(get: { deleteTarget != nil }, set: { if !$0 { deleteTarget = nil } })) {
             Button("取消", role: .cancel) { deleteTarget = nil }
-            Button("删除", role: .destructive) { if let thread = deleteTarget { store.deleteThread(thread.id) }; deleteTarget = nil }
+            Button("删除", role: .destructive) {
+                if let thread = deleteTarget { withMotion(Motion.list) { store.deleteThread(thread.id) } }
+                deleteTarget = nil
+            }
         } message: { Text("同时移除这个对话关联的旧版重试记录和附带的图片。已导出的备份和用量记录不受影响。") }
     }
 
@@ -150,6 +144,8 @@ struct HistorySidebar: View {
                             Text("余额 \(balance)")
                                 .font(.system(size: 11.5, weight: .medium))
                                 .monospacedDigit()
+                                .contentTransition(.numericText())
+                                .animation(Motion.snappy.motionSafe, value: balance)
                                 .foregroundStyle(Ink.ink2)
                                 .lineLimit(1)
                                 .minimumScaleFactor(0.85)
@@ -219,16 +215,19 @@ struct HistorySidebar: View {
     @ViewBuilder private func projectGroup(_ project: ChatProject) -> some View {
         let open = expanded.contains(project.id) && !store.isLocked(project.id)
         Button {
-            if open { withAnimation(.easeOut(duration: 0.2)) { _ = expanded.remove(project.id) }; return }
+            Haptic.select()
+            if open { withMotion(Motion.snappy) { _ = expanded.remove(project.id) }; return }
             Task {
                 if await ProjectLock.open(project.id, store: store) {
-                    withAnimation(.easeOut(duration: 0.2)) { _ = expanded.insert(project.id) }
+                    withMotion(Motion.snappy) { _ = expanded.insert(project.id) }
                 }
             }
         } label: {
             HStack(spacing: 13) {
-                Image(systemName: open ? "chevron.down" : "chevron.right")
-                    .font(.system(size: 12, weight: .medium)).foregroundStyle(Ink.ink3).frame(width: 24)
+                Image(systemName: "chevron.right")
+                    .font(.system(size: 12, weight: .medium)).foregroundStyle(Ink.ink3)
+                    .rotationEffect(.degrees(open ? 90 : 0))
+                    .frame(width: 24)
                 Text(project.name).font(TypeScale.ui(16.5, weight: .regular)).lineLimit(1)
                 Spacer(minLength: 8)
                 if project.isLocked { Image(systemName: "lock").font(.system(size: 12, weight: .regular)).foregroundStyle(Ink.ink3) }
@@ -245,7 +244,7 @@ struct HistorySidebar: View {
                 Text("还没有对话").font(TypeScale.ui(14.5)).foregroundStyle(Ink.ink3)
                     .padding(.leading, 47).padding(.vertical, 8)
             }
-            ForEach(members) { row($0, showProject: false).padding(.leading, 18) }
+            ForEach(members) { row($0, showProject: false).padding(.leading, 18).transition(.opacity.combined(with: .move(edge: .top))) }
             Button { store.createThread(in: project.id); finish() } label: {
                 Label("在此项目新建会话", systemImage: "plus").font(TypeScale.ui(14.5)).foregroundStyle(Ink.ink3)
                     .padding(.leading, 47).padding(.vertical, 10)
@@ -257,50 +256,46 @@ struct HistorySidebar: View {
 
     private func row(_ thread: ChatThread, showProject: Bool = true) -> some View {
         let active = thread.id == store.activeThreadID
-        let night = InterfaceStyle.isNight
-        let swiss = InterfaceStyle.isSwiss
         return Button { store.select(thread.id); finish() } label: {
             HStack(spacing: 13) {
-                Group {
-                    // 夜江: each talk is a river with its own moon; the longer the talk, the fuller.
-                    if night && thread.isPinned != true {
-                        MoonPhaseIcon(phase: MoonPhaseIcon.phase(for: thread))
-                    } else {
-                        Image(systemName: thread.isPinned == true ? "pin" : "message")
-                            .font(.system(size: 17, weight: .light))
-                            .foregroundStyle(Ink.ink)
-                    }
-                }
-                .frame(width: 24)
-                .accessibilityHidden(true)
+                Image(systemName: thread.isPinned == true ? "pin" : "message")
+                    .font(.system(size: 17, weight: .light))
+                    .foregroundStyle(Ink.ink)
+                    .contentTransition(.symbolEffect(.replace))
+                    .frame(width: 24)
+                    .accessibilityHidden(true)
                 Text(thread.title)
                     .font(TypeScale.ui(16.5, weight: .regular))
                     .lineLimit(1)
-                    .foregroundStyle(night && active ? Ink.seal : Ink.ink)
+                    .foregroundStyle(Ink.ink)
                 Spacer(minLength: 8)
-                if thread.id == store.generatingThreadID { PulseDot(size: 7) }
-                else if showProject, let project = store.project(thread.projectID) {
+                // A chat that is being written breathes Sermo's flower.
+                if thread.id == store.generatingThreadID {
+                    ThinkingMark(live: true, size: 13).transition(.pop)
+                } else if showProject, let project = store.project(thread.projectID) {
                     Text(project.name).font(TypeScale.tiny).foregroundStyle(Ink.ink3).lineLimit(1)
                 }
             }
             .padding(.vertical, 11.5)
             .padding(.horizontal, 10)
             .frame(maxWidth: .infinity, alignment: .leading)
-            .background(active && !night ? Ink.raised : Color.clear, in: RoundedRectangle(cornerRadius: swiss ? 0 : 16, style: .continuous))
-            .contentShape(RoundedRectangle(cornerRadius: swiss ? 0 : 16, style: .continuous))
+            .background(active ? Ink.raised : Color.clear, in: RoundedRectangle(cornerRadius: 16, style: .continuous))
+            .contentShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
         }
-        .buttonStyle(.plain)
+        .buttonStyle(SidebarRowStyle())
         .accessibilityIdentifier("history-thread-row")
         .accessibilityAddTraits(active ? .isSelected : [])
         .contextMenu {
-            Button(thread.isPinned == true ? "取消置顶" : "置顶", systemImage: "pin") { store.togglePinned(thread.id) }
+            Button(thread.isPinned == true ? "取消置顶" : "置顶", systemImage: "pin") {
+                withMotion(Motion.list) { store.togglePinned(thread.id) }
+            }
             Button("重命名", systemImage: "pencil") { renameText = thread.title; renameID = thread.id }
             Menu("移到项目", systemImage: "folder") {
                 ForEach(store.projects.filter { !store.isLocked($0.id) }) { project in
-                    Button(project.name) { store.moveThreads([thread.id], to: project.id) }
+                    Button(project.name) { withMotion(Motion.list) { store.moveThreads([thread.id], to: project.id) } }
                 }
                 if thread.projectID != nil {
-                    Button("移出项目", systemImage: "tray.and.arrow.up") { store.moveThreads([thread.id], to: nil) }
+                    Button("移出项目", systemImage: "tray.and.arrow.up") { withMotion(Motion.list) { store.moveThreads([thread.id], to: nil) } }
                 }
             }
             Button("删除对话", systemImage: "trash", role: .destructive) { deleteTarget = thread }
@@ -312,6 +307,30 @@ struct HistorySidebar: View {
         UIApplication.shared.sendAction(#selector(UIResponder.resignFirstResponder), to: nil, from: nil, for: nil)
         searching = false; search = ""
         close()
+    }
+}
+
+/// A sidebar row sliding in from the left, a beat after the one above it.
+private struct SidebarCascade: ViewModifier {
+    let index: Int
+    let shown: Bool
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    func body(content: Content) -> some View {
+        content
+            .opacity(shown ? 1 : 0)
+            .offset(x: shown || reduceMotion ? 0 : -14)
+            .animation(reduceMotion ? Motion.fade : Motion.staggered(index, base: Motion.snappy, cap: 14), value: shown)
+    }
+}
+
+/// Rows in the sidebar: a soft grey wash under the finger, the row easing down a touch.
+private struct SidebarRowStyle: ButtonStyle {
+    func makeBody(configuration: Configuration) -> some View {
+        configuration.label
+            .background(configuration.isPressed ? Ink.raised.opacity(0.7) : Color.clear,
+                        in: RoundedRectangle(cornerRadius: 16, style: .continuous))
+            .scaleEffect(configuration.isPressed ? 0.985 : 1)
+            .animation(configuration.isPressed ? Motion.pressDown : Motion.pressUp, value: configuration.isPressed)
     }
 }
 
@@ -337,7 +356,6 @@ struct ConversationVersionsSheet: View {
                 }
         }
         .tint(Ink.ink)
-        .preferredColorScheme(InterfaceStyle.isNight ? .dark : nil)
         .presentationBackground(Ink.groupedBg)
     }
 

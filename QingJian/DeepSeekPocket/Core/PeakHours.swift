@@ -1,7 +1,7 @@
 import Foundation
 
 // DeepSeek's prices change with the hour (see Pricing.isPeak). These say which band
-// it is now and when it ends, for the bookshelf, the sidebar and the model menu (1.10.0).
+// it is now and when it ends, for the sidebar and the model menu (1.10.0).
 extension Pricing {
     private static var beijing: Calendar {
         var calendar = Calendar(identifier: .gregorian)

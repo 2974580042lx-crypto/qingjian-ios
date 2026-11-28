@@ -140,7 +140,7 @@ struct AddToChatSheet: View {
         HStack {
             Button {
                 Haptic.tap()
-                withAnimation(.snappy(duration: 0.2)) {
+                withMotion(Motion.snappy) {
                     subPage = nil
                     subPageNotice = nil
                 }
@@ -548,7 +548,7 @@ struct AddToChatSheet: View {
     // MARK: - Sub-Pages Inside Sheet
 
     private func openSubPage(_ target: SubPage) {
-        withAnimation(.snappy(duration: 0.2)) {
+        withMotion(Motion.snappy) {
             subPage = target
         }
     }
@@ -645,7 +645,7 @@ struct AddToChatSheet: View {
                 Button {
                     Haptic.tap()
                     store.setPermissionPolicy(option, for: threadID)
-                    withAnimation(.snappy(duration: 0.2)) { subPage = nil }
+                    withMotion(Motion.snappy) { subPage = nil }
                 } label: {
                     HStack(alignment: .center, spacing: 12) {
                         VStack(alignment: .leading, spacing: 4) {
@@ -849,7 +849,7 @@ struct AddToChatSheet: View {
             } else {
                 store.moveThreads([threadID], to: projectID)
             }
-            withAnimation(.snappy(duration: 0.2)) {
+            withMotion(Motion.snappy) {
                 subPage = nil
                 subPageNotice = nil
             }
@@ -868,7 +868,7 @@ struct AddToChatSheet: View {
 
     private func handleRecentPhotosTap() {
         if showRecentPhotos {
-            withAnimation(.snappy(duration: 0.2)) { showRecentPhotos = false }
+            withMotion(Motion.snappy) { showRecentPhotos = false }
             return
         }
         let status = PHPhotoLibrary.authorizationStatus(for: .readWrite)
@@ -916,7 +916,7 @@ struct AddToChatSheet: View {
         if items.isEmpty {
             dismissThen(onPickPhotos)
         } else {
-            withAnimation(.snappy(duration: 0.2)) {
+            withMotion(Motion.snappy) {
                 recentPhotos = items
                 showRecentPhotos = true
             }

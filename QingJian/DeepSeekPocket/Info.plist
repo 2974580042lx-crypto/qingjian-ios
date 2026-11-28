@@ -36,9 +36,9 @@
 	<key>UISupportedInterfaceOrientations</key>
 	<array>
 		<string>UIInterfaceOrientationPortrait</string>
-		<string>UIInterfaceOrientationLandscapeLeft</string>
-		<string>UIInterfaceOrientationLandscapeRight</string>
 	</array>
+	<key>CADisableMinimumFrameDurationOnPhone</key>
+	<true/>
 	<key>UISupportedInterfaceOrientations~ipad</key>
 	<array>
 		<string>UIInterfaceOrientationPortrait</string>
@@ -50,7 +50,7 @@
 	<array>
 		<dict>
 			<key>CFBundleTypeName</key>
-			<string>小说 TXT</string>
+			<string>文字与电子书</string>
 			<key>CFBundleTypeRole</key>
 			<string>Viewer</string>
 			<key>LSHandlerRank</key>
@@ -75,14 +75,13 @@
 		</dict>
 		<dict>
 			<key>CFBundleTypeName</key>
-			<string>通用文件与安装包</string>
+			<string>通用文件</string>
 			<key>CFBundleTypeRole</key>
 			<string>Viewer</string>
 			<key>LSHandlerRank</key>
 			<string>Alternate</string>
 			<key>LSItemContentTypes</key>
 			<array>
-				<string>com.apple.itunes.ipa</string>
 				<string>public.zip-archive</string>
 				<string>com.adobe.pdf</string>
 				<string>public.json</string>

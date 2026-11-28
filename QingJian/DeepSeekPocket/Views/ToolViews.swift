@@ -61,7 +61,7 @@ struct ToolActivityList: View {
                         .contentShape(Rectangle())
                         .onTapGesture {
                             guard hasDetail else { return }
-                            withAnimation(.snappy(duration: 0.2)) {
+                            withMotion(Motion.snappy) {
                                 if expandedIDs.contains(item.id) {
                                     expandedIDs.remove(item.id)
                                 } else {
@@ -177,7 +177,7 @@ struct InlineToolApprovalCard: View {
                 Spacer(minLength: 4)
                 if !approval.detail.isEmpty {
                     Button {
-                        withAnimation(.snappy(duration: 0.2)) { expanded.toggle() }
+                        withMotion(Motion.snappy) { expanded.toggle() }
                     } label: {
                         Text(expanded ? "收起详情" : "查看变更")
                             .font(TypeScale.tiny)

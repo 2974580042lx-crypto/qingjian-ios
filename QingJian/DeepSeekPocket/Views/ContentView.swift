@@ -20,16 +20,13 @@ struct ContentView: View {
     @State private var showAllChats = previewFlag("all-chats")
     @State private var intakeToReview: ShareIntakeItem?
     @State private var reviewingBackup = false
-    @State private var showBooks = previewFlag("books")
     @State private var showSidebar = previewFlag("sidebar")
     @State private var keyboardVisible = false
     @State private var composerPanelHeight: CGFloat = 130
-    @AppStorage("qingjian.haptics") private var hapticsEnabled = true
     @AppStorage(AppearanceMode.key) private var appearance = AppearanceMode.system.rawValue
 
     var body: some View {
         let _ = StyleAppearance.shared.revision
-        let isSwiss = InterfaceStyle.isSwiss
         GeometryReader { geometry in
             let bottomInset = geometry.safeAreaInsets.bottom
             let topInset = geometry.safeAreaInsets.top
@@ -37,7 +34,6 @@ struct ContentView: View {
             SidebarDrawerContainer(
                 isOpen: $showSidebar,
                 reduceMotion: reduceMotion,
-                isSwiss: isSwiss,
                 appearanceRaw: appearance,
                 styleRevision: StyleAppearance.shared.revision,
                 composerExcludedHeight: excludedHeight,
@@ -45,8 +41,7 @@ struct ContentView: View {
                     HistorySidebar(close: { showSidebar = false },
                                    openSettings: { showSettings = true },
                                    openProjects: { initialProjectID = nil; showProjects = true },
-                                   openAllChats: { showAllChats = true },
-                                   openBooks: { showBooks = true })
+                                   openAllChats: { showAllChats = true })
                         .environmentObject(store)
                         .environmentObject(profile)
                         .preferredColorScheme(AppearanceMode.scheme(appearance))
@@ -75,7 +70,7 @@ struct ContentView: View {
         .ignoresSafeArea(.keyboard, edges: .bottom)
         .preferredColorScheme(AppearanceMode.scheme(appearance))
         .onChange(of: showSidebar) { _, open in
-            if hapticsEnabled { UIImpactFeedbackGenerator(style: .soft).impactOccurred(intensity: 0.65) }
+            Haptic.settle()
             if open { store.refreshBalance() }
         }
         .sheet(isPresented: $showSettings) { SettingsView().environmentObject(store).environmentObject(profile) }
@@ -148,9 +143,6 @@ struct ContentView: View {
             )
             .environmentObject(store)
         }
-        .sheet(isPresented: $showBooks) {
-            BookshelfView(opened: { showBooks = false; showSidebar = false }).environmentObject(store).environmentObject(store.books)
-        }
         .sheet(isPresented: $showAllChats) {
             AllChatsView(opened: { showAllChats = false; showSidebar = false }).environmentObject(store).environmentObject(profile)
         }
@@ -176,12 +168,6 @@ private struct PendingSuggestedReply {
     let threadID: UUID
     let messageID: UUID
     let text: String
-}
-
-private struct InnerThoughtsTarget: Identifiable {
-    let threadID: UUID
-    let messageID: UUID
-    var id: String { "\(threadID.uuidString):\(messageID.uuidString)" }
 }
 
 // These panels stay attached to the conversation that opened them.
@@ -268,10 +254,10 @@ private struct ComposerObserverScope<Content: View>: View {
 @MainActor
 private final class TranscriptScrollBox {
     var proxy: ScrollViewProxy?
-    func scrollToBottom(animated: Bool = false) {
+    func scrollToBottom(animated: Bool = false, with animation: Animation = Motion.snappy) {
         guard let proxy else { return }
-        if animated {
-            withAnimation(.easeOut(duration: 0.2)) {
+        if animated && !Motion.reduced {
+            withAnimation(animation) {
                 proxy.scrollTo("chat-bottom-anchor", anchor: .bottom)
             }
         } else {
@@ -378,32 +364,17 @@ struct ChatScreen: View {
     @State private var skillDraftTarget: ProjectSkillTarget?
     @State private var memorySheetTarget: ProjectMemoryTarget?
     @State private var versionsTarget: ConversationPanelTarget?
-    @State private var storySettingsFor: UUID?
-    @State private var storyPlayFor: UUID?
-    @State private var checkpointMessage: UUID?
-    @State private var checkpointName = ""
-    @State private var bookEvidence: ChatMessage?
-    @State private var correctionTarget: ChatMessage?
-    @State private var thoughtsTarget: InnerThoughtsTarget?
     @State private var messageBrowser: ChatMessageBrowserRequest?
     @State private var messageBrowserVisible = false
     @State private var pendingMessageJump: ChatMessageJump?
     @State private var focusedMessageID: UUID?
     @State private var quotingMessage: QuotedMessage?
-    private var currentLayoutMode: ChatLayoutMode {
-        ChatLayoutPreferences.shared.mode(for: store.activeThreadID)
-    }
     private var isEmptyPage: Bool { store.activeThread?.messages.isEmpty != false }
     private var composerPlaceholder: String {
         if store.isGenerating(in: store.activeThreadID) {
             return "中途补充要求，当前步骤完成后衔接…"
         }
-        if store.activeThread?.bookDiscussion != nil, let character = store.activeThread?.discussionDraftCharacter {
-            return "问\(character)，听听他的想法…"
-        }
-        if let discussion = store.activeThread?.bookDiscussion { return "聊聊《\(discussion.bookTitle)》…" }
-        guard let story = store.activeThread?.story else { return "与 Sermo 对话" }
-        return "对\(story.character)说…"
+        return "与 Sermo 对话"
     }
     private var hasInput: Bool {
         !localDraft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || !pendingImages.isEmpty || !pendingDocuments.isEmpty
@@ -412,7 +383,7 @@ struct ChatScreen: View {
     // composer; send takes it as is, a tap on it puts it in to edit, 「换一条」 cycles.
     @State private var suggestionIndex = 0
     private var ghostSource: ChatMessage? {
-        guard !swiss, store.settings.shouldSuggestReplies, store.activeProject?.studySubject == nil,
+        guard store.settings.shouldSuggestReplies, store.activeProject?.studySubject == nil,
               !store.isGenerating, let thread = store.activeThread,
               !store.isHidden(thread), let last = thread.messages.last, last.role == .assistant,
               last.state == .complete, let batch = last.replySuggestions, !batch.replies.isEmpty else { return nil }
@@ -423,14 +394,21 @@ struct ChatScreen: View {
         guard quotingMessage == nil, !hasInput, !ghostReplies.isEmpty else { return nil }
         return ghostReplies[suggestionIndex % ghostReplies.count]
     }
+    /// Sends with the 1.47 motion: a firm tap, your message rises out of the composer and
+    /// the page glides up after it.
+    private func sendAnimated(_ text: String, images: [Data]) -> Bool {
+        Haptic.send()
+        lastSendAt = Date()
+        return withMotion(Motion.lively) { store.send(text, images: images) }
+    }
+
     private func takeGhost(send: Bool) {
         guard let text = ghostText, let source = ghostSource, let threadID = store.activeThreadID,
               store.useReplySuggestion(text, threadID: threadID, messageID: source.id) else { return }
         clearMessageNavigation()
         followsOutput = true
         if send {
-            Haptic.tap()
-            if store.send(store.activeDraft, images: []) {
+            if sendAnimated(store.activeDraft, images: []) {
                 draftPushTask?.cancel()
                 draftPushTask = nil
                 localDraft = ""
@@ -449,11 +427,14 @@ struct ChatScreen: View {
             HStack(spacing: 0) {
                 Spacer(minLength: 0)
                 Button {
-                    Haptic.tap()
-                    withAnimation(.snappy(duration: 0.2)) { suggestionIndex += 1 }
+                    Haptic.select()
+                    withMotion(Motion.snappy) { suggestionIndex += 1 }
                 } label: {
+                    // Turns a full circle each time, so you feel it fetch the next one.
                     Image(systemName: "arrow.triangle.2.circlepath")
                         .font(.system(size: 13, weight: .regular))
+                        .rotationEffect(.degrees(Double(suggestionIndex) * 180))
+                        .animation(Motion.lively.motionSafe, value: suggestionIndex)
                         .foregroundStyle(Ink.ink2)
                         .frame(width: 32, height: 32)
                         .background(Ink.card, in: Circle())
@@ -464,10 +445,15 @@ struct ChatScreen: View {
                 .accessibilityLabel("换一条猜你想说")
             }
             .padding(.horizontal, 6)
-            .transition(.opacity)
+            .transition(.pop)
         }
     }
     @State private var scrollBox = TranscriptScrollBox()
+    // 1.47 motion: how far the transcript has settled in after a chat switch (0 to 1), when you
+    // last sent (so the scroll that follows glides), and the answer that has just finished here.
+    @State private var threadEntrance: Double = 1
+    @State private var lastSendAt = Date.distantPast
+    @State private var justFinishedID: UUID?
     @State private var bottomObstruction: CGFloat = 0
     @State private var visibleMessageCount = 40
     @State private var hasPositionedInitially = false
@@ -476,10 +462,6 @@ struct ChatScreen: View {
         guard let thread = store.activeThread, !store.isHidden(thread) else { return [] }
         return Array(thread.messages.suffix(visibleMessageCount))
     }
-    // Read in body, so switching the look in Settings redraws this page.
-    private var style: InterfaceStyle { InterfaceStyle.current }
-    private var swiss: Bool { style == .swiss }
-    private var night: Bool { style == .night }
     private var shouldFollowOutput: Bool { followsOutput && pendingMessageJump == nil && focusedMessageID == nil }
 
     // Typing stays inside `draftModel` (observed only by `ComposerObserverScope`) and reaches
@@ -632,13 +614,9 @@ struct ChatScreen: View {
             if isEmptyPage {
                 VStack(spacing: 0) {
                     Spacer(minLength: 12)
-                    if let discussion = store.activeThread?.bookDiscussion {
-                        BookDiscussionWelcome(session: discussion).environmentObject(store).id(store.activeThreadID)
-                    } else {
-                        WelcomeView(name: profile.name, page: store.activeThreadID ?? UUID(), projectName: store.activeProject?.name,
-                                    incognito: store.activeThread?.keepsOutOfMemory == true)
-                            .id(store.activeThreadID)
-                    }
+                    WelcomeView(name: profile.name, page: store.activeThreadID ?? UUID(), projectName: store.activeProject?.name,
+                                incognito: store.activeThread?.keepsOutOfMemory == true)
+                        .id(store.activeThreadID)
                     Spacer(minLength: 12)
                 }
                 .padding(.top, topChrome)
@@ -648,18 +626,12 @@ struct ChatScreen: View {
                     if isComposerFocused { focusComposer(false) }
                 }
             } else {
-                let rowSpacing: CGFloat = swiss ? 0 : (currentLayoutMode == .imessage ? 16 : (currentLayoutMode == .smart ? 24 : 30))
+                let rowSpacing: CGFloat = 30
                 let totalMessagesCount = store.activeThread?.messages.count ?? 0
                 ScrollViewReader { scrollProxy in
                     let _ = (scrollBox.proxy = scrollProxy)
                     ScrollView {
                         VStack(alignment: .leading, spacing: rowSpacing) {
-                            if swiss, let thread = store.activeThread {
-                                SwissThreadHeader(title: thread.title, date: thread.createdAt,
-                                                  model: store.pillModelTitle + " / " + store.pillEffortTitle,
-                                                  rounds: thread.messages.filter { $0.role == .user }.count)
-                                    .padding(.top, 6)
-                            }
                             if totalMessagesCount > visibleMessageCount {
                                 Button("查看更早消息（还有 \(totalMessagesCount - visibleMessageCount) 条）") {
                                     let anchorID = visibleMessages.first?.id
@@ -676,7 +648,10 @@ struct ChatScreen: View {
                             Color.clear.frame(height: 1).id("chat-bottom-anchor")
                         }
                         .frame(maxWidth: .infinity, alignment: .leading)
-                        .padding(.horizontal, swiss ? 20 : Personal.margin).padding(.top, 10).padding(.bottom, 18)
+                        .padding(.horizontal, Personal.margin).padding(.top, 10).padding(.bottom, 18)
+                        // 1.47: a chat you switch to settles in instead of snapping into place.
+                        .opacity(threadEntrance)
+                        .offset(y: (1 - threadEntrance) * 14)
                     }
                     .accessibilityIdentifier("chat-scroll")
                     // Native iOS 26 soft edge blur at both top and bottom so text gently dissolves
@@ -744,7 +719,9 @@ struct ChatScreen: View {
                     .onChange(of: store.activeThread?.messages.count) { _, _ in
                         guard shouldFollowOutput else { return }
                         lastAutoScrollAt = Date()
-                        scrollBox.scrollToBottom()
+                        // Right after you send, the page glides up with your message.
+                        let justSent = Date().timeIntervalSince(lastSendAt) < 1
+                        scrollBox.scrollToBottom(animated: justSent, with: Motion.lively)
                     }
                     .onChange(of: store.activeThread?.messages.last?.replySuggestions) { _, _ in
                         if shouldFollowOutput { scrollBox.scrollToBottom() }
@@ -830,10 +807,6 @@ struct ChatScreen: View {
                         .accessibilityLabel("打开历史对话")
                 }
             }
-            ToolbarItem(placement: .principal) {
-                if let thread = store.activeThread, thread.story != nil { StoryDirectionMenu(threadID: thread.id) }
-                else if night { MoonDisc(size: 22, glow: store.isGenerating).accessibilityLabel("Sermo") }
-            }
             // Like the Claude app: no title in the bar, only the floating glass controls.
             // In a conversation the right one holds optional deliverables shortcut, new-page and a "⋯" menu.
             ToolbarItemGroup(placement: .topBarTrailing) {
@@ -852,7 +825,7 @@ struct ChatScreen: View {
                     Image(systemName: "square.and.pencil").font(.system(size: 16, weight: .regular))
                 }
                     .accessibilityLabel("新建对话")
-                if !isEmptyPage || store.activeThread?.bookDiscussion != nil || store.activeProject != nil { titleMenu }
+                if !isEmptyPage || store.activeProject != nil { titleMenu }
             }
         }
         .toolbarBackgroundVisibility(.hidden, for: .navigationBar)
@@ -912,6 +885,14 @@ struct ChatScreen: View {
         }
         .onChange(of: store.activeThread?.messages.count) { _, _ in refreshContextStats() }
         .onChange(of: store.isGenerating) { _, generating in if !generating { refreshContextStats() } }
+        // An answer here has just finished: one soft pulse, and its controls rise in.
+        .onChange(of: store.generatingThreadID) { old, new in
+            guard new == nil, let old, old == store.activeThreadID,
+                  let last = store.activeThread?.messages.last, last.role == .assistant,
+                  last.state == .complete else { return }
+            justFinishedID = last.id
+            Haptic.arrive()
+        }
         .onChange(of: store.compactingThreadID) { _, _ in refreshContextStats() }
         .onChange(of: store.activeChatSettings) { _, _ in refreshContextStats() }
         .onChange(of: store.incomingChatFileURL) { _, _ in consumeIncomingChatTransfers() }
@@ -924,7 +905,7 @@ struct ChatScreen: View {
             guard draftThreadID == store.activeThreadID else { return }
             if new != localDraft && new != lastPushedDraft { localDraft = new; lastPushedDraft = new }
         }
-        .onChange(of: store.activeThreadID) { _, newID in
+        .onChange(of: store.activeThreadID) { oldID, newID in
             // Typing still waiting belongs to the chat you were in.
             draftPushTask?.cancel(); draftPushTask = nil
             if let old = draftThreadID, old != newID, store.draft(of: old) != localDraft { store.setDraft(localDraft, threadID: old) }
@@ -934,14 +915,26 @@ struct ChatScreen: View {
             systemPromptTarget = nil; versionsTarget = nil
             messageBrowser = nil; clearMessageNavigation()
             store.webSearchEnabled = false
-            storyPlayFor = nil; pendingSuggestedReply = nil
+            pendingSuggestedReply = nil
             quotingMessage = nil
             if timeReveal.offset != 0 { timeReveal.offset = 0 }
             visibleMessageCount = 40; followsOutput = true
             scrollUIState.nearBottom = true
             scrollUIState.showJumpToLatest = false
+            justFinishedID = nil
+            // The new chat settles in: drawn a little low and clear, then eased up into place.
+            // Not for a retry or an edit, which open a new version of the same conversation.
+            let sameConversation = oldID.flatMap { old in
+                newID.map { ConversationHistory.memberIDs(for: $0, in: store.threads).contains(old) }
+            } ?? false
+            if !reduceMotion && !sameConversation {
+                var still = Transaction()
+                still.disablesAnimations = true
+                withTransaction(still) { threadEntrance = 0 }
+            }
             DispatchQueue.main.async {
                 if store.activeThreadID == newID && shouldFollowOutput { scrollBox.scrollToBottom() }
+                withMotion(Motion.gentle) { threadEntrance = 1 }
             }
         }
         .onDisappear { keyboardVisible = false }
@@ -956,35 +949,8 @@ struct ChatScreen: View {
         .sheet(item: $editedMessage, onDismiss: finishMessageEditing) { message in EditMessageView(message: message) }
     }
 
-    private var chatWithStorySheets: some View {
-        chatWithMessageSheets
-        .sheet(item: $thoughtsTarget) { target in
-            InnerThoughtsSheet(threadID: target.threadID, messageID: target.messageID).environmentObject(store)
-        }
-        .sheet(item: $correctionTarget) { message in
-            if let id = store.activeThreadID { StoryCorrectionSheet(threadID: id, answer: message.content).environmentObject(store) }
-        }
-        .sheet(isPresented: Binding(get: { storySettingsFor != nil }, set: { if !$0 { storySettingsFor = nil } })) {
-            if let id = storySettingsFor { StorySettingsSheet(threadID: id).environmentObject(store) }
-        }
-        .sheet(isPresented: Binding(get: { storyPlayFor != nil }, set: { if !$0 { storyPlayFor = nil } })) {
-            if let id = storyPlayFor { StoryPlaySheet(threadID: id).environmentObject(store) }
-        }
-        .alert("保存剧情存档", isPresented: Binding(get: { checkpointMessage != nil }, set: { if !$0 { checkpointMessage = nil } })) {
-            TextField("名称，例如：赴宴之前", text: $checkpointName)
-            Button("取消", role: .cancel) { checkpointMessage = nil }
-            Button("保存") {
-                if let id = store.activeThreadID { _ = store.saveStoryCheckpoint(threadID: id, through: checkpointMessage, name: checkpointName) }
-                checkpointMessage = nil; checkpointName = ""
-            }
-        }
-        .sheet(item: $bookEvidence) { message in
-            BookReferencesView(references: message.bookReferences ?? []).environmentObject(store).environmentObject(store.books)
-        }
-    }
-
     private var chatWithToolSheets: some View {
-        chatWithStorySheets
+        chatWithMessageSheets
         .sheet(item: $thinkingTarget) { target in ThinkingSheet(target: target).environmentObject(store) }
         .sheet(item: $agentTimelineTarget) { target in
             AgentWorkingTimelineSheet(target: target).environmentObject(store)
@@ -1021,10 +987,9 @@ struct ChatScreen: View {
                 onSendDirectly: { payload in
                     clearMessageNavigation()
                     followsOutput = true
-                    Haptic.tap()
                     let textWithQuote = MessageQuoteCodec.encode(quote: quotingMessage, userText: payload)
                     let fullPayload = PendingDocumentCodec.encode(userText: textWithQuote, documents: pendingDocuments)
-                    if store.send(fullPayload, images: pendingImages.map(\.data)) {
+                    if sendAnimated(fullPayload, images: pendingImages.map(\.data)) {
                         draftPushTask?.cancel()
                         draftPushTask = nil
                         localDraft = ""
@@ -1121,17 +1086,11 @@ struct ChatScreen: View {
     // Kept out of body so the compiler can type-check the page in reasonable time.
     private var messageRows: some View {
         let lastID = store.activeThread?.messages.last?.id, threadID = store.activeThreadID
-        let messages = store.activeThread?.messages ?? []
         let visible = visibleMessages
-        let start = messages.count - visible.count
-        let priorRounds = messages.prefix(start).reduce(0) { $0 + ($1.role == .user ? 1 : 0) }
-        let rounds = Self.roundNumbers(visible, startingAfter: priorRounds)
-        let look = self.style
-        let layout = self.currentLayoutMode
         return ForEach(Array(visible.enumerated()), id: \.element.id) { index, message in
             let prev: ChatMessage? = index > 0 ? visible[index - 1] : nil
-            let showDivider = !swiss && MessageTimeDivider.shouldShow(previous: prev, current: message)
-            VStack(alignment: .leading, spacing: layout == .imessage ? 10 : 14) {
+            let showDivider = MessageTimeDivider.shouldShow(previous: prev, current: message)
+            VStack(alignment: .leading, spacing: 14) {
                 if showDivider {
                     Text(MessageTimeDivider.label(message.createdAt))
                         .font(TypeScale.tiny)
@@ -1141,16 +1100,19 @@ struct ChatScreen: View {
                         .padding(.bottom, 2)
                 }
                 // Equatable: only the message that changed redraws while an answer streams.
-                messageRow(message, threadID: threadID, isLast: message.id == lastID,
-                           round: rounds[message.id] ?? 1, style: look, layoutMode: layout)
+                messageRow(message, threadID: threadID, isLast: message.id == lastID)
                     .overlay(alignment: .leading) {
                         if focusedMessageID == message.id {
                             RoundedRectangle(cornerRadius: 2).fill(Ink.seal.opacity(0.7)).frame(width: 3).padding(.leading, -10)
                                 .allowsHitTesting(false).accessibilityHidden(true)
+                                .transition(.opacity)
                         }
                     }
             }
             .id(message.id)
+            // Sent inside an animation: yours comes up out of the composer, the answer's
+            // first line rises in under it.
+            .transition(message.role == .user ? AnyTransition.sent : AnyTransition.rise)
         }
     }
 
@@ -1191,57 +1153,28 @@ struct ChatScreen: View {
         pendingMessageJump = nil; focusedMessageID = nil
     }
 
-    /// Exchange numbers: each message of yours starts a new one, the answers after it share it.
-    static func roundNumbers(_ messages: [ChatMessage], startingAfter previous: Int) -> [UUID: Int] {
-        var result: [UUID: Int] = [:]
-        var round = previous
-        for message in messages {
-            if message.role == .user { round += 1 }
-            result[message.id] = max(round, 1)
-        }
-        return result
-    }
-
-    @ViewBuilder private func messageRow(_ message: ChatMessage, threadID: UUID?, isLast: Bool, round: Int, style: InterfaceStyle, layoutMode: ChatLayoutMode) -> some View {
+    @ViewBuilder private func messageRow(_ message: ChatMessage, threadID: UUID?, isLast: Bool) -> some View {
         let timestamp: Date? = message.directive == nil ? message.createdAt : nil
         SwipeTimestampRow(timeReveal: timeReveal, timestamp: timestamp) {
             if message.state == .streaming {
                 // The answer being written redraws on its own, without the rest of the page.
                 LiveMessageRow(live: store.live, message: message, onGrow: followLiveText) { shown in
-                    messageBody(shown, threadID: threadID, isLast: isLast, round: round, style: style, layoutMode: layoutMode)
+                    messageBody(shown, threadID: threadID, isLast: isLast)
                 }
             } else {
-                messageBody(message, threadID: threadID, isLast: isLast, round: round, style: style, layoutMode: layoutMode)
+                messageBody(message, threadID: threadID, isLast: isLast)
             }
         }
     }
 
-    private func messageBody(_ message: ChatMessage, threadID: UUID?, isLast: Bool, round: Int, style: InterfaceStyle, layoutMode: ChatLayoutMode) -> some View {
-        var markOff: (() -> Void)?
-        var thoughts: (() -> Void)?
-        var checkpoint: (() -> Void)?
-        if store.activeThread?.story != nil && message.state == .complete {
-            checkpoint = { checkpointName = ""; checkpointMessage = message.id }
-        }
-        if store.activeThread?.story != nil && message.role == .assistant && message.directive == nil {
-            markOff = { correctionTarget = message }
-        }
-        if message.role == .assistant, message.state == .complete, message.directive == nil,
-           !message.content.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty, let threadID {
-            thoughts = {
-                guard let thread = store.threads.first(where: { $0.id == threadID }), !store.isHidden(thread),
-                      thread.messages.contains(where: { $0.id == message.id }) else { return }
-                focusComposer(false)
-                thoughtsTarget = InnerThoughtsTarget(threadID: threadID, messageID: message.id)
-            }
-        }
+    private func messageBody(_ message: ChatMessage, threadID: UUID?, isLast: Bool) -> some View {
         let quoteHandler: (() -> Void)? = message.directive == nil && message.state != .streaming ? {
-            let author = message.role == .user ? "你" : (message.discussionCharacter ?? "Sermo")
+            let author = message.role == .user ? "你" : "Sermo"
             let excerpt = MessageQuoteCodec.cleanExcerpt(
                 from: message.content,
                 hasImages: message.images?.isEmpty == false
             )
-            quotingMessage = QuotedMessage(author: author, excerpt: excerpt)
+            withMotion(Motion.snappy) { quotingMessage = QuotedMessage(author: author, excerpt: excerpt) }
             Haptic.tap()
             focusComposer(true)
         } : nil
@@ -1253,9 +1186,9 @@ struct ChatScreen: View {
                     regenerate: regeneratePreservingDraftImages,
                     openThinking: { if let threadID { thinkingTarget = ThinkingTarget(threadID: threadID, messageID: message.id) } },
                     useSuggestedReply: { text in prepareSuggestedReply(text, messageID: message.id) },
-                    signInDrive: { store.drive.signIn() }, round: round, style: style, layoutMode: layoutMode,
+                    signInDrive: { store.drive.signIn() },
+                    celebrates: message.id == justFinishedID,
                     quoteReply: quoteHandler,
-                    markOffCharacter: markOff, showThoughts: thoughts, saveCheckpoint: checkpoint, showBookReferences: { bookEvidence = message },
                     speech: store.speech,
                     toggleBookmark: {
                         guard let thread = store.activeThread, thread.id == threadID, !store.isHidden(thread) else { return }
@@ -1341,7 +1274,7 @@ struct ChatScreen: View {
                     Text(name.count > 8 ? String(name.prefix(7)) + "…" : name).lineLimit(1).fixedSize()
                 }
             }
-            .font(swiss ? TypeScale.mono(11) : TypeScale.ui(14, weight: .medium))
+            .font(TypeScale.ui(14, weight: .medium))
             .foregroundStyle(current == nil ? Ink.ink2 : Ink.ink)
             .padding(.horizontal, current == nil ? 0 : 14)
             .frame(minWidth: 44, minHeight: 44)
@@ -1366,13 +1299,6 @@ struct ChatScreen: View {
                 if let contextLine = contextSummaryText {
                     Text(contextLine)
                 }
-                if let story = thread.story {
-                    Text("书架 ·《\(story.bookTitle)》" + (story.userRole.isEmpty ? "" : " · 你是\(story.userRole)"))
-                }
-                if let discussion = thread.bookDiscussion {
-                    Text("讨论 ·《\(discussion.bookTitle)》")
-                    Button("新建本书讨论", systemImage: "plus.bubble") { _ = store.startBookDiscussion(discussion.bookID) }
-                }
                 Divider()
                 if let activeProject = store.activeProject {
                     Button("返回项目「\(activeProject.name)」", systemImage: activeProject.studySubject != nil ? "graduationcap" : "tray.full") {
@@ -1389,28 +1315,6 @@ struct ChatScreen: View {
                     }
                     Divider()
                 }
-                if !swiss {
-                    Menu("排版样式 · \(currentLayoutMode.title)", systemImage: currentLayoutMode.symbol) {
-                        ForEach(ChatLayoutMode.allCases) { mode in
-                            Button {
-                                Haptic.tap()
-                                withAnimation(.snappy(duration: 0.24)) {
-                                    ChatLayoutPreferences.shared.setMode(mode, for: thread.id)
-                                }
-                            } label: {
-                                Label {
-                                    VStack(alignment: .leading) {
-                                        Text(mode.title)
-                                        Text(mode.summary)
-                                    }
-                                } icon: {
-                                    Image(systemName: currentLayoutMode == mode ? "checkmark" : mode.symbol)
-                                }
-                            }
-                        }
-                    }
-                    .accessibilityIdentifier("chat-layout-mode-menu")
-                }
                 Button("搜索本对话", systemImage: "magnifyingglass") { openMessageBrowser(.search) }
                 Button("本对话收藏", systemImage: "bookmark") { openMessageBrowser(.bookmarks) }
                 let versionCount = store.conversationVersions(for: thread.id).count
@@ -1422,7 +1326,7 @@ struct ChatScreen: View {
                     .accessibilityLabel("查看旧答案和历史版本")
                     .accessibilityIdentifier("chat-versions")
                 }
-                if thread.story == nil, thread.messages.count >= 6 {
+                if thread.messages.count >= 6 {
                     Button("浓缩本对话上文（/compact）", systemImage: "arrow.down.right.and.arrow.up.left") {
                         store.compactActiveThread()
                     }
@@ -1441,12 +1345,7 @@ struct ChatScreen: View {
                         Label("这段对话不进记忆", systemImage: "eye.slash")
                     }
                 }
-                if thread.story != nil {
-                    Button("剧情控制、记忆与存档", systemImage: "arrow.triangle.branch") { storyPlayFor = thread.id }
-                    Button("本局设定", systemImage: "slider.horizontal.3") { storySettingsFor = thread.id }
-                }
-                if thread.story == nil, thread.bookDiscussion == nil,
-                   store.canUsePureRoleplay(store.activeProject) {
+                if store.canUsePureRoleplay(store.activeProject) {
                     Toggle(isOn: Binding(
                         get: { store.isPureRoleplay(thread) },
                         set: { store.setPureRoleplay($0, for: thread.id) }
@@ -1476,47 +1375,46 @@ struct ChatScreen: View {
         .accessibilityIdentifier("chat-title-menu")
     }
 
-    // The model pill: a capsule on paper, a plain monospaced FLASH / HIGH ▾ in the Swiss look.
-    @ViewBuilder private var modelPillLabel: some View {
-        if swiss {
-            Text((store.pillModelTitle + " / " + store.pillEffortTitle).uppercased() + " ▾")
-                .font(TypeScale.mono(11)).foregroundStyle(Ink.ink).lineLimit(1)
-                .frame(height: 38).contentShape(Rectangle())
-        } else {
-            HStack(spacing: 5) {
-                Text(store.pillModelTitle).fontWeight(.medium).foregroundStyle(Ink.ink).lineLimit(1)
-                Text(store.pillEffortTitle).fontWeight(.regular).foregroundStyle(Ink.ink3)
-            }
-            // A soft neutral capsule matching Claude iOS ("Opus 5.5 中等").
-            .font(.system(size: 13.5)).monospacedDigit()
-            .padding(.horizontal, 12).frame(height: 34)
-            .background(Ink.raised, in: Capsule())
-            .contentShape(Capsule())
+    // The model pill: model and thinking level in one soft capsule. Switching either one
+    // rolls the new name in instead of swapping it.
+    private var modelPillLabel: some View {
+        HStack(spacing: 5) {
+            Text(store.pillModelTitle).fontWeight(.medium).foregroundStyle(Ink.ink).lineLimit(1)
+                .contentTransition(.interpolate)
+            Text(store.pillEffortTitle).fontWeight(.regular).foregroundStyle(Ink.ink3)
+                .contentTransition(.interpolate)
         }
+        // A soft neutral capsule matching Claude iOS ("Opus 5.5 中等").
+        .font(.system(size: 13.5)).monospacedDigit()
+        .padding(.horizontal, 12).frame(height: 34)
+        .background(Ink.raised, in: Capsule())
+        .contentShape(Capsule())
+        .animation(Motion.snappy.motionSafe, value: store.pillModelTitle + store.pillEffortTitle)
+        .onChange(of: store.pillModelTitle + store.pillEffortTitle) { _, _ in Haptic.select() }
     }
 
-    // The web switch: a slim muted globe beside the model pill, brightening when enabled.
-    @ViewBuilder private var webToggleLabel: some View {
-        if swiss {
-            Text(store.webSearchEnabled ? "WEB: ON" : "WEB: OFF")
-                .font(TypeScale.mono(11))
-                .foregroundStyle(store.webSearchEnabled ? Ink.seal : Ink.ink3)
-                .frame(minWidth: 34, minHeight: 34).contentShape(Rectangle())
-        } else {
-            HStack(spacing: 4) {
-                Image(systemName: "globe").font(.system(size: 15.5, weight: .light))
-                if store.webSearchEnabled { Text("联网").font(.system(size: 13, weight: .medium)) }
+    // The web switch: a slim muted globe beside the model pill. Turned on, the globe
+    // gives a small bounce, takes the accent and 「联网」 slides out beside it.
+    private var webToggleLabel: some View {
+        HStack(spacing: 4) {
+            Image(systemName: "globe").font(.system(size: 15.5, weight: .light))
+                .symbolEffect(.bounce, value: store.webSearchEnabled)
+            if store.webSearchEnabled {
+                Text("联网").font(.system(size: 13, weight: .medium))
+                    .transition(.opacity.combined(with: .move(edge: .leading)))
             }
-            .foregroundStyle(store.webSearchEnabled ? Ink.seal : Ink.ink3)
-            .frame(minWidth: 34, minHeight: 34)
-            .contentShape(Rectangle())
         }
+        .foregroundStyle(store.webSearchEnabled ? Ink.seal : Ink.ink3)
+        .frame(minWidth: 34, minHeight: 34)
+        .contentShape(Rectangle())
+        .animation(Motion.lively.motionSafe, value: store.webSearchEnabled)
     }
 
     private func jumpToLatest() {
         clearMessageNavigation()
         followsOutput = true
-        scrollBox.scrollToBottom(animated: true)
+        Haptic.tap()
+        scrollBox.scrollToBottom(animated: true, with: Motion.gentle)
     }
 
     private func choosePhotos() {
@@ -1671,7 +1569,7 @@ struct ChatScreen: View {
 
     private var showsSystemPromptControl: Bool {
         guard let thread = store.activeThread, !store.isHidden(thread) else { return false }
-        return thread.story == nil && thread.bookDiscussion == nil
+        return true
     }
 
     private var attachmentButton: some View {
@@ -1684,7 +1582,7 @@ struct ChatScreen: View {
             Image(systemName: "plus").font(.system(size: 15.5, weight: .regular))
                 .foregroundStyle(Ink.ink2)
                 .frame(width: 34, height: 34)
-                .background(Ink.raised, in: swiss ? AnyShape(Rectangle()) : AnyShape(Circle()))
+                .background(Ink.raised, in: Circle())
                 .contentShape(Circle())
         }
         .buttonStyle(.pressFeedback)
@@ -1751,12 +1649,12 @@ struct ChatScreen: View {
     }
 
     @ViewBuilder private func composerNoticeBar(_ notice: ComposerNotice) -> some View {
-        let close = { withAnimation(.snappy(duration: 0.2)) { store.dismissComposerNotice() } }
+        let close = { withMotion(Motion.snappy) { store.dismissComposerNotice() } }
         switch notice.kind {
         case .compactOffer:
             ComposerNoticeBar(text: "这段对话已经很长了，浓缩后每次回答更省钱。",
                               actionTitle: "浓缩",
-                              action: { withAnimation(.snappy(duration: 0.2)) { store.acceptCompactionOffer() } },
+                              action: { withMotion(Motion.snappy) { store.acceptCompactionOffer() } },
                               dismiss: close)
         case .memoryIssue(let text):
             ComposerNoticeBar(text: text, dismiss: close)
@@ -1769,7 +1667,7 @@ struct ChatScreen: View {
                                   memorySheetTarget = ProjectMemoryTarget(id: projectID)
                               },
                               secondTitle: "撤回",
-                              second: { withAnimation(.snappy(duration: 0.2)) { store.undoMemoryChange(batchID, in: projectID) } },
+                              second: { withMotion(Motion.snappy) { store.undoMemoryChange(batchID, in: projectID) } },
                               dismiss: close)
         }
     }
@@ -1779,12 +1677,13 @@ struct ChatScreen: View {
     @ViewBuilder private var contextStatusBar: some View {
         if let thread = store.activeThread, store.compactingThreadID == thread.id {
             HStack(spacing: 6) {
-                ProgressView().controlSize(.mini)
+                ThinkingMark(live: true, size: 12)
                 Text("正在浓缩…").font(TypeScale.tiny).foregroundStyle(Ink.ink3)
+                    .shimmering()
                 Spacer(minLength: 0)
             }
             .padding(.horizontal, 8)
-            .transition(.opacity)
+            .transition(.barRise)
         }
     }
 
@@ -1815,13 +1714,11 @@ struct ChatScreen: View {
             localDraft = remainder
             scheduleDraftPush()
         })
-        if store.activeThread?.story == nil {
-            list.append(SlashCommand(name: "浓缩", detail: "把上文浓缩成摘要，原对话保留") {
-                localDraft = ""
-                scheduleDraftPush()
-                store.compactActiveThread()
-            })
-        }
+        list.append(SlashCommand(name: "浓缩", detail: "把上文浓缩成摘要，原对话保留") {
+            localDraft = ""
+            scheduleDraftPush()
+            store.compactActiveThread()
+        })
         if store.activeThread?.projectID != nil, store.activeProject?.studySubject == nil {
             list.append(SlashCommand(name: "做梦", detail: "整理这个项目的记忆，去重合并") {
                 localDraft = ""
@@ -1833,7 +1730,7 @@ struct ChatScreen: View {
             list.append(SlashCommand(name: "考词", detail: "随机抽 10 个词考我") {
                 localDraft = ""
                 flushDraft()
-                _ = store.send("请随机抽 10 个单词考考我。", images: [])
+                _ = sendAnimated("请随机抽 10 个单词考考我。", images: [])
                 focusComposer(false)
             })
         }
@@ -1841,7 +1738,7 @@ struct ChatScreen: View {
             list.append(SlashCommand(name: "周报", detail: "生成本周学习周报") {
                 localDraft = ""
                 flushDraft()
-                _ = store.send("帮我生成本周学习周报。", images: [])
+                _ = sendAnimated("帮我生成本周学习周报。", images: [])
                 focusComposer(false)
             })
         }
@@ -1918,7 +1815,7 @@ struct ChatScreen: View {
             }
             .background(Ink.raised, in: RoundedRectangle(cornerRadius: 16, style: .continuous))
             .overlay(RoundedRectangle(cornerRadius: 16, style: .continuous).stroke(Ink.line, lineWidth: 0.6))
-            .transition(.opacity.combined(with: .move(edge: .bottom)))
+            .transition(.barRise)
         }
     }
 
@@ -1971,8 +1868,16 @@ struct ChatScreen: View {
             slashCommandBar
             ghostBar
             if store.searchingThreadID == store.activeThreadID && store.isGenerating {
-                HStack { ProgressView(); Text("正在深度联网检索与核对正文…").font(TypeScale.caption) }
-                    .accessibilityIdentifier("web-search-progress")
+                HStack(spacing: 8) {
+                    ThinkingMark(live: true, size: 14)
+                    Text("正在深度联网检索与核对正文…").font(TypeScale.caption).foregroundStyle(Ink.ink2)
+                        .shimmering()
+                    Spacer(minLength: 0)
+                }
+                .padding(.horizontal, 8)
+                .transition(.barRise)
+                .accessibilityElement(children: .combine)
+                .accessibilityIdentifier("web-search-progress")
             }
 
             if !store.canChat {
@@ -1999,10 +1904,6 @@ struct ChatScreen: View {
                         Spacer(minLength: 4)
                         Button("取消") { fileImportTask?.cancel() }.font(TypeScale.label)
                     }
-                }
-                if let thread = store.activeThread, thread.bookDiscussion != nil {
-                    BookDiscussionVoiceControl(threadID: thread.id, open: { focusComposer(false) })
-                        .id(thread.id)
                 }
                 if !pendingDocuments.isEmpty {
                     ScrollView(.horizontal, showsIndicators: false) {
@@ -2034,7 +1935,7 @@ struct ChatScreen: View {
                                     }
                                     .buttonStyle(.plain)
                                     Button {
-                                        pendingDocuments.removeAll { $0.id == doc.id }
+                                        withMotion(Motion.snappy) { pendingDocuments.removeAll { $0.id == doc.id } }
                                     } label: {
                                         Image(systemName: "xmark")
                                             .font(.system(size: 9, weight: .bold))
@@ -2048,11 +1949,13 @@ struct ChatScreen: View {
                                 }
                                 .padding(.horizontal, 10)
                                 .padding(.vertical, 7)
-                                .background(Ink.raised, in: RoundedRectangle(cornerRadius: swiss ? 0 : 12, style: .continuous))
-                                .overlay(RoundedRectangle(cornerRadius: swiss ? 0 : 12, style: .continuous).stroke(Ink.line, lineWidth: 1))
+                                .background(Ink.raised, in: RoundedRectangle(cornerRadius: 12, style: .continuous))
+                                .overlay(RoundedRectangle(cornerRadius: 12, style: .continuous).stroke(Ink.line, lineWidth: 1))
+                                .transition(.pop)
                             }
                         }
                     }
+                    .transition(.barRise)
                     .sheet(item: $previewingDocument) { target in
                         DocumentPreviewSheet(target: target)
                     }
@@ -2063,19 +1966,21 @@ struct ChatScreen: View {
                             ForEach(pendingImages) { item in
                                 Image(uiImage: item.preview).resizable().scaledToFill()
                                     .frame(width: 64, height: 64)
-                                    .clipShape(RoundedRectangle(cornerRadius: swiss ? 0 : 12, style: .continuous))
+                                    .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
                                     .overlay(alignment: .topTrailing) {
-                                        Button { pendingImages.removeAll { $0.id == item.id } } label: {
+                                        Button { withMotion(Motion.snappy) { pendingImages.removeAll { $0.id == item.id } } } label: {
                                             Image(systemName: "xmark").font(.system(size: 9, weight: .bold))
                                                 .foregroundStyle(Ink.onSolid)
                                                 .frame(width: 20, height: 20).background(Ink.solid, in: Circle())
                                                 .padding(3).contentShape(Rectangle())
                                         }.buttonStyle(.plain).accessibilityLabel("移除这张图片")
                                     }
+                                    .transition(.pop)
                             }
                             if loadingPhotos { ProgressView().frame(width: 64, height: 64) }
                         }
                     }
+                    .transition(.barRise)
                 }
                 if let quote = quotingMessage {
                     HStack(spacing: 8) {
@@ -2095,7 +2000,7 @@ struct ChatScreen: View {
                         Spacer(minLength: 4)
                         Button {
                             Haptic.tap()
-                            withAnimation(.snappy(duration: 0.18)) { quotingMessage = nil }
+                            withMotion(Motion.snappy) { quotingMessage = nil }
                         } label: {
                             Image(systemName: "xmark.circle.fill")
                                 .font(.system(size: 16))
@@ -2106,8 +2011,8 @@ struct ChatScreen: View {
                     }
                     .padding(.horizontal, 10)
                     .padding(.vertical, 7)
-                    .background(Ink.raised, in: RoundedRectangle(cornerRadius: swiss ? 0 : 12, style: .continuous))
-                    .transition(.opacity.combined(with: .move(edge: .bottom)))
+                    .background(Ink.raised, in: RoundedRectangle(cornerRadius: 12, style: .continuous))
+                    .transition(.barRise)
                 }
                 Group {
                     if usesPreviewKeyboard {
@@ -2126,6 +2031,8 @@ struct ChatScreen: View {
                                     Text(ghost).userMessageStyle().foregroundStyle(Ink.ink3.opacity(0.75)).lineLimit(4)
                                         .frame(maxWidth: .infinity, alignment: .leading)
                                         .allowsHitTesting(false).accessibilityHidden(true)
+                                        .id(ghost)
+                                        .transition(.ghostSwap)
                                 } else {
                                     // Unfocused, a tap puts it in to edit; send takes it as is.
                                     Button { takeGhost(send: false) } label: {
@@ -2135,6 +2042,9 @@ struct ChatScreen: View {
                                             .contentShape(Rectangle())
                                     }
                                     .buttonStyle(.plain)
+                                    .id(ghost)
+                                    // A new suggestion drifts up into the field; 换一条 swaps it the same way.
+                                    .transition(.ghostSwap)
                                     .accessibilityLabel("猜你想说：\(ghost)，点一下放进输入框修改，或直接点发送")
                                 }
                             }
@@ -2211,7 +2121,7 @@ struct ChatScreen: View {
                     .accessibilityIdentifier("model-effort-pill")
                     if currentWebChannel != .directLinksOnly {
                         // On, the button itself says so; no hint line over the conversation.
-                        Button { store.webSearchEnabled.toggle() } label: {
+                        Button { Haptic.select(); store.webSearchEnabled.toggle() } label: {
                             webToggleLabel
                         }
                         .disabled(store.isGenerating)
@@ -2243,15 +2153,9 @@ struct ChatScreen: View {
                             Haptic.tap()
                             store.stopGeneration()
                         } label: {
-                            Image(systemName: "stop.fill")
-                                .font(.system(size: 11, weight: .medium))
-                                .foregroundStyle(swiss ? Ink.onSolid : (night ? Ink.onSeal : Ink.ink))
-                                .frame(width: 34, height: 34)
-                                .background(swiss ? Ink.solid : (night ? Ink.seal : Ink.raised),
-                                            in: RoundedRectangle(cornerRadius: swiss ? 0 : 17, style: .continuous))
-                                .contentShape(Rectangle())
+                            SendButtonFace(mode: .stop, enabled: true)
                         }
-                        .buttonStyle(.plain)
+                        .buttonStyle(.pressFeedback)
                         .accessibilityLabel("停止生成")
 
                         Button {
@@ -2308,11 +2212,10 @@ struct ChatScreen: View {
                             } else {
                                 clearMessageNavigation()
                                 followsOutput = true
-                                Haptic.tap()
                                 flushDraft()
                                 let textWithQuote = MessageQuoteCodec.encode(quote: quotingMessage, userText: store.activeDraft)
                                 let payload = PendingDocumentCodec.encode(userText: textWithQuote, documents: pendingDocuments)
-                                if store.send(payload, images: pendingImages.map(\.data)) {
+                                if sendAnimated(payload, images: pendingImages.map(\.data)) {
                                     draftPushTask?.cancel()
                                     draftPushTask = nil
                                     localDraft = ""
@@ -2328,22 +2231,10 @@ struct ChatScreen: View {
                             let isStop = isCurrentGenerating
                             let sendDisabled = !isStop && (!store.canChat || !readyToSend || !store.canPersist || loadingPhotos
                                 || (fileImportThreadID != nil && fileImportThreadID == store.activeThreadID))
-                            let circleFill: Color = isStop
-                                ? (swiss ? Ink.solid : (night ? Ink.seal : Ink.raised))
-                                : (readyToSend ? Ink.sendFill : Ink.raised)
-                            let glyphColor: Color = isStop
-                                ? (swiss ? Ink.onSolid : (night ? Ink.onSeal : Ink.ink))
-                                : (readyToSend ? Ink.sendGlyph : Ink.ink3.opacity(0.65))
-                            Image(systemName: isStop ? "stop.fill" : "arrow.up")
-                                .font(.system(size: isStop ? 11 : 14, weight: readyToSend ? .semibold : .medium))
-                                .foregroundStyle(glyphColor)
-                                .frame(width: 34, height: 34)
-                                .background(circleFill, in: RoundedRectangle(cornerRadius: swiss ? 0 : 17, style: .continuous))
-                                .shadow(color: night && (readyToSend || isStop) ? Ink.seal.opacity(0.35) : .clear, radius: night ? 12 : 0)
-                                .opacity(readyToSend && sendDisabled ? 0.42 : 1)
-                                .contentShape(Rectangle())
+                            SendButtonFace(mode: isStop ? .stop : (readyToSend ? .ready : .idle),
+                                           enabled: isStop || !sendDisabled)
                         }
-                        .buttonStyle(.plain)
+                        .buttonStyle(.pressFeedback)
                         .disabled(!isCurrentGenerating && (!store.canChat || !(hasInput || ghostText != nil) || !store.canPersist || loadingPhotos
                             || (fileImportThreadID != nil && fileImportThreadID == store.activeThreadID)))
                         .accessibilityLabel(isCurrentGenerating ? "停止生成" : "发送消息")
@@ -2372,7 +2263,7 @@ struct ChatScreen: View {
         // When idle, `keyboardLayoutGuide.topAnchor` already sits at `safeAreaLayoutGuide.bottomAnchor`
         // (34pt above screen bottom on iPhone Air), so 0pt extra bottom padding lands the Liquid Glass
         // card at the exact Claude position; when keyboard is open, add 8pt breathing room above keyboard.
-        .padding(.horizontal, swiss ? 14 : 16)
+        .padding(.horizontal, 16)
         .padding(.top, 4)
         .padding(.bottom, keyboardVisible ? 8 : 0)
         .background(alignment: .bottom) {
@@ -2389,6 +2280,8 @@ struct ChatScreen: View {
             .padding(.bottom, keyboardVisible ? 0 : -bottomInset)
             .allowsHitTesting(false)
         }
+        // Bars above the input come and go with one spring, and the panel resizes with it.
+        .animation(Motion.snappy.motionSafe, value: composerLayoutSignature)
         .accessibilityElement(children: .contain).accessibilityIdentifier("chat-composer-panel")
         .onGeometryChange(for: CGFloat.self) { $0.size.height } action: { newHeight in
             if abs(composerPanelHeight - newHeight) > 0.5 {
@@ -2396,6 +2289,59 @@ struct ChatScreen: View {
             }
         }
         .onChange(of: ghostSource?.id) { _, _ in suggestionIndex = 0 }
+    }
+}
+
+/// The round key at the right of the composer.
+/// Idle it is a quiet grey arrow; with something to send it fills with the accent and
+/// gives a small spring; while an answer is coming it turns into a stop square with a
+/// thin arc going round it, so the composer itself shows the work in progress.
+@MainActor
+private struct SendButtonFace: View {
+    enum Mode: Equatable { case idle, ready, stop }
+    let mode: Mode
+    let enabled: Bool
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+
+    var body: some View {
+        let ready = mode == .ready
+        ZStack {
+            Circle().fill(ready ? Ink.sendFill : Ink.raised)
+            Image(systemName: mode == .stop ? "stop.fill" : "arrow.up")
+                .font(.system(size: mode == .stop ? 11 : 14, weight: ready ? .semibold : .medium))
+                .foregroundStyle(mode == .stop ? Ink.ink : (ready ? Ink.sendGlyph : Ink.ink3.opacity(0.65)))
+                .contentTransition(.symbolEffect(.replace.downUp))
+            if mode == .stop {
+                WorkingArc().transition(.opacity)
+            }
+        }
+        .frame(width: 34, height: 34)
+        .scaleEffect(ready && !reduceMotion ? 1 : (mode == .stop ? 1 : 0.94))
+        .opacity(ready && !enabled ? 0.42 : 1)
+        .contentShape(Circle())
+        .animation(Motion.lively.motionSafe, value: mode)
+    }
+}
+
+/// A short accent arc going round a circular control while work is under way.
+@MainActor
+struct WorkingArc: View {
+    var lineWidth: CGFloat = 1.6
+    @State private var spinning = false
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+
+    var body: some View {
+        Circle()
+            .trim(from: 0, to: 0.24)
+            .stroke(Ink.seal, style: StrokeStyle(lineWidth: lineWidth, lineCap: .round))
+            .padding(lineWidth / 2)
+            .rotationEffect(.degrees(spinning ? 360 : 0))
+            .opacity(reduceMotion ? 0.6 : 1)
+            .onAppear {
+                guard !reduceMotion else { return }
+                withAnimation(.linear(duration: 1.1).repeatForever(autoreverses: false)) { spinning = true }
+            }
+            .accessibilityHidden(true)
     }
 }
 
@@ -2445,10 +2391,10 @@ private struct ChatFloatingControlsOverlay<ProjectMenu: View>: View {
                     .buttonStyle(.pressFeedback)
                     .accessibilityLabel("一键回到最新消息")
                     .accessibilityIdentifier("chat-jump-to-latest")
-                    .transition(.opacity.combined(with: .scale(scale: 0.85)))
+                    .transition(.pop)
                 }
             }
-            .animation(.snappy(duration: 0.2), value: showJump)
+            .animation(Motion.lively.motionSafe, value: showJump)
         }
     }
 }
@@ -2633,18 +2579,9 @@ struct MessageView: View, Equatable {
     let openThinking: () -> Void
     let useSuggestedReply: (String) -> Void
     var signInDrive: () -> Void = {}
-    // Which exchange this is (Q.01 / A.01 in the Swiss look) and the look itself,
-    // part of equality so a style switch redraws rows the stream would skip.
-    var round = 1
-    var style: InterfaceStyle = .paper
-    var layoutMode: ChatLayoutMode = .editorial
+    // 1.47: true for the answer that has just finished here; its controls rise in one by one.
+    var celebrates = false
     var quoteReply: (() -> Void)? = nil
-    // Bookshelf conversations: 「这里不像」 on an answer (1.10.0).
-    var markOffCharacter: (() -> Void)? = nil
-    // A separate literary inner-voice supplement; available for completed assistant replies.
-    var showThoughts: (() -> Void)? = nil
-    var saveCheckpoint: (() -> Void)? = nil
-    var showBookReferences: (() -> Void)? = nil
     var speech: OpenAISpeech? = nil
     var toggleBookmark: (() -> Void)? = nil
     var retryColab: (() -> Void)? = nil
@@ -2653,7 +2590,6 @@ struct MessageView: View, Equatable {
     var openAgentTimeline: () -> Void = {}
     var deliverables: [ProjectDeliverable] = []
     var openDeliverable: (ProjectDeliverable) -> Void = { _ in }
-    @State private var copied = false
     @State private var selecting = false
     @State private var showSourcesSheet = false
     @State private var showDocumentArtifact = false
@@ -2661,8 +2597,7 @@ struct MessageView: View, Equatable {
     nonisolated static func == (lhs: MessageView, rhs: MessageView) -> Bool {
         lhs.message == rhs.message && lhs.threadID == rhs.threadID && lhs.isLast == rhs.isLast
             && lhs.isGenerating == rhs.isGenerating && lhs.canRegenerate == rhs.canRegenerate
-            && lhs.showsSuggestions == rhs.showsSuggestions && lhs.round == rhs.round
-            && lhs.style == rhs.style && lhs.layoutMode == rhs.layoutMode
+            && lhs.showsSuggestions == rhs.showsSuggestions && lhs.celebrates == rhs.celebrates
             && lhs.generatedImages == rhs.generatedImages
             && lhs.agentRecord == rhs.agentRecord
             && lhs.deliverables == rhs.deliverables
@@ -2693,7 +2628,7 @@ struct MessageView: View, Equatable {
         Group {
             if let label = message.directive {
                 // A request the app sent on your behalf: a quiet marker instead of a message,
-                // with what you should read (a story's recap) underneath.
+                // with what you should read underneath.
                 VStack(spacing: 12) {
                     Text("— \(label) —").font(TypeScale.caption).foregroundStyle(Ink.ink3)
                         .accessibilityLabel(label)
@@ -2701,12 +2636,14 @@ struct MessageView: View, Equatable {
                         Text(detail).font(TypeScale.label).foregroundStyle(Ink.ink2).lineSpacing(5)
                             .frame(maxWidth: .infinity, alignment: .leading)
                             .padding(16)
-                            .background(Ink.raised, in: RoundedRectangle(cornerRadius: style == .swiss ? 0 : 16, style: .continuous))
+                            .background(Ink.raised, in: RoundedRectangle(cornerRadius: 16, style: .continuous))
                             .accessibilityLabel("前情提要：\(detail)")
                     }
                 }
                 .frame(maxWidth: .infinity).padding(.vertical, 6)
-            } else if style == .swiss { swissContent } else { paperContent }
+            } else {
+                content
+            }
         }
         .contextMenu {
             // The most used actions come first; extra actions live below.
@@ -2716,7 +2653,7 @@ struct MessageView: View, Equatable {
                 }
                 Button("复制", systemImage: "doc.on.doc") {
                     UIPasteboard.general.string = cleanCopyText
-                    Haptic.tap()
+                    Haptic.success()
                 }
                 Button("选择文字", systemImage: "text.viewfinder") { selecting = true }
                 if message.role == .assistant && message.state == .complete && message.content.count >= 160 {
@@ -2735,15 +2672,6 @@ struct MessageView: View, Equatable {
                 Button(message.isBookmarked == true ? "取消收藏" : "收藏消息", systemImage: message.isBookmarked == true ? "bookmark.slash" : "bookmark") {
                     toggleBookmark()
                 }.disabled(message.state == .streaming)
-            }
-            if let showThoughts {
-                Button("他在想什么", systemImage: "bubble.left.and.text.bubble.right") { showThoughts() }
-            }
-            if let markOffCharacter {
-                Button("这里不像…", systemImage: "person.crop.circle.badge.exclamationmark") { markOffCharacter() }
-            }
-            if let saveCheckpoint {
-                Button("在这里保存剧情存档", systemImage: "bookmark") { saveCheckpoint() }.disabled(isGenerating)
             }
             if isLast && message.role == .assistant {
                 Button("重新生成", systemImage: "arrow.clockwise") { regenerate() }
@@ -2766,50 +2694,17 @@ struct MessageView: View, Equatable {
         }
     }
 
-    // 纸笺: adapts seamlessly across 书页 (editorial), 信息气泡 (iMessage), and 智能 (hybrid).
-    private var paperContent: some View {
-        let isImessage = (layoutMode == .imessage && style != .swiss)
-        return VStack(alignment: .leading, spacing: 12) {
+    // Your message on the right in a light bubble; the answer as open text below it,
+    // with its controls underneath (the Claude app's layout).
+    private var content: some View {
+        VStack(alignment: .leading, spacing: 12) {
             if message.role == .user {
-                let docDecoded = PendingDocumentCodec.decode(message.content)
-                let quoteDecoded = MessageQuoteCodec.decode(docDecoded.userText)
-                if style == .night && round > 1 && !isImessage { WaveRule().padding(.bottom, 8) }
-                HStack(spacing: 0) {
-                    Spacer(minLength: 52)
-                    VStack(alignment: .trailing, spacing: 6) {
-                        discussionVoiceLabel
-                        if let quote = quoteDecoded.quote {
-                            QuotedReplyCard(quote: quote, alignTrailing: true, swiss: false)
-                        }
-                        if let names = message.images, !names.isEmpty { AttachmentRow(names: names, swiss: false) }
-                        if !docDecoded.attachments.isEmpty {
-                            MessageDocumentCards(attachments: docDecoded.attachments, swiss: false)
-                        }
-                        if !quoteDecoded.userText.isEmpty {
-                            let shape = AsymmetricBubbleShape.chatBubbleShape(isUser: true, position: .single)
-                            Text(quoteDecoded.userText).userMessageStyle().lineSpacing(max(Personal.lineSpacing - 2, 3)).chineseReading()
-                                .foregroundStyle(isImessage ? Ink.onSeal : Ink.ink)
-                                .textSelection(.enabled)
-                                .padding(.horizontal, 16).padding(.vertical, 11)
-                                .background(
-                                    isImessage ? Ink.seal : Personal.bubble,
-                                    in: isImessage
-                                        ? AnyShape(shape)
-                                        : AnyShape(RoundedRectangle(cornerRadius: 20, style: .continuous))
-                                )
-                        }
-                    }
-                }
-                .frame(maxWidth: .infinity, alignment: .trailing)
+                userBubble
             } else {
                 answerParts
                 if message.state == .streaming {
-                    if isImessage && message.content.isEmpty && message.reasoning.isEmpty && (message.toolActivity?.isEmpty != false) {
-                        TypingIndicatorBubble()
-                    } else {
-                        StreamActivityView(message: message)
-                    }
-                } else if !(isImessage && message.state != .failed) {
+                    StreamActivityView(message: message)
+                } else {
                     let isEmptyFailure = message.state == .failed && message.content.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
                     if isEmptyFailure {
                         if isLast {
@@ -2823,207 +2718,142 @@ struct MessageView: View, Equatable {
                                 Spacer(minLength: 4)
                             }
                             .foregroundStyle(Ink.ink2).buttonStyle(.pressFeedback).padding(.top, 2)
+                            .arrive(active: celebrates)
                         }
                     } else {
-                        VStack(alignment: .leading, spacing: 6) {
-                        HStack(spacing: 14) {
-                            Button { copyAnswer() } label: {
-                                ClaudeActionGlyph(kind: copied ? .copied : .copy)
-                                    .frame(width: 24, height: 28)
-                                    .contentShape(Rectangle())
-                            }
-                            .accessibilityLabel("复制回答")
-                            Button { selecting = true } label: {
-                                ClaudeActionGlyph(kind: .selectText)
-                                    .frame(width: 24, height: 28)
-                                    .contentShape(Rectangle())
-                            }
-                            .accessibilityLabel("选择部分文字")
-                            Button { edit() } label: {
-                                ClaudeActionGlyph(kind: .edit)
-                                    .frame(width: 24, height: 28)
-                                    .contentShape(Rectangle())
-                            }
-                            .disabled(isGenerating).accessibilityLabel("编辑回答")
-                            if message.state == .complete, let speech {
-                                SpeechPlaybackControl(speech: speech, text: message.content, messageID: message.id)
-                            }
-                            if isLast {
-                                Button { regenerate() } label: {
-                                    ClaudeActionGlyph(kind: .retry)
-                                        .frame(width: 24, height: 28)
-                                        .contentShape(Rectangle())
-                                }
-                                .disabled(isGenerating || !canRegenerate).accessibilityLabel("重新生成")
-                            }
-                            Spacer(minLength: 4)
-                        }
-                        .foregroundStyle(Ink.ink2.opacity(0.72))
-                        .buttonStyle(.pressFeedback)
-                        .padding(.top, 6)
-                        if (message.webSources?.isEmpty == false) || supportsDocumentArtifact {
-                            HStack(spacing: 14) {
-                                if let sources = message.webSources, !sources.isEmpty {
-                                    Button {
-                                        Haptic.tap()
-                                        showSourcesSheet = true
-                                    } label: {
-                                        HStack(spacing: 5) {
-                                            Image(systemName: "globe")
-                                                .font(.system(size: 13, weight: .regular))
-                                            Text("\(sources.count) 个来源")
-                                                .font(.system(size: 13, weight: .regular))
-                                            Image(systemName: "chevron.right")
-                                                .font(.system(size: 10, weight: .medium))
-                                                .foregroundStyle(Ink.ink3.opacity(0.7))
-                                        }
-                                        .foregroundStyle(Ink.ink2)
-                                        .padding(.vertical, 3)
-                                        .contentShape(Rectangle())
-                                    }
-                                    .buttonStyle(.pressFeedback)
-                                    .accessibilityIdentifier("web-search-sources")
-                                }
-                                if supportsDocumentArtifact {
-                                    Button {
-                                        Haptic.tap()
-                                        showDocumentArtifact = true
-                                    } label: {
-                                        HStack(spacing: 4) {
-                                            Image(systemName: "doc.richtext")
-                                                .font(.system(size: 12, weight: .regular))
-                                            Text("独立文稿预览")
-                                                .font(.system(size: 13, weight: .regular))
-                                            Image(systemName: "chevron.right")
-                                                .font(.system(size: 10, weight: .medium))
-                                                .foregroundStyle(Ink.ink3.opacity(0.7))
-                                        }
-                                        .foregroundStyle(Ink.ink2)
-                                        .padding(.vertical, 3)
-                                        .contentShape(Rectangle())
-                                    }
-                                    .buttonStyle(.pressFeedback)
-                                    .accessibilityLabel("在独立文稿卡片中阅读")
-                                }
-                                Spacer(minLength: 0)
-                            }
-                        }
-                        // What this answer cost, as one faint line at the very bottom — where Claude
-                        // puts 「Claude 是 AI，可能会出错」.
-                        if let usage = message.usage {
-                            Text(usageLabel(usage))
-                                .font(TypeScale.ui(11.5, relativeTo: .caption2))
-                                .foregroundStyle(Ink.ink3.opacity(0.8))
-                                .monospacedDigit()
-                                .lineLimit(1)
-                                .accessibilityLabel("这条回答的用量：\(usageLabel(usage))")
-                        }
-                        }
+                        answerFooter
                     }
-                } else if let sources = message.webSources, !sources.isEmpty {
-                    // Keep web search sources accessible in iMessage bubble layout too (#43).
-                    Button {
-                        Haptic.tap()
-                        showSourcesSheet = true
-                    } label: {
-                        HStack(spacing: 5) {
-                            Image(systemName: "globe")
-                                .font(.system(size: 12, weight: .regular))
-                            Text("\(sources.count) 个来源")
-                                .font(.system(size: 12, weight: .regular))
-                            Image(systemName: "chevron.right")
-                                .font(.system(size: 9, weight: .medium))
-                                .foregroundStyle(Ink.ink3.opacity(0.7))
-                        }
-                        .foregroundStyle(Ink.ink2)
-                        .padding(.leading, 4)
-                        .padding(.vertical, 2)
-                        .contentShape(Rectangle())
-                    }
-                    .buttonStyle(.pressFeedback)
-                    .accessibilityIdentifier("web-search-sources")
                 }
             }
             trailingParts
         }
     }
 
-    // 瑞士: a ruled grid. A narrow column of numbers (Q.01, A.01) on the left,
-    // the text on the right, a rule between exchanges, small monospaced controls.
-    private var swissContent: some View {
-        VStack(alignment: .leading, spacing: 0) {
-            if message.role == .user {
-                let docDecoded = PendingDocumentCodec.decode(message.content)
-                let quoteDecoded = MessageQuoteCodec.decode(docDecoded.userText)
-                if round > 1 { SwissRule(weight: 1, strong: true) }
-                HStack(alignment: .firstTextBaseline, spacing: 0) {
-                    MonoLabel(text: String(format: "Q.%02d", round)).frame(width: 46, alignment: .leading)
-                    VStack(alignment: .leading, spacing: 8) {
-                        discussionVoiceLabel
-                        if let quote = quoteDecoded.quote {
-                            QuotedReplyCard(quote: quote, alignTrailing: false, swiss: true)
-                        }
-                        if let names = message.images, !names.isEmpty { AttachmentRow(names: names, swiss: true) }
-                        if !docDecoded.attachments.isEmpty {
-                            MessageDocumentCards(attachments: docDecoded.attachments, swiss: true)
-                        }
-                        if !quoteDecoded.userText.isEmpty {
-                            Text(quoteDecoded.userText).readingStyle(adjustment: -2).fontWeight(.medium).lineSpacing(5)
-                                .textSelection(.enabled).foregroundStyle(Ink.ink)
-                        }
-                        MonoLabel(text: MessageTime.label(message.createdAt))
-                    }
-                    .frame(maxWidth: .infinity, alignment: .leading)
+    private var userBubble: some View {
+        let docDecoded = PendingDocumentCodec.decode(message.content)
+        let quoteDecoded = MessageQuoteCodec.decode(docDecoded.userText)
+        return HStack(spacing: 0) {
+            Spacer(minLength: 52)
+            VStack(alignment: .trailing, spacing: 6) {
+                if let quote = quoteDecoded.quote {
+                    QuotedReplyCard(quote: quote, alignTrailing: true)
                 }
-                .padding(.vertical, 16)
-                SwissRule()
-            } else {
-                HStack(alignment: .firstTextBaseline, spacing: 0) {
-                    MonoLabel(text: String(format: "A.%02d", round), color: Ink.seal).frame(width: 46, alignment: .leading)
-                    VStack(alignment: .leading, spacing: 12) {
-                        answerParts
-                        if message.state == .streaming {
-                            StreamActivityView(message: message)
-                        } else {
-                            swissActions
-                        }
-                        trailingParts
-                    }
-                    .frame(maxWidth: .infinity, alignment: .leading)
+                if let names = message.images, !names.isEmpty { AttachmentRow(names: names) }
+                if !docDecoded.attachments.isEmpty {
+                    MessageDocumentCards(attachments: docDecoded.attachments)
                 }
-                .padding(.top, 16).padding(.bottom, 22)
+                if !quoteDecoded.userText.isEmpty {
+                    Text(quoteDecoded.userText).userMessageStyle().lineSpacing(max(Personal.lineSpacing - 2, 3)).chineseReading()
+                        .foregroundStyle(Ink.ink)
+                        .textSelection(.enabled)
+                        .padding(.horizontal, 16).padding(.vertical, 11)
+                        .background(Personal.bubble, in: RoundedRectangle(cornerRadius: 20, style: .continuous))
+                }
             }
         }
+        .frame(maxWidth: .infinity, alignment: .trailing)
     }
 
-    private var swissActions: some View {
-        VStack(alignment: .leading, spacing: 4) {
-            HStack(spacing: 18) {
-                Button { copyAnswer() } label: { MonoLabel(text: copied ? "COPIED" : "COPY", color: Ink.ink).frame(minHeight: 32) }
-                    .accessibilityLabel("复制回答")
-                Button { edit() } label: { MonoLabel(text: "EDIT", color: Ink.ink).frame(minHeight: 32) }
-                    .disabled(isGenerating).accessibilityLabel("编辑回答")
+    // Copy, select, edit, read aloud, retry; then sources and what it cost. When the answer
+    // has only just finished, each line rises in a beat after the one before.
+    private var answerFooter: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            HStack(spacing: 14) {
+                CopyGlyphButton(label: "复制回答") { message.content }
+                    .frame(width: 24, height: 28)
+                Button { selecting = true } label: {
+                    ClaudeActionGlyph(kind: .selectText)
+                        .frame(width: 24, height: 28)
+                        .contentShape(Rectangle())
+                }
+                .accessibilityLabel("选择部分文字")
+                Button { edit() } label: {
+                    ClaudeActionGlyph(kind: .edit)
+                        .frame(width: 24, height: 28)
+                        .contentShape(Rectangle())
+                }
+                .disabled(isGenerating).accessibilityLabel("编辑回答")
                 if message.state == .complete, let speech {
                     SpeechPlaybackControl(speech: speech, text: message.content, messageID: message.id)
                 }
                 if isLast {
-                    Button { regenerate() } label: { MonoLabel(text: "RETRY", color: Ink.ink).frame(minHeight: 32) }
-                        .disabled(isGenerating || !canRegenerate).accessibilityLabel("重新生成")
+                    Button { regenerate() } label: {
+                        ClaudeActionGlyph(kind: .retry)
+                            .frame(width: 24, height: 28)
+                            .contentShape(Rectangle())
+                    }
+                    .disabled(isGenerating || !canRegenerate).accessibilityLabel("重新生成")
                 }
                 Spacer(minLength: 4)
-                MonoLabel(text: MessageTime.label(message.createdAt), size: 10)
             }
+            .foregroundStyle(Ink.ink2.opacity(0.72))
+            .buttonStyle(.pressFeedback)
+            .padding(.top, 6)
+            .arrive(delay: 0.02, active: celebrates)
+            if (message.webSources?.isEmpty == false) || supportsDocumentArtifact {
+                HStack(spacing: 14) {
+                    if let sources = message.webSources, !sources.isEmpty {
+                        Button {
+                            Haptic.tap()
+                            showSourcesSheet = true
+                        } label: {
+                            HStack(spacing: 5) {
+                                Image(systemName: "globe")
+                                    .font(.system(size: 13, weight: .regular))
+                                Text("\(sources.count) 个来源")
+                                    .font(.system(size: 13, weight: .regular))
+                                Image(systemName: "chevron.right")
+                                    .font(.system(size: 10, weight: .medium))
+                                    .foregroundStyle(Ink.ink3.opacity(0.7))
+                            }
+                            .foregroundStyle(Ink.ink2)
+                            .padding(.vertical, 3)
+                            .contentShape(Rectangle())
+                        }
+                        .buttonStyle(.pressFeedback)
+                        .accessibilityIdentifier("web-search-sources")
+                    }
+                    if supportsDocumentArtifact {
+                        Button {
+                            Haptic.tap()
+                            showDocumentArtifact = true
+                        } label: {
+                            HStack(spacing: 4) {
+                                Image(systemName: "doc.richtext")
+                                    .font(.system(size: 12, weight: .regular))
+                                Text("独立文稿预览")
+                                    .font(.system(size: 13, weight: .regular))
+                                Image(systemName: "chevron.right")
+                                    .font(.system(size: 10, weight: .medium))
+                                    .foregroundStyle(Ink.ink3.opacity(0.7))
+                            }
+                            .foregroundStyle(Ink.ink2)
+                            .padding(.vertical, 3)
+                            .contentShape(Rectangle())
+                        }
+                        .buttonStyle(.pressFeedback)
+                        .accessibilityLabel("在独立文稿卡片中阅读")
+                    }
+                    Spacer(minLength: 0)
+                }
+                .arrive(delay: 0.08, active: celebrates)
+            }
+            // What this answer cost, as one faint line at the very bottom — where Claude
+            // puts 「Claude 是 AI，可能会出错」.
             if let usage = message.usage {
-                MonoLabel(text: usageLabel(usage), size: 10)
-                    .accessibilityLabel("本次请求共 \(usage.totalTokens) 个 Token")
+                Text(usageLabel(usage))
+                    .font(TypeScale.ui(11.5, relativeTo: .caption2))
+                    .foregroundStyle(Ink.ink3.opacity(0.8))
+                    .monospacedDigit()
+                    .lineLimit(1)
+                    .accessibilityLabel("这条回答的用量：\(usageLabel(usage))")
+                    .arrive(delay: 0.14, distance: 4, active: celebrates)
             }
         }
-        .buttonStyle(.plain)
     }
 
-    // Thinking, tool calls and the answer text: adapts between 书页, 信息气泡, and 智能.
+    // Thinking, tool calls and the answer text.
     @ViewBuilder private var answerParts: some View {
-        discussionVoiceLabel
         if !message.reasoning.isEmpty {
             ThinkingRow(message: message, open: openThinking)
         }
@@ -3036,94 +2866,26 @@ struct MessageView: View, Equatable {
             )
         }
         if !generatedImages.isEmpty {
-            GeneratedImagesGalleryView(urls: generatedImages, swiss: style == .swiss)
+            GeneratedImagesGalleryView(urls: generatedImages)
+                .transition(.rise)
         }
         if !deliverables.isEmpty {
-            DeliverableFileRowList(deliverables: deliverables, swiss: style == .swiss, open: openDeliverable)
+            DeliverableFileRowList(deliverables: deliverables, open: openDeliverable)
+                .transition(.rise)
         }
         if !message.content.isEmpty {
-            let isImessage = (layoutMode == .imessage && style != .swiss)
-            let isSmartBubble = (layoutMode == .smart && style != .swiss && ChatBubbleRules.isCasualShortReply(message.content))
-            let showBubble = isImessage || isSmartBubble
-            answerBubbleBody(showBubble: showBubble)
-                .animation(.easeInOut(duration: 0.24), value: showBubble)
+            // The text inks in while it is written, and finishes inking after it is done.
+            MarkdownAnswer(content: message.content, expandsWidth: true,
+                           inkKey: message.id.uuidString, writing: message.state == .streaming).equatable()
         }
     }
 
-    @ViewBuilder
-    private func answerBubbleBody(showBubble: Bool) -> some View {
-        let casualParts = showBubble
-            ? ChatBubbleRules.casualBubbleParts(for: message.content, mode: layoutMode, isStreaming: message.state == .streaming)
-            : nil
-        if let parts = casualParts {
-            VStack(alignment: .leading, spacing: 4) {
-                ForEach(Array(parts.enumerated()), id: \.offset) { index, part in
-                    let pos = BubbleGroupPosition.forIndex(index, total: parts.count)
-                    let shape = AsymmetricBubbleShape.chatBubbleShape(isUser: false, position: pos)
-                    HStack(spacing: 0) {
-                        MarkdownAnswer(content: part, style: style, expandsWidth: false).equatable()
-                            .padding(.horizontal, 15)
-                            .padding(.vertical, 10)
-                            .background(Ink.raised, in: shape)
-                            .overlay(shape.stroke(Ink.line.opacity(0.55), lineWidth: 0.6).allowsHitTesting(false))
-                        Spacer(minLength: 42)
-                    }
-                }
-            }
-        } else if showBubble {
-            let shape = AsymmetricBubbleShape.chatBubbleShape(isUser: false, position: .single)
-            if ChatBubbleRules.isCompactSingleBubble(message.content) {
-                HStack(spacing: 0) {
-                    MarkdownAnswer(content: message.content, style: style, expandsWidth: false).equatable()
-                        .padding(.horizontal, 15)
-                        .padding(.vertical, 11)
-                        .background(Ink.raised, in: shape)
-                        .overlay(shape.stroke(Ink.line.opacity(0.55), lineWidth: 0.6).allowsHitTesting(false))
-                    Spacer(minLength: 42)
-                }
-            } else {
-                MarkdownAnswer(content: message.content, style: style, expandsWidth: true).equatable()
-                    .padding(15)
-                    .background(Ink.raised, in: shape)
-                    .overlay(shape.stroke(Ink.line.opacity(0.55), lineWidth: 0.6).allowsHitTesting(false))
-            }
-        } else {
-            MarkdownAnswer(content: message.content, style: style, expandsWidth: true).equatable()
-        }
-    }
-
-    @ViewBuilder private var discussionVoiceLabel: some View {
-        if let character = message.discussionCharacter {
-            Label(message.role == .user ? "问\(character)" : "\(character) · 角色回答",
-                  systemImage: "person.bubble")
-                .font(TypeScale.caption).foregroundStyle(Ink.seal)
-            if message.role == .assistant {
-                Text("依据原文演绎人物想法").font(TypeScale.tiny).foregroundStyle(Ink.ink3)
-            }
-        }
-    }
-
-    // Sources, notes and reply suggestions under an answer.
+    // Notes and reply suggestions under an answer.
     @ViewBuilder private var trailingParts: some View {
-        if let references = message.bookReferences, !references.isEmpty, let showBookReferences {
-            Button { showBookReferences() } label: {
-                Label("本次书内依据 · \(references.count)处", systemImage: "text.book.closed")
-                    .font(TypeScale.caption).foregroundStyle(Ink.seal)
-            }.padding(.top, 6)
-        }
-        if style == .swiss, let sources = message.webSources, !sources.isEmpty {
-            Button {
-                Haptic.tap()
-                showSourcesSheet = true
-            } label: {
-                MonoLabel(text: "SOURCES · \(sources.count)", color: Ink.seal)
-            }
-            .buttonStyle(.plain)
-            .accessibilityIdentifier("web-search-sources")
-        }
         if let note = message.note {
             Text(note).font(TypeScale.tiny).foregroundStyle(Ink.ink3)
                 .frame(maxWidth: .infinity, alignment: .leading)
+                .arrive(delay: 0.1, distance: 4, active: celebrates)
         }
         if message.role == .assistant, message.provider == .colab, message.state == .failed, let retryColab {
             Button("用 DeepSeek 重发这条", action: retryColab)
@@ -3134,17 +2896,6 @@ struct MessageView: View, Equatable {
         }
         if isLast, message.role == .assistant, message.state == .complete, showsSuggestions, let threadID {
             ReplySuggestionPanel(message: message, threadID: threadID, use: useSuggestedReply)
-        }
-    }
-
-    // The tick shows for a moment, then the copy icon comes back.
-    private func copyAnswer() {
-        UIPasteboard.general.string = message.content
-        Haptic.tap()
-        copied = true
-        Task { @MainActor in
-            try? await Task.sleep(nanoseconds: 1_500_000_000)
-            copied = false
         }
     }
 
@@ -3160,8 +2911,8 @@ struct MessageView: View, Equatable {
     }
 }
 
-// Reads like a short table of contents under the answer: number, line, hairline.
-// Only the last answer has one, so its store updates touch nothing else.
+// Ready replies live in the composer as grey text (猜你想说); under the answer only the
+// waiting, error and 「生成回复建议」 states show.
 @MainActor
 struct ReplySuggestionPanel: View {
     @EnvironmentObject private var store: AppStore
@@ -3170,12 +2921,31 @@ struct ReplySuggestionPanel: View {
     let use: (String) -> Void
 
     var body: some View {
-        // The Swiss look: a monospaced header, numbers in the accent, ruled top and bottom.
-        let swiss = InterfaceStyle.isSwiss
-        // Ready replies live in the composer as grey text (猜你想说); here only the
-        // waiting, error and 「生成回复建议」 states remain. Swiss keeps its ruled list.
-        if !swiss && message.replySuggestions != nil { EmptyView() }
-        else if InterfaceStyle.isNight { nightPanel } else { listPanel(swiss: swiss) }
+        if message.replySuggestions != nil {
+            EmptyView()
+        } else if store.isSuggesting(threadID: threadID, messageID: message.id) {
+            HStack(spacing: 8) {
+                ThinkingMark(live: true, size: 13)
+                Text("正在想几种回复…").font(TypeScale.caption).foregroundStyle(Ink.ink3)
+                    .shimmering()
+            }
+            .padding(.top, 10).padding(.vertical, 4)
+            .transition(.rise)
+            .accessibilityElement(children: .combine)
+            .accessibilityIdentifier("reply-suggestions-loading")
+        } else {
+            VStack(alignment: .leading, spacing: 4) {
+                if let error = store.suggestionError(threadID: threadID, messageID: message.id) {
+                    Text(error).font(TypeScale.tiny).foregroundStyle(Ink.ink3)
+                }
+                Button("生成回复建议") { store.generateReplySuggestions(threadID: threadID, messageID: message.id) }
+                    .font(TypeScale.caption).foregroundStyle(Ink.ink2).buttonStyle(.pressFeedback).disabled(store.isGenerating)
+                    .padding(.vertical, 8)
+            }
+            .padding(.top, 6)
+            .accessibilityElement(children: .contain)
+            .accessibilityIdentifier("reply-suggestions-panel")
+        }
     }
 
     static func costLabel(_ batch: ReplySuggestionBatch) -> String? {
@@ -3184,180 +2954,42 @@ struct ReplySuggestionPanel: View {
         return batch.provider == .chatGPT ? "订阅额度"
             : Pricing.label(Pricing.cost(model: batch.pricedModel, usage: usage, at: batch.createdAt)) + Pricing.bandTag(batch.createdAt)
     }
-
-    // 夜江: the replies float as glass capsules on the water.
-    private var nightPanel: some View {
-        VStack(alignment: .leading, spacing: 8) {
-            if let batch = message.replySuggestions {
-                FlowRows(spacing: 8) {
-                    ForEach(Array(batch.replies.prefix(3).enumerated()), id: \.offset) { index, reply in
-                        Button { use(reply) } label: {
-                            Text(reply).font(TypeScale.serif(15)).foregroundStyle(Ink.ink)
-                                .multilineTextAlignment(.leading).lineSpacing(3)
-                                .padding(.horizontal, 16).padding(.vertical, 10)
-                                .frame(minHeight: 44)
-                                .clearGlass(radius: 22)
-                                .contentShape(Capsule())
-                        }
-                        .buttonStyle(.plain).disabled(store.isGenerating)
-                        .accessibilityLabel("使用回复建议 \(index + 1)：\(reply)")
-                        .accessibilityIdentifier("reply-suggestion-\(index)")
-                    }
-                }
-                if let usage = batch.usage {
-                    Text("建议 \(usage.totalTokens.formatted()) Tokens · " + suggestionCost(batch, usage))
-                        .font(TypeScale.serif(11)).monospacedDigit().foregroundStyle(Ink.ink3)
-                }
-            } else if store.isSuggesting(threadID: threadID, messageID: message.id) {
-                HStack(spacing: 8) {
-                    PulseDot(size: 7)
-                    Text("正在想几种回复…").font(TypeScale.caption).foregroundStyle(Ink.ink3)
-                }.padding(.vertical, 8).accessibilityIdentifier("reply-suggestions-loading")
-            } else {
-                if let error = store.suggestionError(threadID: threadID, messageID: message.id) {
-                    Text(error).font(TypeScale.tiny).foregroundStyle(Ink.ink3)
-                }
-                Button("生成回复建议") { store.generateReplySuggestions(threadID: threadID, messageID: message.id) }
-                    .font(TypeScale.caption).foregroundStyle(Ink.ink2).buttonStyle(.plain).disabled(store.isGenerating)
-                    .padding(.vertical, 8)
-            }
-        }
-        .padding(.top, 12)
-        .accessibilityElement(children: .contain)
-        .accessibilityIdentifier("reply-suggestions-panel")
-    }
-
-    private func listPanel(swiss: Bool) -> some View {
-        VStack(alignment: .leading, spacing: 0) {
-            if swiss {
-                MonoLabel(text: "猜你回复 / REPLIES").padding(.bottom, 6)
-                SwissRule(strong: true)
-            } else {
-                Text("猜你回复").font(TypeScale.caption).foregroundStyle(Ink.ink3).padding(.bottom, 4)
-            }
-            if let batch = message.replySuggestions {
-                ForEach(Array(batch.replies.prefix(3).enumerated()), id: \.offset) { index, reply in
-                    Button { use(reply) } label: {
-                        HStack(alignment: .firstTextBaseline, spacing: 10) {
-                            if swiss {
-                                Text(String(format: "%02d", index + 1))
-                                    .font(TypeScale.mono(11)).monospacedDigit().foregroundStyle(Ink.seal)
-                            } else {
-                                // A light arrow instead of numbers and rules: three quiet
-                                // lines you can tap, not a table of contents.
-                                Image(systemName: "arrow.turn.down.right").font(.system(size: 11, weight: .medium))
-                                    .foregroundStyle(Ink.ink3).accessibilityHidden(true)
-                            }
-                            Text(reply).font(TypeScale.serif(15)).foregroundStyle(Ink.ink2).chineseReading()
-                                .multilineTextAlignment(.leading)
-                                .frame(maxWidth: .infinity, alignment: .leading)
-                        }
-                        .padding(.vertical, swiss ? 12 : 8)
-                        .contentShape(Rectangle())
-                        .overlay(alignment: .bottom) {
-                            if swiss { SwissRule() }
-                        }
-                    }
-                    .buttonStyle(.pressFeedback).disabled(store.isGenerating)
-                    .accessibilityLabel("使用回复建议 \(index + 1)：\(reply)")
-                    .accessibilityIdentifier("reply-suggestion-\(index)")
-                }
-                if let usage = batch.usage {
-                    Text("建议 \(usage.totalTokens.formatted()) Tokens · " + suggestionCost(batch, usage))
-                        .font(TypeScale.serif(11)).monospacedDigit().foregroundStyle(Ink.ink3).padding(.top, 2)
-                }
-            } else if store.isSuggesting(threadID: threadID, messageID: message.id) {
-                HStack(spacing: 8) {
-                    PulseDot(size: 7)
-                    Text("正在想几种回复…").font(TypeScale.caption).foregroundStyle(Ink.ink3)
-                }.padding(.vertical, 8).accessibilityIdentifier("reply-suggestions-loading")
-            } else {
-                if let error = store.suggestionError(threadID: threadID, messageID: message.id) {
-                    Text(error).font(TypeScale.tiny).foregroundStyle(Ink.ink3)
-                }
-                Button("生成回复建议") { store.generateReplySuggestions(threadID: threadID, messageID: message.id) }
-                    .font(TypeScale.caption).foregroundStyle(Ink.ink2).buttonStyle(.plain).disabled(store.isGenerating)
-                    .padding(.vertical, 8)
-            }
-        }
-        .padding(.top, 10)
-        // Without .contain the panel's identifier would replace each suggestion button's own.
-        .accessibilityElement(children: .contain)
-        .accessibilityIdentifier("reply-suggestions-panel")
-    }
-
-    private func suggestionCost(_ batch: ReplySuggestionBatch, _ usage: TokenUsage) -> String {
-        if batch.provider == .colab { return "免费" }
-        return batch.provider == .chatGPT ? "订阅额度"
-            : Pricing.label(Pricing.cost(model: batch.pricedModel, usage: usage, at: batch.createdAt)) + Pricing.bandTag(batch.createdAt)
-    }
 }
 
 struct AttachmentRow: View {
     let names: [String]
-    var swiss: Bool = false
     var body: some View {
-        PhotoStackView(names: names, swiss: swiss)
+        PhotoStackView(names: names)
     }
 }
 
 // Equatable so finished answers are not re-parsed while a new one streams in.
 // Paragraphs, code, tables and math are Equatable too: while text arrives only
 // the actively growing block is re-tokenized or laid out again.
+//
+// 1.47: `inkKey` names the answer for the ink-in of text being written (see StreamInk);
+// `writing` is true while it is. The block the writing is in grows its ink; a block that
+// has just been left finishes inking; everything older is drawn plainly.
 struct MarkdownAnswer: View, Equatable {
     let content: String
-    var style: InterfaceStyle = .paper
     var expandsWidth: Bool = true
+    var inkKey: String? = nil
+    var writing: Bool = false
     nonisolated static func == (lhs: MarkdownAnswer, rhs: MarkdownAnswer) -> Bool {
-        lhs.content == rhs.content && lhs.style == rhs.style && lhs.expandsWidth == rhs.expandsWidth
+        lhs.content == rhs.content && lhs.expandsWidth == rhs.expandsWidth
+            && lhs.inkKey == rhs.inkKey && lhs.writing == rhs.writing
     }
-    private var swiss: Bool { style == .swiss }
-    // Paragraphs, headings, lists, quotes, dividers and code, each text block told
-    // how many of the answer's highlighter marks it may still draw.
     private var blocks: [MarkdownBlock] { MarkdownBlock.parse(content) }
     var body: some View {
+        let parsed = blocks
         // Paragraphs a clear step apart (about one line), so each reads as its own block.
-        let column = VStack(alignment: .leading, spacing: style == .swiss ? 16 : Personal.paragraphGap) {
-            ForEach(Array(blocks.enumerated()), id: \.offset) { _, block in
-                switch block {
-                case .paragraph(let text, let marks):
-                    MarkdownParagraph(text: text, marks: marks, style: style).equatable()
-                case .heading(let text, let level):
-                    EditorialHeadingRow(text: text, level: level, style: style)
-                case .list(let items):
-                    // Items breathe almost like paragraphs, as in the Claude app.
-                    VStack(alignment: .leading, spacing: swiss ? 8 : max(10, Personal.paragraphGap - 8)) {
-                        ForEach(Array(items.enumerated()), id: \.offset) { _, item in
-                            HStack(alignment: .firstTextBaseline, spacing: swiss ? 8 : 4) {
-                                if swiss {
-                                    // Bullets become dashes, numbers go monospaced, both in the accent.
-                                    Text(item.marker == "•" ? "—" : item.marker == "◦" ? "–" : item.marker)
-                                        .font(TypeScale.mono(13)).foregroundStyle(Ink.seal)
-                                        .frame(minWidth: 24, alignment: .leading)
-                                } else {
-                                    EditorialListMarker(marker: item.marker)
-                                }
-                                MarkdownParagraph(text: item.text, marks: item.marks, style: style).equatable()
-                            }
-                            .padding(.leading, (swiss ? 0 : 4) + CGFloat(item.level) * 20)
-                        }
-                    }
-                case .quote(let text, let marks):
-                    MarkdownParagraph(text: text, marks: marks, style: style).equatable()
-                        .padding(.leading, 14)
-                        .overlay(alignment: .leading) {
-                            RoundedRectangle(cornerRadius: swiss ? 0 : 1.0, style: .continuous)
-                                .fill(swiss ? Ink.ink : Ink.ink3.opacity(0.32)).frame(width: swiss ? 3 : 2.0)
-                        }
-                case .table(let header, let rows, let alignments):
-                    MarkdownTableBlockView(header: header, rows: rows, alignments: alignments, swiss: swiss).equatable()
-                case .divider:
-                    Rectangle().fill(swiss ? Ink.ink : Ink.line).frame(height: 1).padding(.vertical, 4)
-                case .code(let segment):
-                    MarkdownCodeBlockView(segment: segment, swiss: swiss).equatable()
-                case .math(let formula):
-                    MarkdownMathBlockView(formula: formula, swiss: swiss).equatable()
-                }
+        let column = VStack(alignment: .leading, spacing: Personal.paragraphGap) {
+            ForEach(Array(parsed.enumerated()), id: \.offset) { index, block in
+                let tail = writing && index == parsed.count - 1
+                let key = inkKey.map { "\($0)|\(index)" }
+                blockView(block, key: key, tail: tail)
+                    // A block that is not text (code, a table, a rule) fades in as it appears.
+                    .arrive(distance: 6, active: tail && !block.inks)
             }
         }
         if expandsWidth {
@@ -3366,10 +2998,46 @@ struct MarkdownAnswer: View, Equatable {
             column
         }
     }
-    fileprivate static func inline(_ text: String, baseSize: CGFloat = 18) -> AttributedString {
-        HighlightMarks.parseInline(text)
-            .applyingTerracottaCodeAndEmphasis(baseSize: baseSize, boldColor: Ink.seal)
+
+    @ViewBuilder private func blockView(_ block: MarkdownBlock, key: String?, tail: Bool) -> some View {
+        switch block {
+        case .paragraph(let text, let marks):
+            MarkdownParagraph(text: text, marks: marks, inkKey: key, grows: tail).equatable()
+        case .heading(let text, let level):
+            EditorialHeadingRow(text: text, level: level, inkKey: key, grows: tail)
+        case .list(let items):
+            // Items breathe almost like paragraphs, as in the Claude app.
+            VStack(alignment: .leading, spacing: max(10, Personal.paragraphGap - 8)) {
+                ForEach(Array(items.enumerated()), id: \.offset) { itemIndex, item in
+                    let lastItem = itemIndex == items.count - 1
+                    HStack(alignment: .firstTextBaseline, spacing: 4) {
+                        EditorialListMarker(marker: item.marker)
+                        MarkdownParagraph(text: item.text, marks: item.marks,
+                                          inkKey: key.map { "\($0).\(itemIndex)" }, grows: tail && lastItem).equatable()
+                    }
+                    .padding(.leading, 4 + CGFloat(item.level) * 20)
+                    // A new item's marker comes in with its first words.
+                    .arrive(distance: 4, active: tail && lastItem)
+                }
+            }
+        case .quote(let text, let marks):
+            MarkdownParagraph(text: text, marks: marks, inkKey: key, grows: tail).equatable()
+                .padding(.leading, 14)
+                .overlay(alignment: .leading) {
+                    RoundedRectangle(cornerRadius: 1.0, style: .continuous)
+                        .fill(Ink.ink3.opacity(0.32)).frame(width: 2.0)
+                }
+        case .table(let header, let rows, let alignments):
+            MarkdownTableBlockView(header: header, rows: rows, alignments: alignments).equatable()
+        case .divider:
+            Rectangle().fill(Ink.line).frame(height: 1).padding(.vertical, 4)
+        case .code(let segment):
+            MarkdownCodeBlockView(segment: segment).equatable()
+        case .math(let formula):
+            MarkdownMathBlockView(formula: formula).equatable()
+        }
     }
+
     static func highlightedCode(_ body: String, language: String?) -> AttributedString {
         let tokens = CodeSyntaxTokenizer.tokenize(body, language: language)
         var result = AttributedString()
@@ -3396,14 +3064,23 @@ struct MarkdownAnswer: View, Equatable {
     }
 }
 
+private extension MarkdownBlock {
+    /// Blocks drawn as running text, which ink in character by character.
+    var inks: Bool {
+        switch self {
+        case .paragraph, .heading, .list, .quote: return true
+        case .table, .divider, .code, .math: return false
+        }
+    }
+}
+
 private struct MarkdownTableBlockView: View, Equatable {
     let header: [String]
     let rows: [[String]]
     let alignments: [TableAlignment]
-    let swiss: Bool
 
     nonisolated static func == (lhs: MarkdownTableBlockView, rhs: MarkdownTableBlockView) -> Bool {
-        lhs.header == rhs.header && lhs.rows == rhs.rows && lhs.alignments == rhs.alignments && lhs.swiss == rhs.swiss
+        lhs.header == rhs.header && lhs.rows == rhs.rows && lhs.alignments == rhs.alignments
     }
 
     var body: some View {
@@ -3422,21 +3099,19 @@ private struct MarkdownTableBlockView: View, Equatable {
                     }
                 }
             }
-            .overlay(RoundedRectangle(cornerRadius: swiss ? 0 : 12, style: .continuous)
-                .stroke(swiss ? Ink.ink : Ink.line, lineWidth: 1))
-            .clipShape(RoundedRectangle(cornerRadius: swiss ? 0 : 12, style: .continuous))
+            .overlay(RoundedRectangle(cornerRadius: 12, style: .continuous)
+                .stroke(Ink.line, lineWidth: 1))
+            .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
         }
     }
 }
 
 private struct MarkdownCodeBlockView: View, Equatable {
     let segment: String
-    let swiss: Bool
     @State private var showArtifact = false
-    @State private var copied = false
 
     nonisolated static func == (lhs: MarkdownCodeBlockView, rhs: MarkdownCodeBlockView) -> Bool {
-        lhs.segment == rhs.segment && lhs.swiss == rhs.swiss
+        lhs.segment == rhs.segment
     }
 
     var body: some View {
@@ -3459,35 +3134,21 @@ private struct MarkdownCodeBlockView: View, Equatable {
                     title: artifactTitle,
                     subtitle: subtitle,
                     iconName: artifact.iconName,
-                    actionHint: previewable ? "预览" : "查看",
-                    swiss: swiss
+                    actionHint: previewable ? "预览" : "查看"
                 ) {
                     showArtifact = true
                 }
             } else {
                 VStack(alignment: .leading, spacing: 8) {
                     HStack(spacing: 10) {
-                        Text(swiss ? (parsed.language.map { "CODE · \($0)" } ?? "CODE") : (parsed.language ?? "代码"))
-                            .font(swiss ? TypeScale.mono(10) : .system(size: 12, weight: .medium))
-                            .foregroundStyle(swiss ? Ink.seal : Ink.ink3)
+                        Text(parsed.language ?? "代码")
+                            .font(.system(size: 12, weight: .medium))
+                            .foregroundStyle(Ink.ink3)
                         Spacer()
-                        Button {
-                            UIPasteboard.general.string = parsed.body
-                            Haptic.tap()
-                            copied = true
-                            Task { @MainActor in
-                                try? await Task.sleep(nanoseconds: 1_500_000_000)
-                                copied = false
-                            }
-                        } label: {
-                            ClaudeActionGlyph(kind: copied ? .copied : .copy, size: 14, lineWidth: 1.32)
-                                .foregroundStyle(swiss ? Ink.seal : Ink.ink3)
-                        }
-                        .accessibilityLabel("复制代码")
+                        CopyGlyphButton(label: "复制代码", size: 14, lineWidth: 1.32) { parsed.body }
+                            .foregroundStyle(Ink.ink3)
                     }
-                    if !swiss {
-                        Rectangle().fill(Ink.line).frame(height: 0.5)
-                    }
+                    Rectangle().fill(Ink.line).frame(height: 0.5)
                     ScrollView(.horizontal) {
                         Text(MarkdownAnswer.highlightedCode(parsed.body, language: parsed.language))
                             .font(.system(size: 13, design: .monospaced))
@@ -3495,9 +3156,9 @@ private struct MarkdownCodeBlockView: View, Equatable {
                     }
                 }
                 .padding(14)
-                .background(swiss ? Ink.raised : Ink.card, in: RoundedRectangle(cornerRadius: swiss ? 0 : 14, style: .continuous))
-                .overlay(RoundedRectangle(cornerRadius: swiss ? 0 : 14, style: .continuous)
-                    .stroke(Ink.line, lineWidth: swiss ? 1 : 0.8).allowsHitTesting(false))
+                .background(Ink.card, in: RoundedRectangle(cornerRadius: 14, style: .continuous))
+                .overlay(RoundedRectangle(cornerRadius: 14, style: .continuous)
+                    .stroke(Ink.line, lineWidth: 0.8).allowsHitTesting(false))
             }
         }
         .sheet(isPresented: $showArtifact) {
@@ -3508,33 +3169,20 @@ private struct MarkdownCodeBlockView: View, Equatable {
 
 private struct MarkdownMathBlockView: View, Equatable {
     let formula: String
-    let swiss: Bool
-    @State private var copied = false
 
     nonisolated static func == (lhs: MarkdownMathBlockView, rhs: MarkdownMathBlockView) -> Bool {
-        lhs.formula == rhs.formula && lhs.swiss == rhs.swiss
+        lhs.formula == rhs.formula
     }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
             HStack {
-                Text(swiss ? "MATH" : "公式")
-                    .font(swiss ? TypeScale.mono(10) : .system(size: 12, weight: .medium))
-                    .foregroundStyle(swiss ? Ink.seal : Ink.ink3)
+                Text("公式")
+                    .font(.system(size: 12, weight: .medium))
+                    .foregroundStyle(Ink.ink3)
                 Spacer()
-                Button {
-                    UIPasteboard.general.string = formula
-                    Haptic.tap()
-                    copied = true
-                    Task { @MainActor in
-                        try? await Task.sleep(nanoseconds: 1_500_000_000)
-                        copied = false
-                    }
-                } label: {
-                    ClaudeActionGlyph(kind: copied ? .copied : .copy, size: 14, lineWidth: 1.32)
-                        .foregroundStyle(swiss ? Ink.seal : Ink.ink3)
-                }
-                .accessibilityLabel("复制公式原文")
+                CopyGlyphButton(label: "复制公式原文", size: 14, lineWidth: 1.32) { formula }
+                    .foregroundStyle(Ink.ink3)
             }
             ScrollView(.horizontal, showsIndicators: false) {
                 Text(MathFormatter.format(formula))
@@ -3547,9 +3195,46 @@ private struct MarkdownMathBlockView: View, Equatable {
             }
         }
         .padding(14)
-        .background(swiss ? Ink.raised : Ink.card, in: RoundedRectangle(cornerRadius: swiss ? 0 : 14, style: .continuous))
-        .overlay(RoundedRectangle(cornerRadius: swiss ? 0 : 14, style: .continuous)
-            .stroke(Ink.line, lineWidth: swiss ? 1 : 0.8).allowsHitTesting(false))
+        .background(Ink.card, in: RoundedRectangle(cornerRadius: 14, style: .continuous))
+        .overlay(RoundedRectangle(cornerRadius: 14, style: .continuous)
+            .stroke(Ink.line, lineWidth: 0.8).allowsHitTesting(false))
+    }
+}
+
+/// The copy glyph that turns into a tick for a moment, with a little spring and a
+/// success tap; shared by answers, code and formulas.
+struct CopyGlyphButton: View {
+    let label: String
+    var size: CGFloat = 16.5
+    var lineWidth: CGFloat = 1.38
+    let text: () -> String
+    @State private var copied = false
+    @State private var resetTask: Task<Void, Never>?
+
+    var body: some View {
+        Button {
+            UIPasteboard.general.string = text()
+            Haptic.success()
+            withMotion(Motion.lively) { copied = true }
+            resetTask?.cancel()
+            resetTask = Task { @MainActor in
+                try? await Task.sleep(nanoseconds: 1_500_000_000)
+                guard !Task.isCancelled else { return }
+                withMotion(Motion.snappy) { copied = false }
+            }
+        } label: {
+            ZStack {
+                ClaudeActionGlyph(kind: .copy, size: size, lineWidth: lineWidth)
+                    .opacity(copied ? 0 : 1)
+                    .scaleEffect(copied ? 0.6 : 1)
+                ClaudeActionGlyph(kind: .copied, size: size, lineWidth: lineWidth)
+                    .opacity(copied ? 1 : 0)
+                    .scaleEffect(copied ? 1 : 0.4)
+            }
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.pressFeedback)
+        .accessibilityLabel(copied ? "已复制" : label)
     }
 }
 
@@ -3589,7 +3274,8 @@ struct TableCell: View {
 private struct EditorialHeadingRow: View {
     let text: String
     let level: Int
-    let style: InterfaceStyle
+    var inkKey: String? = nil
+    var grows = false
     @AppStorage(FontLibrary.choiceKey) private var fontChoice = ""
     @AppStorage(FontLibrary.revisionKey) private var fontRevision = 0
     @AppStorage("qingjian.reading.size") private var readingSize = 16.0
@@ -3598,10 +3284,10 @@ private struct EditorialHeadingRow: View {
         let delta: CGFloat = level == 1 ? 5 : (level == 2 ? 3.5 : 2)
         let styled = HighlightMarks.parseInline(text).applyingEditorialStyle(
             baseSize: CGFloat(readingSize) + delta,
-            boldColor: style == .swiss ? Ink.seal : Ink.ink,
+            boldColor: Ink.ink,
             forceBold: true
         )
-        Text(styled)
+        InkText(text: Text(styled), length: styled.characters.count, key: inkKey, grows: grows)
             .chineseReading()
             .foregroundStyle(Ink.ink)
             .padding(.top, 6)
@@ -3645,10 +3331,10 @@ struct MarkdownParagraph: View, Equatable {
     let text: String
     /// Kept for callers; bold phrases are no longer drawn as highlighter marks.
     var marks = HighlightMarks.perAnswer
-    /// The Swiss look draws bold in the accent colour instead of a highlighter.
-    var style: InterfaceStyle = .paper
+    var inkKey: String? = nil
+    var grows = false
     nonisolated static func == (lhs: MarkdownParagraph, rhs: MarkdownParagraph) -> Bool {
-        lhs.text == rhs.text && lhs.marks == rhs.marks && lhs.style == rhs.style
+        lhs.text == rhs.text && lhs.marks == rhs.marks && lhs.inkKey == rhs.inkKey && lhs.grows == rhs.grows
     }
     private var parsed: AttributedString {
         HighlightMarks.parseInline(text)
@@ -3657,12 +3343,9 @@ struct MarkdownParagraph: View, Equatable {
         if text.hasPrefix("#") {
             let level = text.prefix(while: { $0 == "#" }).count
             let bodyText = String(text.drop(while: { $0 == "#" || $0 == " " }))
-            EditorialHeadingRow(text: bodyText, level: level, style: style)
-        } else if style == .swiss {
-            Text(markdown: parsed, emphasis: Ink.seal).readingStyle(adjustment: -1).lineSpacing(6)
-                .foregroundStyle(Ink.ink)
+            EditorialHeadingRow(text: bodyText, level: level, inkKey: inkKey, grows: grows)
         } else {
-            EditorialParagraphBody(parsed: parsed)
+            EditorialParagraphBody(parsed: parsed, inkKey: inkKey, grows: grows)
         }
     }
 }
@@ -3670,12 +3353,15 @@ struct MarkdownParagraph: View, Equatable {
 /// Non-equatable inner view so appearance/font/size changes redraw paragraphs even while `MarkdownParagraph` stays `.equatable()`.
 private struct EditorialParagraphBody: View {
     let parsed: AttributedString
+    var inkKey: String? = nil
+    var grows = false
     @AppStorage(FontLibrary.choiceKey) private var fontChoice = ""
     @AppStorage(FontLibrary.revisionKey) private var fontRevision = 0
     @AppStorage("qingjian.reading.size") private var readingSize = 16.0
     var body: some View {
         let _ = (fontChoice, fontRevision, StyleAppearance.shared.revision, FontAppearance.shared.revision)
-        Text(parsed.applyingEditorialStyle(baseSize: CGFloat(readingSize)))
+        let styled = parsed.applyingEditorialStyle(baseSize: CGFloat(readingSize))
+        InkText(text: Text(styled), length: styled.characters.count, key: inkKey, grows: grows)
             .lineSpacing(Personal.lineSpacing)
             .chineseReading()
             .foregroundStyle(Ink.ink)
@@ -3758,11 +3444,10 @@ private struct DocumentPreviewTarget: Identifiable {
 
 private struct MessageDocumentCards: View {
     let attachments: [MessageDocumentAttachment]
-    let swiss: Bool
     @State private var previewTarget: DocumentPreviewTarget?
 
     var body: some View {
-        VStack(alignment: swiss ? .leading : .trailing, spacing: 6) {
+        VStack(alignment: .trailing, spacing: 6) {
             ForEach(attachments) { item in
                 Button {
                     let fullTitle = item.fileExtension.isEmpty ? item.name : "\(item.name).\(item.fileExtension)"
@@ -3789,8 +3474,8 @@ private struct MessageDocumentCards: View {
                     .padding(.horizontal, 12)
                     .padding(.vertical, 8)
                     .frame(maxWidth: 260, alignment: .leading)
-                    .background(Ink.raised, in: RoundedRectangle(cornerRadius: swiss ? 0 : 14, style: .continuous))
-                    .overlay(RoundedRectangle(cornerRadius: swiss ? 0 : 14, style: .continuous).stroke(Ink.line, lineWidth: 1))
+                    .background(Ink.raised, in: RoundedRectangle(cornerRadius: 14, style: .continuous))
+                    .overlay(RoundedRectangle(cornerRadius: 14, style: .continuous).stroke(Ink.line, lineWidth: 1))
                 }
                 .buttonStyle(.plain)
             }

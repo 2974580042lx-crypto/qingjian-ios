@@ -3,7 +3,6 @@ import Foundation
 enum DeliverableToolsUnavailableReason: Equatable, Sendable {
     case pureRoleplay
     case chatOnlyPolicy
-    case bookMode
     case providerToolsDisabled(AIProvider)
 
     var honestUserGuidance: String {
@@ -12,8 +11,6 @@ enum DeliverableToolsUnavailableReason: Equatable, Sendable {
             return "当前对话已开启「纯角色扮演模式」，系统已屏蔽所有文件生成与外部工具。请点对话右上角「⋯」（或项目主页「⋯ → 编辑详情」）关闭「纯角色扮演模式」后再让我生成可下载文件。"
         case .chatOnlyPolicy:
             return "当前对话的工具权限设为「仅纯聊天」，暂时无法调用文件生成工具。请点输入框左下角「+ → 权限」切回「自动」后再试。"
-        case .bookMode:
-            return "书架故事或本书讨论模式专注于阅读与演绎，不挂载文档编译工具。请新建普通对话或进入项目对话后再生成可下载文件。"
         case .providerToolsDisabled(let provider):
             return "当前「\(provider.title)」通道在设置中关闭了工具调用功能，无法生成真实附件。请到「设置」中开启该通道的工具支持，或切换到 ChatGPT 订阅 / DeepSeek。"
         }

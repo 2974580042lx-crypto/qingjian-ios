@@ -133,42 +133,6 @@ final class UniversalFileImportTests: XCTestCase {
         XCTAssertThrowsError(try StreamZipReader(data: Data("not a zip".utf8)))
     }
 
-    func testIPAAnalyzerDecodesBinaryPlistMachOProvisionAndHygiene() throws {
-        let infoDict: [String: Any] = [
-            "CFBundleDisplayName": "DemoApp",
-            "CFBundleIdentifier": "com.example.demo",
-            "CFBundleShortVersionString": "2.1.0",
-            "CFBundleVersion": "42",
-            "CFBundleExecutable": "DemoBin",
-            "MinimumOSVersion": "16.0"
-        ]
-        let bplist = try PropertyListSerialization.data(fromPropertyList: infoDict, format: .binary, options: 0)
-        let machO = makeSyntheticMachO64(cryptID: 1, dylibPath: "@rpath/CustomKit.framework/CustomKit")
-        let provisionPlist = """
-        <?xml version="1.0" encoding="UTF-8"?>
-        <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
-        <plist version="1.0"><dict>
-        <key>TeamName</key><string>Example Team</string>
-        <key>Entitlements</key><dict><key>aps-environment</key><string>production</string></dict>
-        </dict></plist>
-        """
-        let ipaData = makeZip([
-            ("Payload/DemoApp.app/Info.plist", bplist),
-            ("Payload/DemoApp.app/DemoBin", machO),
-            ("Payload/DemoApp.app/embedded.mobileprovision", Data(provisionPlist.utf8)),
-            ("Payload/DemoApp.app/AGENTS.md", Data("# stray doc".utf8))
-        ])
-
-        let report = try IPAAnalyzer.analyze(data: ipaData, fileName: "DemoApp.ipa")
-        XCTAssertTrue(report.text.contains("com.example.demo"))
-        XCTAssertTrue(report.text.contains("arm64"))
-        XCTAssertTrue(report.text.contains("cryptid=1"))
-        XCTAssertTrue(report.text.contains("@rpath/CustomKit.framework/CustomKit"))
-        XCTAssertTrue(report.text.contains("Example Team"))
-        XCTAssertTrue(report.text.contains("aps-environment"))
-        XCTAssertTrue(report.text.contains("AGENTS.md"))
-    }
-
     func testZipProjectExtractorFiltersIgnoredDirsAndRespectsBudget() throws {
         let zip = makeZip([
             (".git/config", Data("secret".utf8)),

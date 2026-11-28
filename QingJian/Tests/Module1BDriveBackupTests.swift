@@ -23,8 +23,6 @@ final class Module1BDriveBackupTests: XCTestCase {
         let payload1 = try UnifiedBackupCodec.capture(
             snapshot: snap1,
             learning: StudyMemoryArchive(version: 1, rows: []),
-            booksMetadata: [Book(title: "名公书判清明集", characterCount: 300_000, chapterTitles: ["卷一"], segments: [], notes: [])],
-            personas: [PersonaCard(name: "胡颖", detail: "刚正果断")],
             preferences: ["sermo.interface.style": "paper", "qingjian.haptics": "true"],
             operationManual: OperationManualBook.defaultBook(),
             localProfile: BackupUserProfile(name: "小龙", handle: "xiaolong", avatar: Data([0xFF, 0xD8, 0xFF])),
@@ -52,8 +50,6 @@ final class Module1BDriveBackupTests: XCTestCase {
         var payload2 = try UnifiedBackupCodec.capture(
             snapshot: snap2,
             learning: StudyMemoryArchive(version: 1, rows: []),
-            booksMetadata: [],
-            personas: [],
             preferences: ["sermo.interface.style": "paper"],
             localProfile: BackupUserProfile(name: "小龙", handle: "xiaolong", avatar: nil),
             imageSize: { _ in -1 },
@@ -81,7 +77,7 @@ final class Module1BDriveBackupTests: XCTestCase {
         XCTAssertEqual(decoded1.snapshot.projects?.first?.name, "宋代土地流转")
         XCTAssertEqual(decoded1.localProfile?.name, "小龙")
         XCTAssertEqual(decoded1.deliverablesManifest?["doc-v1.md"], Data("# 初稿".utf8))
-        XCTAssertEqual(decoded1.booksMetadata.first?.title, "名公书判清明集")
+        XCTAssertTrue(decoded1.booksMetadata.isEmpty)
 
         // Tamper 1 byte in cloud storage -> SHA-256 verification must reject restore
         await server.corruptFile(id: uploaded1.id)
@@ -128,8 +124,6 @@ final class Module1BDriveBackupTests: XCTestCase {
         let payload = try UnifiedBackupCodec.capture(
             snapshot: snap,
             learning: StudyMemoryArchive(version: 1, rows: []),
-            booksMetadata: [],
-            personas: [],
             preferences: ["sermo.interface.style": "paper"],
             imageSize: { _ in -1 },
             imageLoader: { _ in throw CocoaError(.fileNoSuchFile) }

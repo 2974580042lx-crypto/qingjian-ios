@@ -265,8 +265,6 @@ final class OperationManualTests: XCTestCase {
         let payload = try UnifiedBackupCodec.capture(
             snapshot: snap,
             learning: StudyMemoryArchive(version: 1, rows: []),
-            booksMetadata: [],
-            personas: [],
             preferences: [:],
             operationManual: manual,
             imageSize: { _ in -1 },
